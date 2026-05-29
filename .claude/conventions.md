@@ -42,3 +42,4 @@ This repository requires **all in-code comments to be written in English**.
 - Treat name collisions as a **failure, not an overwrite**.
 - Always clean up temp; on failure/cancellation, delete the partial output zip.
 - Do not swallow errors (no silent failures). Always surface them in logs / the summary.
+- **Native dialog calls (`open`/`save`) can reject, not only resolve to `null` on cancel.** A plugin/permission/OS failure rejects the promise; wrap dialog calls in try/catch, surface the real error to the user (status text), and treat only a falsy/`null` resolve as a silent user-cancel.

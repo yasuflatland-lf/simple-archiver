@@ -38,8 +38,12 @@ infrastructure simple-archiver-core — isolates the variation / adapters
 
 - **Dependency direction**: `presentation → application → domain`, `infrastructure → domain`. `domain` depends on no other layer.
 - **`domain` is pure**: no IO, async, or external-crate dependencies. All file/process/clock access goes through ports.
-- **IO is isolated behind ports**: `Extractor` (rar→dir) / `Archiver` (dir→zip) / `Clock`, with implementations in `infrastructure`.
+- **IO is isolated behind ports**: `Extractor` (rar→dir) / `Archiver` (dir→zip) / `Clock`, with implementations in `infrastructure`. Ports are async traits (`async fn` in trait with `#[allow(async_fn_in_trait)]`), acceptable while every caller uses the concrete adapter (future `Send`-ness is inferred); revisited in PR5 when parallelism needs `Send` futures across `tokio::spawn`.
 - Default visibility is `pub(crate)`; layer boundaries are enforced with clippy.
+
+### Infrastructure adapter invariants
+
+- **`ZipArchiver` walks the full source file list before creating/opening the destination zip.** If the output zip lands inside the source directory, creating it first lets `WalkDir` encounter the partially-written archive and read it back into itself — a corrupt, order/timing-dependent result (a runtime path-skip via `canonicalize` is fail-open when canonicalization fails under load). Walking first, then writing, makes self-inclusion structurally impossible regardless of platform symlinks or filesystem timing.
 
 ## Execution engine (application)
 
