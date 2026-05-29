@@ -1,2 +1,4 @@
 //! Application layer — use-case orchestration and port definitions.
-//! Implementation will be added in PR5 (RunArchiveJob, issue #5).
+//! RunArchiveJob (the parallel/cancellation use case) is added in PR5 (issue #5).
+
+pub mod ports;

@@ -23,6 +23,7 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 simple-archiver-core = { path = "../crates/core" }
+tauri-plugin-dialog = "2"
 # Pin bitflags < 2.9: bitflags 2.9+ introduced a recursive `__bitflags_flag_name!`
 # macro that munches doc-comment attributes one-at-a-time. dispatch2 0.3.1
 # (transitive via tao/tauri-runtime-wry) generates a `bitflags!` block with many
@@ -32,4 +33,9 @@ simple-archiver-core = { path = "../crates/core" }
 # transitive bitflags version here. Revisit when dispatch2 sets the limit or
 # bitflags fixes the recursive expansion.
 bitflags = "=2.8.0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+zip = "2"
+tempfile = "3"
 
