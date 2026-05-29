@@ -1,7 +1,7 @@
 # CLAUDE.md — simple-archiver
 
 Mac/Windows native desktop app (Tauri 2) that takes drag-and-dropped rar files/folders and batch-renames them into zip archives.
-State: **design finalized, implementation not started** (repo holds only README/LICENSE/.gitignore + docs; next step is PR1 scaffold + CI).
+State: **PR1 scaffold landed** (Cargo workspace + Tauri shell + Vite/React frontend + CI); domain/application/infrastructure logic still to be built.
 
 ## Mandatory rules (harness)
 

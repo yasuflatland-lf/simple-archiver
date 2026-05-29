@@ -15,22 +15,24 @@
 
 ## Current state
 
-**Design finalized, implementation not started.** The repo holds only `README.md` / `LICENSE` / `.gitignore` plus this documentation; no scaffold (Tauri/Rust/frontend) exists yet. The first task is PR1 (project scaffold + CI). Treat the structure and commands here as the target state after scaffolding.
+**Scaffold landed (PR1).** A Cargo workspace + Tauri shell + Vite/React frontend + CI now exist; the domain/application/infrastructure logic is still to be built. Treat the structure and commands here as the live target.
 
 ## Layered / hexagonal structure
 
-The Rust backend splits a single binary crate into four modules. A multi-crate workspace is **rejected** as overkill at this scale.
+The Rust backend is split across a **Cargo workspace** with two crates: a pure `simple-archiver-core` crate holding `domain` / `application` / `infrastructure`, and the `src-tauri` crate holding `presentation`.
 
 ```
-presentation   Tauri commands + events
+presentation   src-tauri crate — Tauri commands + events
                add_items / reorder / set_naming_rule / set_output_dir / run_job / cancel_job → emit progress
-application    use case / orchestration
+application    simple-archiver-core — use case / orchestration
                RunArchiveJob: N parallel workers, progress aggregation, cancellation, error tally / ports: Extractor, Archiver, Clock
-domain         pure, no IO (the main TDD battleground)
+domain         simple-archiver-core — pure, no IO (the main TDD battleground)
                ArchiveJob (aggregate root) / ArchiveTask / NamingRule / SequenceNumber / SourceItem / OutputDirectory
-infrastructure isolates the variation / adapters
+infrastructure simple-archiver-core — isolates the variation / adapters
                ZipArchiver(async_zip) / UnrarExtractor(unrar) / TempWorkspace / SystemClock
 ```
+
+**Why a workspace (core split from Tauri):** Tauri's `generate_context!()` requires the built frontend `dist/` at compile time. Keeping `domain`/`application` inside the Tauri crate would couple pure-logic `cargo test` / `clippy` to a frontend build. The standalone `simple-archiver-core` crate lets domain tests run with no `dist/`/webview (the TDD battleground stays fast); CI's `core` job builds `-p simple-archiver-core` so it never pulls in Tauri.
 
 ## Layer boundary discipline (strict)
 
