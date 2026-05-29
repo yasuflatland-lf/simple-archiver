@@ -20,3 +20,6 @@ tmp/
 temp/
 dist/
 build/
+
+# Design docs (kept local / mirrored to Notion, not committed)
+docs/superpowers/
