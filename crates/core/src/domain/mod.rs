@@ -2,3 +2,4 @@
 //! Naming rules, sequence numbers, and output-filename value objects (PR3, issue #3).
 
 pub mod naming_rule;
+pub mod sequence_number;
