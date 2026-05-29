@@ -75,6 +75,24 @@ describe("NamingRuleForm", () => {
     }
   });
 
+  it("shows an Error's message when the backend rejects with an Error", async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error("backend exploded"));
+    render(<NamingRuleForm />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent ?? "").toMatch(/backend exploded/i);
+    // Pins that we extract .message, not String(error) which would be "Error: backend exploded"
+    expect(alert.textContent ?? "").not.toMatch(/^Error:/);
+  });
+
+  it("shows a friendly fallback when the rejection is neither a string nor an Error", async () => {
+    vi.mocked(invoke).mockRejectedValue({ unexpected: true });
+    render(<NamingRuleForm />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent ?? "").toMatch(/could not generate a preview/i);
+  });
+
   it("clears a previous error once a valid template resolves", async () => {
     vi.mocked(invoke)
       .mockRejectedValueOnce("invalid naming template: stray or malformed brace")
