@@ -3,7 +3,7 @@
 use crate::application::ports::{ArchiveError, Archiver};
 use async_zip::base::write::ZipFileWriter;
 use async_zip::{Compression, ZipEntryBuilder};
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
 
 /// Compresses directory trees into zip archives using `async_zip` with Deflate.
@@ -23,24 +23,18 @@ impl Archiver for ZipArchiver {
     /// each file is recorded under its `/`-separated path relative to `src_dir`.
     /// The output zip is never included in itself.
     async fn compress(&self, src_dir: &Path, dest_zip: &Path) -> Result<(), ArchiveError> {
+        // Collect the file list from the walk BEFORE creating the output file.
+        // If `dest_zip` lives inside `src_dir`, this guarantees it cannot appear
+        // in the walk at all, so it is never archived into itself — regardless
+        // of WalkDir ordering, canonicalization success, or platform symlinks.
+        let files = collect_files(src_dir)?;
+
         let file = tokio::fs::File::create(dest_zip).await?;
         let mut writer = ZipFileWriter::with_tokio(file);
 
-        // Canonicalize the destination path once so we can skip it during the
-        // walk — never archive the output zip into itself.
-        let dest_canon = dest_zip.canonicalize().ok();
-
-        for entry in WalkDir::new(src_dir) {
-            let entry = entry.map_err(|e| ArchiveError::Backend(e.to_string()))?;
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            // Skip the output file if it happens to live inside src_dir.
-            if dest_canon.is_some() && entry.path().canonicalize().ok() == dest_canon {
-                continue;
-            }
-            let name = zip_entry_name(src_dir, entry.path())?;
-            let data = tokio::fs::read(entry.path()).await?;
+        for path in &files {
+            let name = zip_entry_name(src_dir, path)?;
+            let data = tokio::fs::read(path).await?;
             let builder = ZipEntryBuilder::new(name.into(), Compression::Deflate);
             writer
                 .write_entry_whole(builder, &data)
@@ -54,6 +48,22 @@ impl Archiver for ZipArchiver {
             .map_err(|e| ArchiveError::Backend(e.to_string()))?;
         Ok(())
     }
+}
+
+/// Walk `root` and return the paths of every regular file it contains.
+///
+/// The full list is materialized before any output file is created, so a
+/// destination written under `root` afterwards can never be picked up by the
+/// walk (and thus never archived into itself).
+fn collect_files(root: &Path) -> Result<Vec<PathBuf>, ArchiveError> {
+    let mut files = Vec::new();
+    for entry in WalkDir::new(root) {
+        let entry = entry.map_err(|e| ArchiveError::Backend(e.to_string()))?;
+        if entry.file_type().is_file() {
+            files.push(entry.into_path());
+        }
+    }
+    Ok(files)
 }
 
 /// Build a zip entry name for `path` relative to `root`, using `/` separators
