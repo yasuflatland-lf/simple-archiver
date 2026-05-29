@@ -3,6 +3,6 @@
 
 /// Scaffold command to verify that the core crate is linked.
 #[tauri::command]
-pub fn core_layer() -> String {
-    simple_archiver_core::domain::layer_name().to_string()
+pub fn core_layer() -> &'static str {
+    simple_archiver_core::domain::layer_name()
 }
