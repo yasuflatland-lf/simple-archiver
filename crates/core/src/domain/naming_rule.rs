@@ -4,7 +4,8 @@
 //! `Segment`s by the `LALRPOP` grammar in `template.lalrpop`. Semantic
 //! validation and resolution are added in later tasks.
 
-use crate::domain::file_name::is_forbidden_filename_char;
+use crate::domain::file_name::{is_forbidden_filename_char, FileStem, NameError, OutputFileName};
+use crate::domain::sequence_number::SequenceNumber;
 use logos::Logos;
 
 lalrpop_util::lalrpop_mod!(
@@ -147,11 +148,75 @@ impl NamingRule {
 
         Ok(Self { segments })
     }
+
+    /// Resolve this rule against `seq` into a validated output filename.
+    pub fn resolve(&self, seq: SequenceNumber) -> Result<OutputFileName, NameError> {
+        let number = seq.get();
+        let mut stem = String::new();
+        for segment in &self.segments {
+            match segment {
+                Segment::Literal(text) => stem.push_str(text),
+                Segment::Placeholder { pad_width: None } => {
+                    stem.push_str(&number.to_string());
+                }
+                Segment::Placeholder {
+                    pad_width: Some(width),
+                } => {
+                    let width = *width as usize;
+                    stem.push_str(&format!("{number:0width$}"));
+                }
+            }
+        }
+        Ok(OutputFileName::from_stem(FileStem::new(&stem)?))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn resolve(template: &str, seq: u32) -> Result<String, NameError> {
+        NamingRule::parse(template)
+            .unwrap()
+            .resolve(SequenceNumber::new(seq).unwrap())
+            .map(|name| name.as_str().to_string())
+    }
+
+    #[test]
+    fn resolve_plain_placeholder() {
+        assert_eq!(resolve("photo{n}", 2).unwrap(), "photo2.zip");
+    }
+
+    #[test]
+    fn resolve_zero_pads_to_width() {
+        assert_eq!(resolve("{n:03}", 1).unwrap(), "001.zip");
+        assert_eq!(resolve("{n:01}", 7).unwrap(), "7.zip");
+    }
+
+    #[test]
+    fn resolve_does_not_truncate_when_number_exceeds_width() {
+        assert_eq!(resolve("{n:03}", 1000).unwrap(), "1000.zip");
+    }
+
+    #[test]
+    fn resolve_appended_placeholder_is_unpadded() {
+        assert_eq!(resolve("photo", 3).unwrap(), "photo_3.zip");
+    }
+
+    #[test]
+    fn resolve_repeats_the_same_number_for_multiple_placeholders() {
+        assert_eq!(resolve("{n}-{n}", 2).unwrap(), "2-2.zip");
+    }
+
+    #[test]
+    fn resolve_rejects_a_resolved_trailing_space() {
+        // The literal trailing space survives resolution and fails FileStem.
+        let err = NamingRule::parse("{n} ")
+            .unwrap()
+            .resolve(SequenceNumber::new(1).unwrap())
+            .unwrap_err();
+        assert_eq!(err, NameError::TrailingDotOrSpace);
+    }
 
     #[test]
     fn parses_literal_plain_and_padded_in_order() {
