@@ -23,3 +23,14 @@ build/
 
 # Design docs (kept local / mirrored to Notion, not committed)
 docs/superpowers/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Rust / Cargo (workspace target at repo root)
+/target/
+
+# mise (local state)
+.mise.local.toml
