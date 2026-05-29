@@ -1,0 +1,22 @@
+use crate::domain::naming_rule::{LexError, Segment, Token};
+
+grammar;
+
+extern {
+    type Location = usize;
+    type Error = LexError;
+
+    enum Token {
+        "plain" => Token::Plain,
+        "padded" => Token::Padded(<u32>),
+        "literal" => Token::Literal(<String>),
+    }
+}
+
+pub Template: Vec<Segment> = <Segment*>;
+
+Segment: Segment = {
+    "plain" => Segment::Placeholder { pad_width: None },
+    "padded" => Segment::Placeholder { pad_width: Some(<>) },
+    "literal" => Segment::Literal(<>),
+};
