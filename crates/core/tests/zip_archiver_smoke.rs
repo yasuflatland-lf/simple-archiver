@@ -1,6 +1,10 @@
 //! Walking-skeleton smoke test: the real `ZipArchiver` over a real filesystem,
 //! verified by reading the zip back with the independent `zip` crate.
 
+// Exclude this whole integration-test crate from loom builds: `tokio::fs` is
+// unavailable under `--cfg loom`, so there is nothing to model-check here.
+#![cfg(not(loom))]
+
 use simple_archiver_core::application::ports::Archiver;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 use std::collections::BTreeMap;

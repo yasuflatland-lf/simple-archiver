@@ -18,3 +18,8 @@ tempfile = "3"
 
 [features]
 loom = ["dep:loom"]
+
+[lints.rust]
+# Declare `loom` as a known cfg name so that `#[cfg(not(loom))]` does not
+# trigger the `unexpected_cfgs` lint when clippy runs without RUSTFLAGS.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
