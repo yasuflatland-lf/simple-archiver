@@ -18,13 +18,25 @@ impl ZipArchiver {
 }
 
 impl Archiver for ZipArchiver {
+    /// Compress every regular file under `src_dir` into the zip at `dest_zip`.
+    /// Directory entries are not stored explicitly (empty directories are dropped);
+    /// each file is recorded under its `/`-separated path relative to `src_dir`.
+    /// The output zip is never included in itself.
     async fn compress(&self, src_dir: &Path, dest_zip: &Path) -> Result<(), ArchiveError> {
         let file = tokio::fs::File::create(dest_zip).await?;
         let mut writer = ZipFileWriter::with_tokio(file);
 
+        // Canonicalize the destination path once so we can skip it during the
+        // walk — never archive the output zip into itself.
+        let dest_canon = dest_zip.canonicalize().ok();
+
         for entry in WalkDir::new(src_dir) {
             let entry = entry.map_err(|e| ArchiveError::Backend(e.to_string()))?;
             if !entry.file_type().is_file() {
+                continue;
+            }
+            // Skip the output file if it happens to live inside src_dir.
+            if dest_canon.is_some() && entry.path().canonicalize().ok() == dest_canon {
                 continue;
             }
             let name = zip_entry_name(src_dir, entry.path())?;

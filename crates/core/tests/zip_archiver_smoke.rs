@@ -43,3 +43,41 @@ async fn compress_folder_produces_a_readable_zip() {
     assert_eq!(entries.get("a.txt").map(String::as_str), Some("hello"));
     assert_eq!(entries.get("sub/b.txt").map(String::as_str), Some("world"));
 }
+
+#[tokio::test]
+async fn output_inside_source_is_not_self_included() {
+    // Arrange: a small source tree with a nested file.
+    let src = tempfile::tempdir().unwrap();
+    std::fs::write(src.path().join("a.txt"), b"hello").unwrap();
+    std::fs::create_dir(src.path().join("sub")).unwrap();
+    std::fs::write(src.path().join("sub").join("b.txt"), b"world").unwrap();
+
+    // The output zip lives INSIDE the source folder — the pathological case.
+    let out_path = src.path().join("out.zip");
+
+    // Act.
+    ZipArchiver::new()
+        .compress(src.path(), &out_path)
+        .await
+        .unwrap();
+
+    // Assert: the archive is readable and contains exactly the two source files.
+    let file = std::fs::File::open(&out_path).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    let mut entries = BTreeMap::new();
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).unwrap();
+        let name = entry.name().to_string();
+        let mut body = String::new();
+        entry.read_to_string(&mut body).unwrap();
+        entries.insert(name, body);
+    }
+
+    assert_eq!(entries.get("a.txt").map(String::as_str), Some("hello"));
+    assert_eq!(entries.get("sub/b.txt").map(String::as_str), Some("world"));
+    // The output zip must not be archived into itself.
+    assert!(
+        !entries.contains_key("out.zip"),
+        "out.zip must not appear inside itself"
+    );
+}

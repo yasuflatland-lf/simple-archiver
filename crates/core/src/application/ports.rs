@@ -21,12 +21,16 @@ pub enum ArchiveError {
 }
 
 /// Compresses a directory tree into a zip archive.
-// `async fn` in a trait is sufficient for PR2: the only caller (the Tauri
-// command) uses the concrete `ZipArchiver`, so the returned future's `Send`-ness
-// is inferred. PR5 revisits this when parallelism needs `Send` futures across
-// `tokio::spawn`.
+// A bare `async fn` in a trait is sufficient for PR2: every caller (the Tauri
+// command and the smoke test) uses the concrete `ZipArchiver`, never a
+// `dyn Archiver` or a `T: Archiver` bound, so the compiler sees the concrete
+// future type and infers its `Send`-ness automatically. PR5 revisits this when
+// parallelism needs `Send` futures across `tokio::spawn`.
 #[allow(async_fn_in_trait)]
 pub trait Archiver {
-    /// Compress everything under `src_dir` into the zip file at `dest_zip`.
+    /// Compress every regular file under `src_dir` into the zip at `dest_zip`.
+    /// Directory entries are not stored explicitly (empty directories are dropped);
+    /// each file is recorded under its `/`-separated path relative to `src_dir`.
+    /// The output zip is never included in itself.
     async fn compress(&self, src_dir: &Path, dest_zip: &Path) -> Result<(), ArchiveError>;
 }
