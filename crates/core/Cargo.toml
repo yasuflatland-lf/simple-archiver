@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+loom = { version = "0.7", optional = true }
 
 [dev-dependencies]
 mockall = "0.13"
-loom = "0.7"
+
+[features]
+loom = ["dep:loom"]
