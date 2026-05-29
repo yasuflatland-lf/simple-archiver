@@ -42,10 +42,28 @@ impl Archiver for ZipArchiver {
                 .map_err(|e| ArchiveError::Backend(e.to_string()))?;
         }
 
-        writer
+        // `ZipFileWriter::close` writes the central directory + EOCD record and
+        // returns the underlying writer. For `with_tokio`, that writer is the
+        // `tokio_util` compat wrapper around our `tokio::fs::File`. Recover the
+        // raw `tokio::fs::File` via the wrapper's inherent `into_inner` (no extra
+        // dependency: the method resolves without naming the compat type).
+        //
+        // We MUST drain that file before dropping it: `tokio::fs::File` performs
+        // its writes on the blocking thread pool, and its `Drop` impl does NOT
+        // wait for in-flight writes to complete. So the freshly written EOCD
+        // bytes can still be queued (not yet on disk) when the caller reopens
+        // the file synchronously and parses it — which fails as
+        // `InvalidArchive("Invalid EOCD comment length")` on slower/contended
+        // hosts (e.g. CI). `shutdown` flushes and completes all pending writes,
+        // and `sync_all` then forces them to durable storage before we return.
+        let mut file = writer
             .close()
             .await
-            .map_err(|e| ArchiveError::Backend(e.to_string()))?;
+            .map_err(|e| ArchiveError::Backend(e.to_string()))?
+            .into_inner();
+        use tokio::io::AsyncWriteExt as _;
+        file.shutdown().await?;
+        file.sync_all().await?;
         Ok(())
     }
 }
