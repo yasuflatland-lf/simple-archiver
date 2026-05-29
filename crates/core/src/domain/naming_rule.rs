@@ -4,6 +4,7 @@
 //! `Segment`s by the `LALRPOP` grammar in `template.lalrpop`. Semantic
 //! validation and resolution are added in later tasks.
 
+use crate::domain::file_name::is_forbidden_filename_char;
 use logos::Logos;
 
 lalrpop_util::lalrpop_mod!(
@@ -75,12 +76,77 @@ pub enum Segment {
 
 /// Tokenize and parse a template into ordered segments (structure only — no
 /// width-range, emptiness, or character validation; that happens in `parse`).
-// Currently only exercised by tests; later tasks consume it from `parse`.
-#[allow(dead_code)]
 pub(crate) fn parse_segments(template: &str) -> Result<Vec<Segment>, ()> {
     template::TemplateParser::new()
         .parse(Lexer::new(template))
         .map_err(|_| ())
+}
+
+/// The maximum zero-padding width accepted in `{n:0W}`.
+const MAX_PAD_WIDTH: u32 = 9;
+
+/// A validated naming template, stored as normalized segments.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamingRule {
+    segments: Vec<Segment>,
+}
+
+/// Reasons a template is invalid.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum NamingRuleError {
+    /// The template is empty or only whitespace.
+    #[error("naming template must not be empty")]
+    Empty,
+    /// The template could not be tokenized/parsed (stray or malformed brace).
+    #[error("invalid naming template: {reason}")]
+    InvalidTemplate { reason: String },
+    /// A `{n:0W}` width is outside the supported 1..=9 range.
+    #[error("padding width must be between 1 and 9, got {width}")]
+    WidthOutOfRange { width: u32 },
+    /// A literal part of the template contains a forbidden filename character.
+    #[error("template contains a forbidden character: {ch:?}")]
+    ForbiddenLiteralChar { ch: char },
+}
+
+impl NamingRule {
+    /// Parse and validate a template into a normalized `NamingRule`.
+    pub fn parse(template: &str) -> Result<Self, NamingRuleError> {
+        if template.trim().is_empty() {
+            return Err(NamingRuleError::Empty);
+        }
+
+        let mut segments =
+            parse_segments(template).map_err(|()| NamingRuleError::InvalidTemplate {
+                reason: "stray or malformed brace".to_string(),
+            })?;
+
+        let mut has_placeholder = false;
+        for segment in &segments {
+            match segment {
+                Segment::Literal(text) => {
+                    if let Some(ch) = text.chars().find(|&c| is_forbidden_filename_char(c)) {
+                        return Err(NamingRuleError::ForbiddenLiteralChar { ch });
+                    }
+                }
+                Segment::Placeholder { pad_width } => {
+                    has_placeholder = true;
+                    if let Some(width) = pad_width {
+                        if !(1..=MAX_PAD_WIDTH).contains(width) {
+                            return Err(NamingRuleError::WidthOutOfRange { width: *width });
+                        }
+                    }
+                }
+            }
+        }
+
+        // No placeholder anywhere -> append "_{n}" so every output is numbered.
+        if !has_placeholder {
+            segments.push(Segment::Literal("_".to_string()));
+            segments.push(Segment::Placeholder { pad_width: None });
+        }
+
+        Ok(Self { segments })
+    }
 }
 
 #[cfg(test)]
@@ -106,5 +172,64 @@ mod tests {
         assert!(parse_segments("img_{x}").is_err());
         assert!(parse_segments("img_{n").is_err());
         assert!(parse_segments("img_{n:3}").is_err()); // missing leading 0
+    }
+
+    #[test]
+    fn parse_keeps_an_explicit_placeholder() {
+        let rule = NamingRule::parse("img_{n:03}").unwrap();
+        assert_eq!(
+            rule.segments,
+            vec![
+                Segment::Literal("img_".to_string()),
+                Segment::Placeholder { pad_width: Some(3) },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_appends_underscore_n_when_no_placeholder() {
+        let rule = NamingRule::parse("photo").unwrap();
+        assert_eq!(
+            rule.segments,
+            vec![
+                Segment::Literal("photo".to_string()),
+                Segment::Literal("_".to_string()),
+                Segment::Placeholder { pad_width: None },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_rejects_empty_and_whitespace_only() {
+        assert_eq!(NamingRule::parse(""), Err(NamingRuleError::Empty));
+        assert_eq!(NamingRule::parse("   "), Err(NamingRuleError::Empty));
+    }
+
+    #[test]
+    fn parse_rejects_width_out_of_range() {
+        assert_eq!(
+            NamingRule::parse("{n:00}"),
+            Err(NamingRuleError::WidthOutOfRange { width: 0 })
+        );
+        assert_eq!(
+            NamingRule::parse("{n:010}"),
+            Err(NamingRuleError::WidthOutOfRange { width: 10 })
+        );
+    }
+
+    #[test]
+    fn parse_rejects_forbidden_literal_char() {
+        assert_eq!(
+            NamingRule::parse("a:b{n}"),
+            Err(NamingRuleError::ForbiddenLiteralChar { ch: ':' })
+        );
+    }
+
+    #[test]
+    fn parse_rejects_malformed_template() {
+        assert!(matches!(
+            NamingRule::parse("img_{x}"),
+            Err(NamingRuleError::InvalidTemplate { .. })
+        ));
     }
 }
