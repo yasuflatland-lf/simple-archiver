@@ -27,7 +27,7 @@ function App() {
         filters: [{ name: "Zip archive", extensions: ["zip"] }],
       });
       // null/undefined means the user cancelled — intentionally silent
-      if (target) {
+      if (typeof target === "string") {
         setOut(target);
       }
     } catch (error) {
