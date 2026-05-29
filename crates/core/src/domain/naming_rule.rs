@@ -1,8 +1,9 @@
 //! Naming rule parsing and resolution (pure domain).
 //!
-//! Templates are tokenized with `logos` and assembled into an ordered list of
-//! `Segment`s by the `LALRPOP` grammar in `template.lalrpop`. Semantic
-//! validation and resolution are added in later tasks.
+//! Templates are tokenized with `logos`, assembled into an ordered list of
+//! `Segment`s by the `LALRPOP` grammar in `template.lalrpop`, validated and
+//! normalized by `NamingRule::parse`, and rendered against a `SequenceNumber`
+//! into a validated `OutputFileName` by `NamingRule::resolve`.
 
 use crate::domain::file_name::{is_forbidden_filename_char, FileStem, NameError, OutputFileName};
 use crate::domain::sequence_number::SequenceNumber;
@@ -10,17 +11,19 @@ use logos::Logos;
 
 lalrpop_util::lalrpop_mod!(
     #[allow(clippy::all)]
-    pub template,
+    template,
     "/domain/template.rs"
 );
 
 /// A token produced by the template lexer.
 #[derive(Logos, Clone, Debug, PartialEq)]
-pub enum Token {
+pub(crate) enum Token {
     /// `{n}` — the sequence number, no padding.
     #[token("{n}")]
     Plain,
-    /// `{n:0W}` — zero-padded to width W (the raw width is validated later).
+    /// `{n:0W}` — zero-padded to width W (the raw width is range-checked later).
+    /// The leading `0` is required syntax: `{n:3}` does not lex as `Padded` and
+    /// is rejected as an invalid template.
     #[regex(r"\{n:0[0-9]+\}", width_of)]
     Padded(u32),
     /// A run of literal characters (anything that is not a brace).
@@ -29,26 +32,31 @@ pub enum Token {
 }
 
 /// Extract the width digits from a `{n:0W}` slice, e.g. `"{n:03}"` -> `3`.
-fn width_of(lex: &mut logos::Lexer<Token>) -> Option<u32> {
-    // `slice` is the matched run, e.g. "{n:03}".
+fn width_of(lex: &mut logos::Lexer<Token>) -> u32 {
     let slice = lex.slice();
-    // Strip the leading "{n:0" (4 bytes, all ASCII) and the trailing "}" (1 byte).
+    // `width_of` is only ever called on slices matched by the `\{n:0[0-9]+\}`
+    // regex, which always begins with the 4 ASCII bytes `{n:0` and ends with a
+    // `}` (1 byte). Stripping both leaves the width digits.
+    debug_assert!(slice.starts_with("{n:0") && slice.ends_with('}'));
     let digits = &slice[4..slice.len() - 1];
-    digits.parse::<u32>().ok()
+    // A width too large for u32 saturates to u32::MAX; it is then reported as
+    // WidthOutOfRange by the 1..=9 range check in `parse`, rather than as a
+    // misleading "stray or malformed brace" lex error.
+    digits.parse::<u32>().unwrap_or(u32::MAX)
 }
 
 /// Lexing failed: the template contains a stray or malformed brace.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LexError;
+pub(crate) struct LexError;
 
 /// Adapts the `logos` spanned iterator into the `(start, token, end)` triples
 /// that the LALRPOP-generated parser consumes.
-pub struct Lexer<'input> {
+pub(crate) struct Lexer<'input> {
     inner: logos::SpannedIter<'input, Token>,
 }
 
 impl<'input> Lexer<'input> {
-    pub fn new(input: &'input str) -> Self {
+    pub(crate) fn new(input: &'input str) -> Self {
         Self {
             inner: Token::lexer(input).spanned(),
         }
@@ -68,7 +76,7 @@ impl Iterator for Lexer<'_> {
 
 /// One piece of a parsed template.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Segment {
+pub(crate) enum Segment {
     /// Literal text copied verbatim into the output.
     Literal(String),
     /// The sequence number. `None` = plain `{n}`; `Some(w)` = zero-padded to `w`.
@@ -296,5 +304,29 @@ mod tests {
             NamingRule::parse("img_{x}"),
             Err(NamingRuleError::InvalidTemplate { .. })
         ));
+    }
+
+    #[test]
+    fn parse_reports_width_out_of_range_for_overflowing_width() {
+        let template = format!("{{n:0{}}}", "9".repeat(20));
+        assert_eq!(
+            NamingRule::parse(&template),
+            Err(NamingRuleError::WidthOutOfRange { width: u32::MAX })
+        );
+    }
+
+    #[test]
+    fn resolve_accepts_max_valid_width_nine() {
+        assert_eq!(resolve("{n:09}", 1).unwrap(), "000000001.zip");
+    }
+
+    #[test]
+    fn resolve_preserves_unicode_literals() {
+        assert_eq!(resolve("写真{n}", 1).unwrap(), "写真1.zip");
+    }
+
+    #[test]
+    fn resolve_adjacent_placeholders_have_no_separator() {
+        assert_eq!(resolve("{n}{n}", 2).unwrap(), "22.zip");
     }
 }
