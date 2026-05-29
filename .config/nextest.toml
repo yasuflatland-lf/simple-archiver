@@ -1,0 +1,6 @@
+[profile.default]
+failure-output = "immediate"
+
+[profile.ci]
+failure-output = "immediate-final"
+fail-fast = false

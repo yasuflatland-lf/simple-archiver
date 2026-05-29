@@ -1,0 +1,35 @@
+[package]
+name = "simple-archiver"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "simple_archiver_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+simple-archiver-core = { path = "../crates/core" }
+# Pin bitflags < 2.9: bitflags 2.9+ introduced a recursive `__bitflags_flag_name!`
+# macro that munches doc-comment attributes one-at-a-time. dispatch2 0.3.1
+# (transitive via tao/tauri-runtime-wry) generates a `bitflags!` block with many
+# heavily-documented flags, blowing past the default `recursion_limit = 128`
+# ("recursion limit reached while expanding `$crate::__bitflags_flag_name!`").
+# Upstream dispatch2 does not set `#![recursion_limit]`, so we constrain the
+# transitive bitflags version here. Revisit when dispatch2 sets the limit or
+# bitflags fixes the recursive expansion.
+bitflags = "=2.8.0"
+
