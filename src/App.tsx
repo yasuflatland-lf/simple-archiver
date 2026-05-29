@@ -1,50 +1,58 @@
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import { Button } from "@/components/ui/button";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [src, setSrc] = useState<string | null>(null);
+  const [out, setOut] = useState<string | null>(null);
+  const [status, setStatus] = useState("");
 
-  async function greet() {
-    setGreetMsg(await invoke("greet", { name }));
+  async function selectFolder() {
+    const picked = await open({ directory: true });
+    if (typeof picked === "string") {
+      setSrc(picked);
+    }
+  }
+
+  async function chooseOutput() {
+    const target = await save({
+      filters: [{ name: "Zip archive", extensions: ["zip"] }],
+    });
+    if (target) {
+      setOut(target);
+    }
+  }
+
+  async function compress() {
+    if (!src || !out) {
+      return;
+    }
+    setStatus("Compressing...");
+    try {
+      await invoke("compress_folder", { src, out });
+      setStatus("Done");
+    } catch (error) {
+      setStatus(`Failed: ${error}`);
+    }
   }
 
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+      <h1>simple-archiver</h1>
 
       <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+        <Button onClick={selectFolder}>Select folder</Button>
+        <Button onClick={chooseOutput}>Choose output</Button>
+        <Button onClick={compress} disabled={!src || !out}>
+          Compress
+        </Button>
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-      <Button>Run</Button>
+      <p>Source: {src ?? "(none)"}</p>
+      <p>Output: {out ?? "(none)"}</p>
+      <p>{status}</p>
     </main>
   );
 }
