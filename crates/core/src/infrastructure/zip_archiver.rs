@@ -1,7 +1,48 @@
 //! Zip archiving adapter backed by `async_zip` (tokio).
 
-use crate::application::ports::ArchiveError;
+use crate::application::ports::{ArchiveError, Archiver};
+use async_zip::base::write::ZipFileWriter;
+use async_zip::{Compression, ZipEntryBuilder};
 use std::path::{Component, Path};
+use walkdir::WalkDir;
+
+/// Compresses directory trees into zip archives using `async_zip` with Deflate.
+#[derive(Debug, Default)]
+pub struct ZipArchiver;
+
+impl ZipArchiver {
+    /// Create a new archiver.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Archiver for ZipArchiver {
+    async fn compress(&self, src_dir: &Path, dest_zip: &Path) -> Result<(), ArchiveError> {
+        let file = tokio::fs::File::create(dest_zip).await?;
+        let mut writer = ZipFileWriter::with_tokio(file);
+
+        for entry in WalkDir::new(src_dir) {
+            let entry = entry.map_err(|e| ArchiveError::Backend(e.to_string()))?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let name = zip_entry_name(src_dir, entry.path())?;
+            let data = tokio::fs::read(entry.path()).await?;
+            let builder = ZipEntryBuilder::new(name.into(), Compression::Deflate);
+            writer
+                .write_entry_whole(builder, &data)
+                .await
+                .map_err(|e| ArchiveError::Backend(e.to_string()))?;
+        }
+
+        writer
+            .close()
+            .await
+            .map_err(|e| ArchiveError::Backend(e.to_string()))?;
+        Ok(())
+    }
+}
 
 /// Build a zip entry name for `path` relative to `root`, using `/` separators
 /// on every platform (the zip format mandates forward slashes).
