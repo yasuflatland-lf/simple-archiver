@@ -29,3 +29,62 @@ pub fn preview_output_name(template: String, seq: u32) -> Result<String, String>
     let name = rule.resolve(seq).map_err(|e| e.to_string())?;
     Ok(name.as_str().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_resolves_explicit_padded_placeholder() {
+        assert_eq!(
+            preview_output_name("img_{n:03}".to_string(), 1).unwrap(),
+            "img_001.zip"
+        );
+    }
+
+    #[test]
+    fn preview_auto_appends_sequence_when_no_placeholder() {
+        assert_eq!(
+            preview_output_name("photo".to_string(), 3).unwrap(),
+            "photo_3.zip"
+        );
+    }
+
+    #[test]
+    fn preview_rejects_zero_sequence() {
+        let err = preview_output_name("{n}".to_string(), 0).unwrap_err();
+        assert_eq!(err, "sequence number must be 1 or greater");
+    }
+
+    #[test]
+    fn preview_rejects_malformed_template_with_exact_contract_message() {
+        // This exact string is also asserted by the frontend test; keep them in sync.
+        let err = preview_output_name("img_{x}".to_string(), 1).unwrap_err();
+        assert_eq!(err, "invalid naming template: stray or malformed brace");
+    }
+
+    #[test]
+    fn preview_rejects_width_out_of_range() {
+        let err = preview_output_name("{n:010}".to_string(), 1).unwrap_err();
+        assert!(
+            err.contains("padding width must be between 1 and 9"),
+            "unexpected message: {err}"
+        );
+    }
+
+    #[test]
+    fn preview_rejects_forbidden_literal_char() {
+        let err = preview_output_name("a:b{n}".to_string(), 1).unwrap_err();
+        assert!(
+            err.contains("forbidden character"),
+            "unexpected message: {err}"
+        );
+    }
+
+    #[test]
+    fn preview_rejects_name_invalid_only_after_resolution() {
+        // A trailing space passes template parsing but fails FileStem at resolve.
+        let err = preview_output_name("{n} ".to_string(), 1).unwrap_err();
+        assert_eq!(err, "file name must not end with a dot or space");
+    }
+}
