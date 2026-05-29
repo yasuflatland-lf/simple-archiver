@@ -1,8 +1,8 @@
 //! Domain layer — pure business logic, no IO.
-//! スキャフォルドのプレースホルダ。実際の値オブジェクト(NamingRule 等)は PR3 (issue #3) で追加し、
-//! その際 `layer_name` は削除する。
+//! Scaffold placeholder. Real value objects (e.g. NamingRule) will be added in PR3 (issue #3),
+//! at which point `layer_name` will be removed.
 
-/// テストハーネスが domain 層に対して動作することを示すスキャフォルドマーカー。
+/// Scaffold marker to verify that the test harness operates against the domain layer.
 pub fn layer_name() -> &'static str {
     "domain"
 }

@@ -5,5 +5,5 @@ pnpm = "latest"
 "cargo:cargo-nextest" = "latest"
 
 [settings]
-# cargo backend は cargo-binstall があればバイナリ取得を優先（高速化）
+# Prefer binary fetch via cargo-binstall when available (faster installs)
 cargo.binstall = true

@@ -1,7 +1,7 @@
-//! Presentation layer — Tauri コマンドとイベント配線（アダプタ）。
-//! 実コマンド (add_items / run_job 等) は PR6 (issue #6) で追加する。
+//! Presentation layer — Tauri commands and event wiring (adapter).
+//! Real commands (add_items / run_job, etc.) will be added in PR6 (issue #6).
 
-/// core crate がリンクされていることを示すスキャフォルドコマンド。
+/// Scaffold command to verify that the core crate is linked.
 #[tauri::command]
 pub fn core_layer() -> String {
     simple_archiver_core::domain::layer_name().to_string()
