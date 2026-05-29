@@ -1,5 +1,7 @@
 [tools]
-rust = "latest"
+# Install rustfmt and clippy alongside rust so CI (mise-action) has them.
+# Without explicit components, rustup uses the minimal profile and `cargo fmt`/`clippy` are absent.
+rust = { version = "latest", components = "rustfmt,clippy" }
 node = "latest"
 pnpm = "latest"
 "cargo:cargo-nextest" = "latest"
