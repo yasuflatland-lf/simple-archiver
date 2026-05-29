@@ -1,0 +1,9 @@
+[tools]
+rust = "latest"
+node = "latest"
+pnpm = "latest"
+"cargo:cargo-nextest" = "latest"
+
+[settings]
+# cargo backend は cargo-binstall があればバイナリ取得を優先（高速化）
+cargo.binstall = true
