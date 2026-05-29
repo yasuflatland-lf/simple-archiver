@@ -1,4 +1,4 @@
-mod presentation;
+pub mod presentation;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
