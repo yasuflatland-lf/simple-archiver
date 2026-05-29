@@ -2,7 +2,7 @@
 
 use simple_archiver_core::application::ports::Archiver;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
-use std::path::PathBuf;
+use std::path::Path;
 
 /// Compress the folder at `src` into a zip file at `out`.
 ///
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 #[tauri::command]
 pub async fn compress_folder(src: String, out: String) -> Result<(), String> {
     ZipArchiver::new()
-        .compress(&PathBuf::from(src), &PathBuf::from(out))
+        .compress(Path::new(&src), Path::new(&out))
         .await
         .map_err(|e| e.to_string())
 }

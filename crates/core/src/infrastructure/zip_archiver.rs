@@ -56,14 +56,14 @@ impl Archiver for ZipArchiver {
 /// destination written under `root` afterwards can never be picked up by the
 /// walk (and thus never archived into itself).
 fn collect_files(root: &Path) -> Result<Vec<PathBuf>, ArchiveError> {
-    let mut files = Vec::new();
-    for entry in WalkDir::new(root) {
-        let entry = entry.map_err(|e| ArchiveError::Backend(e.to_string()))?;
-        if entry.file_type().is_file() {
-            files.push(entry.into_path());
-        }
-    }
-    Ok(files)
+    WalkDir::new(root)
+        .into_iter()
+        .filter_map(|result| match result {
+            Ok(entry) if entry.file_type().is_file() => Some(Ok(entry.into_path())),
+            Ok(_) => None,
+            Err(e) => Some(Err(ArchiveError::Backend(e.to_string()))),
+        })
+        .collect()
 }
 
 /// Build a zip entry name for `path` relative to `root`, using `/` separators
