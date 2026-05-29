@@ -10,18 +10,28 @@ function App() {
   const [status, setStatus] = useState("");
 
   async function selectFolder() {
-    const picked = await open({ directory: true });
-    if (typeof picked === "string") {
-      setSrc(picked);
+    try {
+      const picked = await open({ directory: true });
+      // null/undefined means the user cancelled — intentionally silent
+      if (typeof picked === "string") {
+        setSrc(picked);
+      }
+    } catch (error) {
+      setStatus(`Failed to open folder picker: ${error}`);
     }
   }
 
   async function chooseOutput() {
-    const target = await save({
-      filters: [{ name: "Zip archive", extensions: ["zip"] }],
-    });
-    if (target) {
-      setOut(target);
+    try {
+      const target = await save({
+        filters: [{ name: "Zip archive", extensions: ["zip"] }],
+      });
+      // null/undefined means the user cancelled — intentionally silent
+      if (target) {
+        setOut(target);
+      }
+    } catch (error) {
+      setStatus(`Failed to choose output: ${error}`);
     }
   }
 
