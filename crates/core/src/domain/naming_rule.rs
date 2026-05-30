@@ -75,7 +75,7 @@ impl Iterator for Lexer<'_> {
 }
 
 /// One piece of a parsed template.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Segment {
     /// Literal text copied verbatim into the output.
     Literal(String),
@@ -95,7 +95,7 @@ pub(crate) fn parse_segments(template: &str) -> Result<Vec<Segment>, ()> {
 const MAX_PAD_WIDTH: u32 = 9;
 
 /// A validated naming template, stored as normalized segments.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NamingRule {
     segments: Vec<Segment>,
 }

@@ -73,9 +73,9 @@ pub enum JobError {
 /// preserved by every reorder: names are position-derived and stay with the
 /// position, while each task's id, status, and progress travel with the task.
 ///
-/// `ArchiveJob` is intentionally **not** `Eq`, because [`NamingRule`] is not
-/// `Eq`.
-#[derive(Clone, Debug, PartialEq)]
+/// `ArchiveJob` is a value type with full structural equality: it derives both
+/// `PartialEq` and `Eq`.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArchiveJob {
     tasks: Vec<ArchiveTask>,
     rule: NamingRule,
@@ -623,6 +623,14 @@ mod tests {
         let displaced = job.tasks().iter().find(|t| t.id().get() == 1).unwrap();
         assert_eq!(displaced.status(), &TaskStatus::Pending);
         assert_eq!(displaced.output_name().as_str(), "file2.zip");
+    }
+
+    // ── Eq bound (compile-time guard) ─────────────────────────────────────────
+
+    #[test]
+    fn archive_job_implements_eq() {
+        fn assert_eq_bound<T: Eq>() {}
+        assert_eq_bound::<ArchiveJob>();
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────────
