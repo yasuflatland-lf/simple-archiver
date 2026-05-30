@@ -52,9 +52,51 @@ pub trait Clock: Send + Sync {
     fn now(&self) -> std::time::Instant;
 }
 
+/// Error returned by an [`Extractor`].
+///
+/// `Backend` carries a stringified message from the `unrar` library so the port
+/// stays decoupled from any specific extraction backend. There is no `Cancelled`
+/// variant: extraction is not interrupted mid-stream in the MVP — cancellation is
+/// observed *before* extraction starts (in the engine) and the temp directory is
+/// always reclaimed by [`ExtractedTree`]'s drop.
+#[derive(Debug, thiserror::Error)]
+pub enum ExtractError {
+    /// Filesystem I/O failed while creating the temp dir or writing entries.
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    /// The extraction backend reported a failure (corrupt/encrypted/multi-volume rar, etc.).
+    #[error("unrar error: {0}")]
+    Backend(String),
+}
+
+/// A handle to an extracted directory tree.
+///
+/// The concrete implementation (in `infrastructure`) owns a temporary directory
+/// and removes it when dropped, so the application layer can hold a tree without
+/// naming an infrastructure type. `Send` so it can live in a `tokio::spawn`ed task.
+pub trait ExtractedTree: Send {
+    /// The directory containing the extracted contents (ready to be compressed).
+    fn path(&self) -> &Path;
+}
+
+/// Extracts a rar archive into a freshly-created temporary directory.
+///
+/// Mirrors [`Archiver`]: the future is `Send` (and the trait `Send + Sync`) so the
+/// engine can run implementations across `tokio::spawn`. The adapter owns temp
+/// creation **and** cleanup — it returns a boxed [`ExtractedTree`] guard.
+pub trait Extractor: Send + Sync {
+    /// Extract every entry of `src_rar` into a new temp directory and return a
+    /// guard whose `path()` holds the extracted tree; dropping it removes the dir.
+    fn extract(
+        &self,
+        src_rar: &Path,
+    ) -> impl Future<Output = Result<Box<dyn ExtractedTree>, ExtractError>> + Send;
+}
+
 #[cfg(test)]
 mod tests {
     use super::ArchiveError;
+    use super::ExtractError;
 
     #[test]
     fn cancelled_displays_as_cancelled_and_has_no_source() {
@@ -62,5 +104,17 @@ mod tests {
 
         assert_eq!(err.to_string(), "cancelled");
         assert!(std::error::Error::source(&err).is_none());
+    }
+
+    #[test]
+    fn extract_error_display_strings_are_stable() {
+        let backend = ExtractError::Backend("bad header".to_string());
+        assert_eq!(backend.to_string(), "unrar error: bad header");
+
+        let io = ExtractError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "missing",
+        ));
+        assert_eq!(io.to_string(), "I/O error: missing");
     }
 }
