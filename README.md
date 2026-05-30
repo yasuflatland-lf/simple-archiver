@@ -46,6 +46,10 @@ Technology choices are fixed. The compression libraries are deliberately kept be
 
 ## Architecture
 
+![simple-archiver architecture](docs/images/architecture.png)
+
+> Regenerable from [`docs/images/diagram.py`](docs/images/diagram.py) (mingrammer/diagrams + Graphviz) — see [`docs/images/README.md`](docs/images/README.md).
+
 The Rust backend follows **DDD layered / hexagonal** design, split across a Cargo workspace with two crates: a pure `simple-archiver-core` crate holding `domain` / `application` / `infrastructure`, and the `src-tauri` crate holding `presentation`.
 
 ```
