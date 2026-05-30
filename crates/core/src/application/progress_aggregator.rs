@@ -14,7 +14,10 @@ pub(crate) enum WorkerMsg {
     /// A lifecycle event for `task` (StartCompressing / Complete / Fail / ...).
     Status { task: TaskId, event: TaskEvent },
     /// A cumulative byte-progress update for `task`.
-    Progress { task: TaskId, progress: TaskProgress },
+    Progress {
+        task: TaskId,
+        progress: TaskProgress,
+    },
 }
 
 /// The outcome of a finished job.
@@ -129,13 +132,24 @@ mod tests {
         let id = ids(&j);
         let base = Instant::now();
         let mut agg = Aggregator::new(j, base);
-        agg.apply(WorkerMsg::Progress { task: id[0], progress: TaskProgress::new(2, 10) }).unwrap();
-        agg.apply(WorkerMsg::Progress { task: id[1], progress: TaskProgress::new(3, 5) }).unwrap();
+        agg.apply(WorkerMsg::Progress {
+            task: id[0],
+            progress: TaskProgress::new(2, 10),
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Progress {
+            task: id[1],
+            progress: TaskProgress::new(3, 5),
+        })
+        .unwrap();
         let snap = agg.snapshot(base + Duration::from_millis(50));
         assert_eq!(snap.overall, TaskProgress::new(5, 15));
         assert_eq!(
             snap.per_task,
-            vec![(id[0], TaskProgress::new(2, 10)), (id[1], TaskProgress::new(3, 5))]
+            vec![
+                (id[0], TaskProgress::new(2, 10)),
+                (id[1], TaskProgress::new(3, 5))
+            ]
         );
         assert_eq!(snap.elapsed, Duration::from_millis(50));
     }
@@ -145,11 +159,33 @@ mod tests {
         let j = job(3);
         let id = ids(&j);
         let mut agg = Aggregator::new(j, Instant::now());
-        agg.apply(WorkerMsg::Status { task: id[0], event: TaskEvent::StartCompressing }).unwrap();
-        agg.apply(WorkerMsg::Status { task: id[0], event: TaskEvent::Complete }).unwrap();
-        agg.apply(WorkerMsg::Status { task: id[1], event: TaskEvent::Fail { reason: "boom".into() } }).unwrap();
-        agg.apply(WorkerMsg::Status { task: id[2], event: TaskEvent::StartCompressing }).unwrap();
-        agg.apply(WorkerMsg::Status { task: id[2], event: TaskEvent::Complete }).unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[0],
+            event: TaskEvent::StartCompressing,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[0],
+            event: TaskEvent::Complete,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[1],
+            event: TaskEvent::Fail {
+                reason: "boom".into(),
+            },
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[2],
+            event: TaskEvent::StartCompressing,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[2],
+            event: TaskEvent::Complete,
+        })
+        .unwrap();
         let s = agg.into_summary();
         assert_eq!(s.succeeded, vec![id[0], id[2]]);
         assert_eq!(s.failed, vec![(id[1], "boom".to_string())]);
@@ -160,7 +196,11 @@ mod tests {
         let j = job(1);
         let id = ids(&j);
         let mut agg = Aggregator::new(j, Instant::now());
-        agg.apply(WorkerMsg::Progress { task: id[0], progress: TaskProgress::new(1, 1) }).unwrap();
+        agg.apply(WorkerMsg::Progress {
+            task: id[0],
+            progress: TaskProgress::new(1, 1),
+        })
+        .unwrap();
         assert_eq!(agg.snapshot(Instant::now()).per_task.len(), 1);
     }
 }

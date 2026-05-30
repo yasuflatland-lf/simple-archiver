@@ -14,7 +14,11 @@ use std::path::Path;
 #[tauri::command]
 pub async fn compress_folder(src: String, out: String) -> Result<(), String> {
     ZipArchiver::new()
-        .compress(Path::new(&src), Path::new(&out), &CompressContext::detached())
+        .compress(
+            Path::new(&src),
+            Path::new(&out),
+            &CompressContext::detached(),
+        )
         .await
         .map_err(|e| e.to_string())
 }
