@@ -97,7 +97,7 @@ impl<A: Archiver + 'static> RunArchiveJob<A> {
         // Drop the engine's own sender so the channel closes once workers finish.
         drop(tx);
 
-        // Single-writer aggregation loop on this task.
+        // Single-writer aggregation loop: runs on the caller's async task, never shared.
         let mut aggregator = Aggregator::new(job, clock.now());
         while let Some(msg) = rx.recv().await {
             let _ = aggregator.apply(msg);
@@ -186,12 +186,15 @@ mod tests {
             dest: &Path,
             ctx: &CompressContext,
         ) -> Result<(), ArchiveError> {
-            let now = self.live.fetch_add(1, Ordering::SeqCst) + 1;
-            self.max_live.fetch_max(now, Ordering::SeqCst);
+            self.live.fetch_add(1, Ordering::SeqCst);
             ctx.report(5, 10);
             if let Some(b) = &self.barrier {
                 b.wait().await;
             }
+            // Sample peak concurrency at the rendezvous: when a Barrier(N) releases, all
+            // N workers are provably inside compress simultaneously.
+            self.max_live
+                .fetch_max(self.live.load(Ordering::SeqCst), Ordering::SeqCst);
             ctx.report(10, 10);
             self.live.fetch_sub(1, Ordering::SeqCst);
             let name = dest.file_name().unwrap().to_string_lossy().to_string();
@@ -297,6 +300,7 @@ mod tests {
     #[tokio::test]
     async fn emits_progress_snapshots_tallying_overall() {
         let job = folder_job(2);
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
@@ -307,6 +311,8 @@ mod tests {
         // Both tasks finish at 10/10 -> overall 20/20.
         assert_eq!(last.overall, TaskProgress::new(20, 20));
         assert_eq!(last.per_task.len(), 2);
+        let snap_ids: Vec<TaskId> = last.per_task.iter().map(|(id, _)| *id).collect();
+        assert_eq!(snap_ids, ids, "per_task must follow job task order");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -329,5 +335,32 @@ mod tests {
         .expect("must not deadlock — proves two tasks ran concurrently");
         assert_eq!(summary.succeeded.len(), 2);
         assert_eq!(max_live.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn parallelism_cap_is_respected() {
+        // 4 tasks, limit 2: a Barrier(2) lets exactly two workers rendezvous at a
+        // time, so true concurrency reaches the cap; if the engine ignored the
+        // limit (e.g. Semaphore sized to the task count) max_live would exceed 2.
+        let job = folder_job(4);
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let mut fake = FakeArchiver::new();
+        fake.barrier = Some(barrier.clone());
+        let max_live = fake.max_live.clone();
+        let engine = RunArchiveJob::new(Arc::new(fake), nz(2));
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+        let summary = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            engine.execute(job, &clock, &sink),
+        )
+        .await
+        .expect("must not deadlock");
+        assert_eq!(summary.succeeded.len(), 4);
+        assert_eq!(
+            max_live.load(Ordering::SeqCst),
+            2,
+            "must never exceed the parallelism limit"
+        );
     }
 }
