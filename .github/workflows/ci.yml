@@ -36,12 +36,14 @@ jobs:
       - run: cargo modules orphans -p simple-archiver-core --lib --deny
 
   frontend:
-    name: frontend (vitest + build)
+    name: frontend (vitest + build + knip)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
       - run: pnpm install --frozen-lockfile
+      # Frontend dependency hygiene: unused files / deps / exports (config in knip.json).
+      - run: pnpm knip
       - run: pnpm test
       - run: pnpm build
 
