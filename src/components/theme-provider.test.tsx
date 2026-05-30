@@ -90,4 +90,44 @@ describe("ThemeProvider", () => {
     expect(screen.getByTestId("theme").textContent).toBe("dark");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
+
+  it("falls back to the default when the persisted value is not a valid theme", () => {
+    localStorage.setItem("simple-archiver-theme", "auto");
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId("theme").textContent).toBe("system");
+    expect(document.documentElement.classList.contains("auto")).toBe(false);
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+  });
+
+  it("re-applies the resolved class when the OS preference changes in system mode", () => {
+    const handlers: Array<() => void> = [];
+    const media = {
+      matches: false,
+      media: "(prefers-color-scheme: dark)",
+      onchange: null,
+      addEventListener: vi.fn((_event: string, cb: () => void) => {
+        handlers.push(cb);
+      }),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    };
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(media));
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    // Simulate the OS switching to dark while the user stays on "system".
+    media.matches = true;
+    for (const cb of handlers) cb();
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("light")).toBe(false);
+  });
 });

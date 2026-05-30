@@ -50,4 +50,23 @@ describe("ModeToggle", () => {
     await user.click(screen.getByRole("button", { name: /theme/i }));
     expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
+
+  it("cycles dark → system → light across clicks", async () => {
+    const user = userEvent.setup();
+    const btn = () => screen.getByRole("button", { name: /theme/i });
+    render(
+      <ThemeProvider defaultTheme="dark">
+        <ModeToggle />
+      </ThemeProvider>,
+    );
+    // dark → system
+    await user.click(btn());
+    expect(btn().getAttribute("aria-label")).toContain("current: system");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    // system → light (wrap-around)
+    await user.click(btn());
+    expect(btn().getAttribute("aria-label")).toContain("current: light");
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
 });
