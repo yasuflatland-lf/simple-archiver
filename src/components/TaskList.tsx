@@ -130,6 +130,8 @@ export function TaskList() {
               summary,
               taskIdByIndex,
             );
+            // While running, a live entry replaces the text status with a bar.
+            const liveEntry = running ? progress?.perTask[i] : undefined;
             const outputName = previewNames[i] ?? "";
             const isFirst = i === 0;
             const isLast = i === items.length - 1;
@@ -169,16 +171,16 @@ export function TaskList() {
 
                 {/* Status: live bar + ETA while running, else text status */}
                 <td className="py-2 pr-3 text-muted-foreground">
-                  {running && progress?.perTask[i] ? (
+                  {liveEntry ? (
                     <div className="flex min-w-[8rem] flex-col gap-1">
                       <Progress
                         value={progressPercent(
-                          progress.perTask[i].bytesDone,
-                          progress.perTask[i].bytesTotal,
+                          liveEntry.bytesDone,
+                          liveEntry.bytesTotal,
                         )}
                       />
                       <span className="text-xs">
-                        {formatEta(progress.perTask[i].etaMs)}
+                        {formatEta(liveEntry.etaMs)}
                       </span>
                     </div>
                   ) : (
