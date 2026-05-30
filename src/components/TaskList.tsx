@@ -1,5 +1,7 @@
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
+import { Progress } from "@/components/ui/progress";
+import { formatEta, progressPercent } from "@/lib/format";
 import { useJobStore } from "@/store/jobStore";
 
 // ---------------------------------------------------------------------------
@@ -165,8 +167,24 @@ export function TaskList() {
                   {outputName}
                 </td>
 
-                {/* Status */}
-                <td className="py-2 pr-3 text-muted-foreground">{status}</td>
+                {/* Status: live bar + ETA while running, else text status */}
+                <td className="py-2 pr-3 text-muted-foreground">
+                  {running && progress?.perTask[i] ? (
+                    <div className="flex min-w-[8rem] flex-col gap-1">
+                      <Progress
+                        value={progressPercent(
+                          progress.perTask[i].bytesDone,
+                          progress.perTask[i].bytesTotal,
+                        )}
+                      />
+                      <span className="text-xs">
+                        {formatEta(progress.perTask[i].etaMs)}
+                      </span>
+                    </div>
+                  ) : (
+                    status
+                  )}
+                </td>
 
                 {/* Reorder buttons */}
                 <td className="py-2">
