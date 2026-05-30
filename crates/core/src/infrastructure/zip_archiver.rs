@@ -43,7 +43,7 @@ impl Archiver for ZipArchiver {
             .map(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
             .sum();
         ctx.report(0, bytes_total);
-        if ctx.cancellation_token().is_cancelled() {
+        if ctx.is_cancelled() {
             return Err(ArchiveError::Cancelled);
         }
 
@@ -58,7 +58,13 @@ impl Archiver for ZipArchiver {
 
         let mut bytes_done: u64 = 0;
         for path in &files {
-            if ctx.cancellation_token().is_cancelled() {
+            if ctx.is_cancelled() {
+                // Cleanup asymmetry with the success path: the success path drains
+                // the writer with `shutdown().await + sync_all().await` before drop,
+                // whereas here we do a plain `drop(writer)` then `remove_file`. On a
+                // contended host the dropped writer's queued blocking writes may not
+                // be observed before `remove_file`, so the partial zip can transiently
+                // survive on disk.
                 drop(writer);
                 remove_partial_output(dest_zip).await;
                 return Err(ArchiveError::Cancelled);
@@ -74,7 +80,10 @@ impl Archiver for ZipArchiver {
             bytes_done += data.len() as u64;
             ctx.report(bytes_done, bytes_total);
 
-            if ctx.cancellation_token().is_cancelled() {
+            if ctx.is_cancelled() {
+                // Same cleanup asymmetry as the pre-write checkpoint above: plain
+                // `drop(writer)` + `remove_file` (no `shutdown`/`sync_all`), so on a
+                // contended host the partial zip may transiently survive on disk.
                 drop(writer);
                 remove_partial_output(dest_zip).await;
                 return Err(ArchiveError::Cancelled);
@@ -109,7 +118,16 @@ impl Archiver for ZipArchiver {
 
 /// Best-effort cleanup for a cancelled compression.
 async fn remove_partial_output(dest_zip: &Path) {
-    let _ = tokio::fs::remove_file(dest_zip).await;
+    match tokio::fs::remove_file(dest_zip).await {
+        Ok(()) => {}
+        // The output was never created (cancelled before the first entry was
+        // written), so there is nothing to clean up.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        // Any other removal error leaves a partial zip on disk. We deliberately
+        // swallow it here: surfacing/logging cleanup failures is deferred to a
+        // future logging-infrastructure PR (no logging crate is wired up yet).
+        Err(_) => {}
+    }
 }
 
 /// Walk `root` and return the paths of every regular file it contains.
@@ -169,14 +187,33 @@ mod tests {
         }
     }
 
-    struct CancelOnFirstReport {
+    /// Cancels the shared token on the Nth `report()` call (1-based), and counts
+    /// how many times `report()` was invoked so a test can prove how far the
+    /// compression progressed before cancelling.
+    struct CancelOnNthReport {
+        cancel_on: usize,
         calls: AtomicUsize,
         token: CancellationToken,
     }
 
-    impl TaskProgressReport for CancelOnFirstReport {
+    impl CancelOnNthReport {
+        fn new(cancel_on: usize, token: CancellationToken) -> Self {
+            Self {
+                cancel_on,
+                calls: AtomicUsize::new(0),
+                token,
+            }
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    impl TaskProgressReport for CancelOnNthReport {
         fn report(&self, _task: TaskId, _progress: TaskProgress) {
-            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            // fetch_add returns the previous count; the Nth call has previous N-1.
+            if self.calls.fetch_add(1, Ordering::SeqCst) + 1 == self.cancel_on {
                 self.token.cancel();
             }
         }
@@ -229,7 +266,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancels_and_removes_partial_output_when_reporter_requests_it() {
+    async fn cancels_before_any_write_leaves_no_output() {
+        // Cancel on the FIRST report. `compress` reports `(0, total)` BEFORE the
+        // destination file is created, so the pre-creation checkpoint trips and the
+        // output is never opened. This is the trivial path: nothing to clean up.
         let src = tempfile::tempdir().unwrap();
         std::fs::write(src.path().join("a.txt"), b"hello").unwrap();
         std::fs::write(src.path().join("b.txt"), b"world").unwrap();
@@ -237,20 +277,54 @@ mod tests {
         let dest = out.path().join("o.zip");
 
         let token = CancellationToken::new();
-        let reporter = Arc::new(CancelOnFirstReport {
-            calls: AtomicUsize::new(0),
-            token: token.clone(),
-        });
-        let ctx = CompressContext::new(TaskId::new(1), reporter, token);
+        let reporter = Arc::new(CancelOnNthReport::new(1, token.clone()));
+        let ctx = CompressContext::new(TaskId::new(1), reporter.clone(), token);
 
         let err = ZipArchiver::new()
             .compress(src.path(), &dest, &ctx)
             .await
             .unwrap_err();
         assert!(matches!(err, ArchiveError::Cancelled), "got {err:?}");
+        assert_eq!(reporter.calls(), 1, "cancelled at the very first report");
         assert!(
             !dest.exists(),
-            "partial output should be removed after cancellation"
+            "output is never created on pre-write cancel"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancels_after_a_write_removes_the_partial_output() {
+        // Cancel on the SECOND report. Report #1 is `(0, total)` before the file is
+        // created; report #2 fires AFTER the writer is created AND the first entry is
+        // written, so by then the destination file genuinely exists on disk. The
+        // post-write checkpoint then drops the writer and removes the partial output,
+        // exercising the real cleanup-delete path (not the vacuous pre-write case).
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), b"hello").unwrap();
+        std::fs::write(src.path().join("b.txt"), b"world").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let dest = out.path().join("o.zip");
+
+        let token = CancellationToken::new();
+        let reporter = Arc::new(CancelOnNthReport::new(2, token.clone()));
+        let ctx = CompressContext::new(TaskId::new(1), reporter.clone(), token);
+
+        let err = ZipArchiver::new()
+            .compress(src.path(), &dest, &ctx)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ArchiveError::Cancelled), "got {err:?}");
+        // >= 2 reports means report #2 fired, which only happens after the writer was
+        // created and at least one entry was written ⇒ the dest file truly existed,
+        // so the subsequent `!dest.exists()` proves a real cleanup-delete ran.
+        assert!(
+            reporter.calls() >= 2,
+            "expected >=2 reports (>=1 entry written so the dest existed), got {}",
+            reporter.calls()
+        );
+        assert!(
+            !dest.exists(),
+            "the partial output that existed on disk must be removed after cancellation"
         );
     }
 
