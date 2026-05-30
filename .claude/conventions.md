@@ -29,6 +29,17 @@ This repository requires **all in-code comments to be written in English**.
 - TypeScript / JS / JSON: formatted and linted by **Biome** (`biome.json`). Run `pnpm check` (format + lint, with autofix) before committing; CI enforces it via `pnpm biome:ci`. Biome owns style (2-space indent, double quotes, semicolons) and import organization; `tsc` still owns type-checking and `knip` owns unused-code detection.
   - **`lint/a11y/useButtonType` is enforced.** Every raw `<button>` element — including in tests — must carry an explicit `type` attribute (e.g. `type="button"`). Run `pnpm exec biome check --write <touched files>` before staging to catch this automatically.
 - Match the surrounding code's comment density, naming, and idioms. Do not introduce a new style.
+- **`#[derive(Clone)]` over-constrains a generic that only holds `Arc<E>` — hand-write the impl instead.**
+  - **Why:** `#[derive(Clone)]` on `struct Foo<E> { x: Arc<E> }` generates `impl<E: Clone> Clone for Foo<E>` — it requires `E: Clone` even though cloning an `Arc<E>` only bumps a refcount and never clones `E`. For a generic bounded by a non-`Clone` trait (e.g. `E: Extractor`), the derive makes `Foo<E>` un-cloneable for real implementors even though the operation is perfectly sound.
+  - **What:** hand-write the impl so `Clone` holds for ALL `E`, independent of `E: Clone`:
+    ```rust
+    impl<E: Extractor> Clone for FormatRegistry<E> {
+        fn clone(&self) -> Self {
+            Self { extractor: Arc::clone(&self.extractor) }
+        }
+    }
+    ```
+    PR8's `FormatRegistry<E: Extractor>` hit exactly this — the engine clones the registry into each worker, and `UnrarExtractor` is not `Clone`. The derive looks correct and compiles in isolation but fails the moment a non-`Clone` `E` is substituted.
 
 ## Layer boundary discipline (implementation level)
 
@@ -37,6 +48,9 @@ This repository requires **all in-code comments to be written in English**.
 - All IO goes through the `Extractor` / `Archiver` / `Clock` ports; confine concrete implementations to `infrastructure`.
 - Reject imports that violate the dependency direction (presentation → application → domain, infrastructure → domain) in clippy / review.
 - **A context/port object handed to an adapter must expose the narrowest read-only surface that adapter needs — never the underlying capability.** `CompressContext` (passed to the `Archiver` port) exposes a read-only `is_cancelled()` predicate, never the raw `CancellationToken`: returning `&CancellationToken` would leak `.cancel()` (it takes `&self`) to an archiver that must only *observe* the signal, letting one task tear down the whole job. Hand out the observation, not the control.
+- **An output port may return an OWNED RAII guard to carry cleanup across the layer boundary.**
+  - **Why:** the application layer must hold an extracted directory whose temporary storage is reclaimed when it is done, WITHOUT naming any infrastructure type (that would violate the `application → infrastructure` non-dependency rule).
+  - **What:** an output port can return an owned guard as a boxed trait object — `Box<dyn ExtractedTree>` from `Extractor::extract` — where the concrete implementor (`infrastructure::TempWorkspace`) owns a `tempfile::TempDir` and reclaims it in `Drop`. The trait exposes the narrowest surface (`fn path(&self) -> &Path` only — never the underlying `TempDir`, so the application cannot call `keep()`/`close()` on it). The application holds the guard (wrapped in `application::format_registry::Prepared`) across the consuming step (compression) and drops it at end of scope, so temp cleanup is STRUCTURAL — guaranteed on success, error return, and unwind — not a manual call that a panic or early return could skip. This is the resource-cleanup analogue of the `CompressContext` and presentation `ProgressEmitter` narrow-surface rules: the port hands out an owned cleanup guarantee, not the raw capability.
 
 ### Aggregate encapsulation seam
 
