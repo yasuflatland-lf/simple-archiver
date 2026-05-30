@@ -47,7 +47,10 @@ impl TauriEmitter {
 
 impl ProgressEmitter for TauriEmitter {
     fn emit_progress(&self, ev: &ProgressEvent) {
-        // Best-effort: a failed emit must not propagate to the caller.
+        // Best-effort: a failed emit must not propagate to the caller. The
+        // load-bearing terminal signal is the `JobSummaryDto` returned by
+        // `run_job`; `into_summary` reconciles every task, so a dropped
+        // progress frame loses no task outcome.
         let _ = self.app.emit(PROGRESS_EVENT, ev);
     }
 }

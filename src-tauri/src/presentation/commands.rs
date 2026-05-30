@@ -92,7 +92,11 @@ pub fn add_items(state: State<'_, AppState>, paths: Vec<String>) -> Result<Draft
 
 /// Move the draft item at `from` to `to`, returning the new snapshot.
 #[tauri::command]
-pub fn reorder(state: State<'_, AppState>, from: usize, to: usize) -> Result<DraftSnapshot, String> {
+pub fn reorder(
+    state: State<'_, AppState>,
+    from: usize,
+    to: usize,
+) -> Result<DraftSnapshot, String> {
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.reorder(from, to)?;
     Ok(draft.snapshot())
@@ -126,6 +130,8 @@ pub fn set_output_dir(state: State<'_, AppState>, dir: String) -> Result<DraftSn
 /// This inner function is the IPC-free core of [`run_job`]: it takes a
 /// `&dyn ProgressEmitter` instead of an [`AppHandle`] so integration tests can
 /// drive a full job without a live Tauri application.
+///
+/// `pub` (not `pub(crate)`) solely so the `tests/` integration crate can drive it without a Tauri AppHandle.
 #[doc(hidden)]
 pub async fn run_job_inner(
     emitter: &dyn ProgressEmitter,
@@ -244,7 +250,7 @@ mod tests {
 
     #[test]
     fn preview_rejects_malformed_template_with_exact_contract_message() {
-        // This exact string is also asserted by the frontend test; keep them in sync.
+        // Frontend asserts /invalid naming template/i (prefix); this test pins the full string so the suffix can't drift unnoticed.
         let err = preview_output_name("img_{x}".to_string(), 1).unwrap_err();
         assert_eq!(err, "invalid naming template: stray or malformed brace");
     }
@@ -275,6 +281,16 @@ mod tests {
     }
 
     // ── classify_path ─────────────────────────────────────────────────────────
+
+    /// Classification is extension-based; FS existence is intentionally deferred
+    /// to the engine (consistent with the domain's no-FS-check stance). A
+    /// nonexistent path with a `.rar` extension therefore classifies successfully.
+    #[test]
+    fn classify_path_nonexistent_rar_classifies_by_extension() {
+        let path = std::path::Path::new("/nonexistent/path/archive.rar");
+        let item = classify_path(path).expect("nonexistent .rar should classify by extension");
+        assert_eq!(item, SourceItem::RarFile(path.to_path_buf()));
+    }
 
     #[test]
     fn classify_path_directory_is_folder() {
@@ -314,6 +330,43 @@ mod tests {
     }
 
     // ── AppState-level draft behavior ────────────────────────────────────────
+
+    /// `add_items` is all-or-nothing: a mixed batch containing an unsupported
+    /// path (e.g. `.txt`) must return `Err` and leave the draft item count at 0.
+    /// Mirrors what the command shell does (classify all, then mutate draft only
+    /// on full success), tested through the public `AppState` fields.
+    #[test]
+    fn add_items_mixed_batch_returns_err_and_draft_stays_empty() {
+        let state = AppState::default();
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let txt = dir.path().join("note.txt");
+        std::fs::write(&txt, b"").expect("write note.txt");
+
+        // Classify a valid dir and an invalid .txt — collect must short-circuit.
+        let paths = [
+            dir.path().to_string_lossy().into_owned(),
+            txt.to_string_lossy().into_owned(),
+        ];
+        let result: Result<Vec<_>, _> = paths
+            .iter()
+            .map(|p| classify_path(std::path::Path::new(p)))
+            .collect();
+
+        // The classification step must fail before we ever touch the draft.
+        assert!(
+            result.is_err(),
+            "mixed batch classification must return Err"
+        );
+
+        // Draft must remain untouched — item count stays 0.
+        let draft = state.draft.lock().unwrap();
+        let snap = draft.snapshot();
+        assert_eq!(
+            snap.items.len(),
+            0,
+            "draft must not be mutated when classification fails"
+        );
+    }
 
     /// Exercising the draft through `AppState` (whose fields are `pub`) mirrors
     /// what the thin command shells do, without needing a Tauri `State` wrapper.

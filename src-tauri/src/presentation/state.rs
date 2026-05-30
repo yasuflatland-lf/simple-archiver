@@ -3,7 +3,7 @@
 //! `AppState` is held in Tauri's managed state and accessed by each command
 //! handler. All fields are wrapped in `std::sync::Mutex` so they are
 //! `Send + Sync` without async locks — no lock must be held across an
-//! `.await` point (Wave 3 enforces that rule in the command layer).
+//! `.await` point (run_job in commands.rs holds no std lock across .await).
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -284,6 +284,40 @@ mod tests {
         assert!(msg.contains("to"), "error should mention `to`: {msg}");
     }
 
+    /// `reorder(from == to)` on a 3-item draft returns `Ok(())` and leaves order
+    /// unchanged (the remove + insert at the same index is a no-op in practice).
+    #[test]
+    fn reorder_same_index_is_ok_and_order_unchanged() {
+        let mut draft = JobDraft::new();
+        draft.add_items(vec![
+            SourceItem::Folder(PathBuf::from("/first")),
+            SourceItem::Folder(PathBuf::from("/second")),
+            SourceItem::Folder(PathBuf::from("/third")),
+        ]);
+        assert!(
+            draft.reorder(1, 1).is_ok(),
+            "reorder with from == to should succeed"
+        );
+        let snap = draft.snapshot();
+        assert_eq!(snap.items[0].path, "/first");
+        assert_eq!(snap.items[1].path, "/second");
+        assert_eq!(snap.items[2].path, "/third");
+    }
+
+    /// `reorder` on an empty (freshly-`new()`) draft returns `Err` whose message
+    /// mentions "from" (the `from` index check fires first).
+    #[test]
+    fn reorder_on_empty_draft_returns_err_mentioning_from() {
+        let mut draft = JobDraft::new();
+        let err = draft
+            .reorder(0, 0)
+            .expect_err("reorder on empty draft must fail");
+        assert!(
+            err.contains("from"),
+            "error on empty draft should mention `from`: {err}"
+        );
+    }
+
     // ── set_template ──────────────────────────────────────────────────────────
 
     /// A valid template is stored and appears in the snapshot.
@@ -295,6 +329,20 @@ mod tests {
             .expect("valid template should be accepted");
         let snap = draft.snapshot();
         assert_eq!(snap.naming_template, Some("photo_{n:03}".to_string()));
+    }
+
+    /// An empty-string template is rejected and `snapshot().naming_template` stays
+    /// `None` — an empty string must not overwrite a previously valid template.
+    #[test]
+    fn set_template_empty_string_returns_err_and_does_not_store() {
+        let mut draft = JobDraft::new();
+        let result = draft.set_template(String::new());
+        assert!(result.is_err(), "empty template string should return Err");
+        let snap = draft.snapshot();
+        assert_eq!(
+            snap.naming_template, None,
+            "empty template must not be stored"
+        );
     }
 
     /// An invalid template is rejected and the stored template is left unchanged.
