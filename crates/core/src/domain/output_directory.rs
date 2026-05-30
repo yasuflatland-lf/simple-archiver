@@ -28,15 +28,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_wraps_path() {
-        let path = PathBuf::from("/output/dir");
-        let output_dir = OutputDirectory::new(path.clone());
-        assert_eq!(output_dir.path(), path);
-    }
-
-    #[test]
     fn path_method_returns_same_path_passed_to_new() {
-        let path = PathBuf::from("/some/output/directory");
+        let path = PathBuf::from("/output/dir");
         let output_dir = OutputDirectory::new(path.clone());
         assert_eq!(output_dir.path(), &path);
     }

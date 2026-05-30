@@ -106,7 +106,7 @@ impl ArchiveJob {
 
         // Resolve a name for every item, propagating the first resolution error.
         let mut names: Vec<OutputFileName> = Vec::with_capacity(items.len());
-        for (i, _item) in items.iter().enumerate() {
+        for i in 0..items.len() {
             // `i` is 0-based, so `i + 1` is in `1..=u32::MAX` as long as
             // `items.len() <= u32::MAX`, which is true for any realistic job —
             // allocating that many items would exhaust memory first.
