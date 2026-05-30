@@ -23,11 +23,10 @@ tempfile = "3"
 lalrpop = "0.20"
 
 [package.metadata.cargo-machete]
-# loom (optional dep) and mockall (dev dep) are pre-declared for PR5 — loom for
-# concurrency model-checking, mockall for mocking the application ports — and are
-# intentionally not referenced in code yet, so cargo-machete reports them as unused.
-# Drop each from this list once the PR5 code actually uses it.
-ignored = ["loom", "mockall"]
+# mockall (dev dep) is pre-declared for PR5 to mock the application ports but is
+# not referenced in code yet, so cargo-machete reports it as unused. Drop it from
+# this list once the test code actually uses it.
+ignored = ["mockall"]
 
 [features]
 loom = ["dep:loom"]

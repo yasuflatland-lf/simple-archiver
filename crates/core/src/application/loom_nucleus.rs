@@ -15,6 +15,13 @@ use crate::domain::source_item::SourceItem;
 use crate::domain::task_progress::TaskProgress;
 use crate::domain::task_status::TaskEvent;
 
+/// Messages the success worker emits: StartCompressing + Progress + Complete.
+const SUCCESS_MSGS: usize = 3;
+/// Messages the cancel worker emits: StartCompressing + Cancel.
+const CANCEL_MSGS: usize = 2;
+/// Messages the failure worker emits: Fail.
+const FAILURE_MSGS: usize = 1;
+
 #[allow(dead_code)]
 pub(crate) fn model_terminal_messages_are_not_lost() {
     loom::model(|| {
@@ -23,7 +30,6 @@ pub(crate) fn model_terminal_messages_are_not_lost() {
         let started_at = Instant::now();
 
         let (tx, rx) = mpsc::channel::<WorkerMsg>();
-        let expected_messages = 6;
 
         let success_tx = tx.clone();
         let success_task = ids[0];
@@ -81,6 +87,17 @@ pub(crate) fn model_terminal_messages_are_not_lost() {
         drop(tx);
 
         let mut aggregator = Aggregator::new(job, started_at);
+        // NOTE: loom's `mpsc` (loom 0.7) models a channel as a bare message count
+        // (`rt::Channel` tracks only `msg_cnt`); it has NO notion of "all senders
+        // dropped", so `recv()` BLOCKS forever on an empty channel instead of
+        // returning `Err(RecvError)` — a `while let Ok(_) = rx.recv()` drain-to-
+        // closure deadlocks under loom. We therefore drain exactly the messages
+        // the workers above are defined to emit. The count is derived from those
+        // worker bodies (success: Start+Progress+Complete = 3, cancel: Start+Cancel
+        // = 2, failure: Fail = 1) rather than a magic literal, so it stays honest
+        // as the worker set changes, while loom still verifies that EVERY emitted
+        // message is received before `into_summary` finalizes (no message lost).
+        let expected_messages = SUCCESS_MSGS + CANCEL_MSGS + FAILURE_MSGS;
         for _ in 0..expected_messages {
             let msg = rx.recv().expect("worker message should not be lost");
             aggregator
