@@ -97,6 +97,11 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy -p simple-archiver-core --all-targets -- -D warnings
       - run: cargo nextest run -p simple-archiver-core --profile ci
+      # PR6: the presentation crate's tests (Tauri command surface, progress
+      # event sink, run_job integration) only build on runners with the Tauri
+      # toolchain, which the app job has. Run them here so they are covered in CI.
+      - run: cargo clippy -p simple-archiver --all-targets -- -D warnings
+      - run: cargo nextest run -p simple-archiver --profile ci
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
