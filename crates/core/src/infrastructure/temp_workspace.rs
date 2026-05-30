@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// An owned temporary directory. `Drop` removes it (and its contents) recursively.
 #[derive(Debug)]
-pub struct TempWorkspace {
+pub(crate) struct TempWorkspace {
     dir: tempfile::TempDir,
 }
 
