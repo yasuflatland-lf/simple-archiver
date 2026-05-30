@@ -1,54 +1,39 @@
-import { invoke } from "@tauri-apps/api/core";
-import { open, save } from "@tauri-apps/plugin-dialog";
-import { useState } from "react";
+import { useEffect } from "react";
 import "./App.css";
+import { FileDropZone } from "@/components/FileDropZone";
 import { ModeToggle } from "@/components/mode-toggle";
 import { NamingRuleForm } from "@/components/NamingRuleForm";
-import { Button } from "@/components/ui/button";
+import { OutputDirPicker } from "@/components/OutputDirPicker";
+import { RunControls } from "@/components/RunControls";
+import { TaskList } from "@/components/TaskList";
+import { subscribeProgress } from "@/lib/archive";
+import { useJobStore } from "@/store/jobStore";
 
 function App() {
-  const [src, setSrc] = useState<string | null>(null);
-  const [out, setOut] = useState<string | null>(null);
-  const [status, setStatus] = useState("");
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    // Track liveness so we can immediately release if the component unmounts
+    // before the subscription promise resolves.
+    let active = true;
 
-  async function selectFolder() {
-    try {
-      const picked = await open({ directory: true });
-      // null/undefined means the user cancelled — intentionally silent
-      if (typeof picked === "string") {
-        setSrc(picked);
-      }
-    } catch (error) {
-      setStatus(`Failed to open folder picker: ${error}`);
-    }
-  }
-
-  async function chooseOutput() {
-    try {
-      const target = await save({
-        filters: [{ name: "Zip archive", extensions: ["zip"] }],
+    subscribeProgress((event) => useJobStore.getState().applyProgress(event))
+      .then((fn) => {
+        if (active) {
+          unlisten = fn;
+        } else {
+          // Already unmounted — release immediately.
+          fn();
+        }
+      })
+      .catch(() => {
+        // Subscription failure is non-fatal for the UI shell.
       });
-      // null/undefined means the user cancelled — intentionally silent
-      if (typeof target === "string") {
-        setOut(target);
-      }
-    } catch (error) {
-      setStatus(`Failed to choose output: ${error}`);
-    }
-  }
 
-  async function compress() {
-    if (!src || !out) {
-      return;
-    }
-    setStatus("Compressing...");
-    try {
-      await invoke("compress_folder", { src, out });
-      setStatus("Done");
-    } catch (error) {
-      setStatus(`Failed: ${error}`);
-    }
-  }
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -64,27 +49,11 @@ function App() {
           Batch archive · RAR → ZIP
         </p>
 
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={selectFolder}>Select folder</Button>
-          <Button variant="secondary" onClick={chooseOutput}>
-            Choose output
-          </Button>
-          <Button variant="brand" onClick={compress} disabled={!src || !out}>
-            Compress
-          </Button>
-        </div>
-
-        <div className="text-sm text-muted-foreground">
-          <p>
-            Source: <span className="text-foreground">{src ?? "(none)"}</span>
-          </p>
-          <p>
-            Output: <span className="text-foreground">{out ?? "(none)"}</span>
-          </p>
-          <p>{status}</p>
-        </div>
-
+        <FileDropZone />
         <NamingRuleForm />
+        <TaskList />
+        <OutputDirPicker />
+        <RunControls />
       </div>
     </main>
   );
