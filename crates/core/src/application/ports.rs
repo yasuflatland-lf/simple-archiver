@@ -21,6 +21,9 @@ pub enum ArchiveError {
     /// The archiving backend reported a failure.
     #[error("archive backend error: {0}")]
     Backend(String),
+    /// The archive operation was cancelled by the caller.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 /// Compresses a directory tree into a zip archive.
@@ -46,4 +49,17 @@ pub trait Archiver: Send + Sync {
 pub trait Clock: Send + Sync {
     /// Return the current instant.
     fn now(&self) -> std::time::Instant;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ArchiveError;
+
+    #[test]
+    fn cancelled_displays_as_cancelled_and_has_no_source() {
+        let err = ArchiveError::Cancelled;
+
+        assert_eq!(err.to_string(), "cancelled");
+        assert!(std::error::Error::source(&err).is_none());
+    }
 }

@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 async_zip = { version = "0.0.18", features = ["tokio", "deflate"] }
 tokio = { version = "1", features = ["fs", "io-util", "rt", "sync"] }
+tokio-util = "0.7.18"
 walkdir = "2"
 thiserror = "2"
 loom = { version = "0.7", optional = true }
