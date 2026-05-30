@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// A source resolved to a directory ready for compression.
-pub enum Prepared {
+pub(crate) enum Prepared {
     /// A folder source — compressed in place, no temp directory.
     Folder(PathBuf),
     /// A rar source extracted into a temp guard; dropping the guard removes the dir.
@@ -20,7 +20,7 @@ pub enum Prepared {
 
 impl Prepared {
     /// The directory to hand to the `Archiver`.
-    pub fn dir(&self) -> &Path {
+    pub(crate) fn dir(&self) -> &Path {
         match self {
             Prepared::Folder(p) => p,
             Prepared::Extracted(tree) => tree.path(),
@@ -29,7 +29,7 @@ impl Prepared {
 }
 
 /// Resolves source items to compressible directories using an `Extractor`.
-pub struct FormatRegistry<E: Extractor> {
+pub(crate) struct FormatRegistry<E: Extractor> {
     extractor: Arc<E>,
 }
 
@@ -46,12 +46,12 @@ impl<E: Extractor> Clone for FormatRegistry<E> {
 
 impl<E: Extractor> FormatRegistry<E> {
     /// Build a registry over the given extractor.
-    pub fn new(extractor: Arc<E>) -> Self {
+    pub(crate) fn new(extractor: Arc<E>) -> Self {
         Self { extractor }
     }
 
     /// Resolve `source` into a `Prepared` directory, extracting rar files.
-    pub async fn prepare(&self, source: &SourceItem) -> Result<Prepared, ExtractError> {
+    pub(crate) async fn prepare(&self, source: &SourceItem) -> Result<Prepared, ExtractError> {
         match source {
             SourceItem::Folder(path) => Ok(Prepared::Folder(path.clone())),
             SourceItem::RarFile(path) => {

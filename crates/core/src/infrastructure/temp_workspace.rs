@@ -1,6 +1,9 @@
 //! A RAII temporary working directory used as the extraction target for rar files.
 //! Wraps `tempfile::TempDir`; the directory is removed when the value is dropped,
-//! which is what guarantees temp cleanup on success, failure, cancellation, and panic.
+//! which is what guarantees temp cleanup on success, error return, and cancellation.
+//! Cleanup also holds for stack-unwind panics under the default `panic = "unwind"`
+//! strategy (Drop runs during unwinding); it would NOT hold under `panic = "abort"`,
+//! since aborting skips destructors.
 
 use crate::application::ports::ExtractedTree;
 use std::path::Path;
@@ -13,14 +16,14 @@ pub struct TempWorkspace {
 
 impl TempWorkspace {
     /// Create a fresh temporary directory under the OS temp location.
-    pub fn new() -> std::io::Result<Self> {
+    pub(crate) fn new() -> std::io::Result<Self> {
         Ok(Self {
             dir: tempfile::tempdir()?,
         })
     }
 
     /// The path of the temporary directory.
-    pub fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         self.dir.path()
     }
 }
