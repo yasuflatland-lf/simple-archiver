@@ -12,6 +12,7 @@ import {
   addItems,
   cancelJob,
   PROGRESS_EVENT,
+  previewOutputName,
   reorder,
   runJob,
   setNamingRule,
@@ -113,6 +114,23 @@ describe("archive client", () => {
       vi.mocked(invoke).mockResolvedValue(undefined);
       await cancelJob();
       expect(vi.mocked(invoke)).toHaveBeenCalledWith("cancel_job");
+    });
+  });
+
+  describe("previewOutputName", () => {
+    it("invokes preview_output_name with template and seq", async () => {
+      vi.mocked(invoke).mockResolvedValue("img_001.zip");
+      await previewOutputName("img_{n:03}", 1);
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("preview_output_name", {
+        template: "img_{n:03}",
+        seq: 1,
+      });
+    });
+
+    it("returns the resolved filename string from the backend", async () => {
+      vi.mocked(invoke).mockResolvedValue("img_001.zip");
+      const result = await previewOutputName("img_{n:03}", 1);
+      expect(result).toBe("img_001.zip");
     });
   });
 
