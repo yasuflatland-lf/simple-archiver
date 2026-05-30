@@ -10,4 +10,6 @@ pub mod ports;
 pub mod progress;
 pub mod progress_aggregator;
 #[cfg(not(loom))]
+pub mod eta_estimator;
+#[cfg(not(loom))]
 pub mod run_archive_job;
