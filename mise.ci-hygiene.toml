@@ -1,0 +1,10 @@
+# mise config environment, loaded only when MISE_ENV=ci-hygiene (set on the `hygiene` CI job).
+#
+# cargo-modules has no prebuilt binary, so mise compiles it — together with the whole
+# rust-analyzer crate graph — from source (~16 min on a Windows runner, and it does not cache
+# reliably there). It is used ONLY by the `hygiene` job's `cargo modules orphans` step, so it is
+# kept out of the shared `mise.toml`: otherwise every job (core / frontend / app on macOS+Windows)
+# would install it via mise-action despite never running it. Renovate's mise manager matches this
+# file by default (`mise.<env>.toml`), so the pin is still tracked.
+[tools]
+"cargo:cargo-modules" = "0.26.0"
