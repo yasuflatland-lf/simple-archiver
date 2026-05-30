@@ -86,8 +86,10 @@ impl ArchiveJob {
     /// Plan a new job from `items`, deriving each task's output name from `rule`.
     ///
     /// Items are numbered 1-based in the order given: item at index `i` gets
-    /// sequence number `i + 1`, output name `rule.resolve(i + 1)`, and id
-    /// `TaskId::new(i + 1)`. Every task starts `Pending` with zero progress.
+    /// `TaskId(i + 1)`, its output name `rule.resolve(SequenceNumber::new(i + 1))`,
+    /// and starts `Pending` with zero progress. The `SequenceNumber` is a transient
+    /// argument to name resolution — it is derived from position and is NOT stored
+    /// on the task.
     ///
     /// Returns [`PlanError::Empty`] when `items` is empty, [`PlanError::Resolve`]
     /// when the rule cannot produce a valid name for some item, and
@@ -105,8 +107,11 @@ impl ArchiveJob {
         // Resolve a name for every item, propagating the first resolution error.
         let mut names: Vec<OutputFileName> = Vec::with_capacity(items.len());
         for (i, _item) in items.iter().enumerate() {
-            // `i + 1 >= 1` always holds, so this sequence number is always valid.
-            let seq = SequenceNumber::new(i as u32 + 1).expect("sequence numbers start at 1");
+            // `i` is 0-based, so `i + 1` is in `1..=u32::MAX` as long as
+            // `items.len() <= u32::MAX`, which is true for any realistic job —
+            // allocating that many items would exhaust memory first.
+            let seq = SequenceNumber::new(i as u32 + 1)
+                .expect("sequence number is non-zero for any job of at most u32::MAX items");
             let name = rule.resolve(seq).map_err(|source| PlanError::Resolve {
                 seq: i as u32 + 1,
                 source,
@@ -121,6 +126,8 @@ impl ArchiveJob {
         Self::check_unique(&names)?;
 
         // Build the tasks, pairing each item with its id and resolved name.
+        // `i` is 0-based here too, so `i + 1` is in `1..=u32::MAX` for the same
+        // reason as above — any realistic job fits within u32::MAX items.
         let tasks = items
             .into_iter()
             .zip(names)
@@ -179,7 +186,11 @@ impl ArchiveJob {
 
     // ── Accessors ─────────────────────────────────────────────────────────────
 
-    /// Return the ordered tasks in this job.
+    /// Return the tasks in this job in current execution order.
+    ///
+    /// The slice index is the task's POSITION, which is NOT the same as the
+    /// `TaskId`. A `TaskId` is a stable identity that does not change under
+    /// reordering; a task's position does.
     pub fn tasks(&self) -> &[ArchiveTask] {
         &self.tasks
     }
@@ -204,17 +215,18 @@ impl ArchiveJob {
             .ok_or(ReorderError::TaskNotFound(id))
     }
 
-    /// Swap the two tasks at positions `a` and `b`, then restore each
-    /// position's output name.
+    /// Swap the task objects at positions `a` and `b`, keeping each position's
+    /// output name bound to that position.
     ///
-    /// Names are position-derived (`seq = position + 1`) and were all validated
-    /// at plan time. Reordering only permutes which task holds which name: the
-    /// name stays with the POSITION while id/status/progress travel with the
-    /// TASK. After swapping the two tasks we therefore swap their names back so
-    /// each position keeps its already-validated name. This is infallible — it
-    /// never calls `rule.resolve` and never panics — and it maintains the
-    /// invariant "the task at position `p` holds the name `rule.resolve(p + 1)`"
-    /// inductively (plan establishes it; each move preserves it).
+    /// Reordering only changes which task object occupies a position; the output
+    /// name stays bound to the POSITION while the task's id, status, and progress
+    /// travel with the task. The implementation therefore (1) saves the current
+    /// name at each position before the swap, (2) calls `self.tasks.swap(a, b)`
+    /// to move the task objects, then (3) restores each position's saved name via
+    /// `set_output_name`. This is infallible — it never calls `rule.resolve` and
+    /// never panics — and it maintains the invariant "the task at position `p`
+    /// holds the name `rule.resolve(p + 1)`" inductively (plan establishes it;
+    /// each move preserves it).
     fn swap_and_rebind(&mut self, a: usize, b: usize) {
         let name_a = self.tasks[a].output_name().clone();
         let name_b = self.tasks[b].output_name().clone();
@@ -225,9 +237,12 @@ impl ArchiveJob {
 
     /// Verify that all `names` are distinct, returning the first duplicate.
     ///
-    /// A pure, list-level uniqueness check used defensively by [`plan`]. It is
-    /// also exercised directly by tests with a hand-built duplicate list, since
-    /// the public `plan` path cannot produce a collision.
+    /// A pure, list-level uniqueness check used defensively by [`plan`]. The
+    /// current naming rule guarantees injectivity over distinct sequence numbers,
+    /// so collisions cannot arise via `plan` today; the guard is kept so any
+    /// future rule change that breaks injectivity surfaces as a typed error rather
+    /// than a silent overwrite. It is also exercised directly by tests with a
+    /// hand-built duplicate list.
     ///
     /// [`plan`]: ArchiveJob::plan
     pub(crate) fn check_unique(names: &[OutputFileName]) -> Result<(), PlanError> {
@@ -553,6 +568,61 @@ mod tests {
         for task in job.tasks() {
             assert_eq!(task.status(), &TaskStatus::Pending);
         }
+    }
+
+    // ── apply_event targets by stable id, not position ───────────────────────
+
+    #[test]
+    fn apply_event_targets_repositioned_task_by_id_not_position() {
+        // Plan 3 items; id=3 is initially at position 2 (index 2).
+        let mut job = ArchiveJob::plan(sources(3), rule("file{n}"), out_dir()).unwrap();
+        let id3 = job.tasks()[2].id();
+        assert_eq!(id3.get(), 3);
+
+        // Move id=3 up so it now occupies position 1 (index 1).
+        job.move_up(id3).unwrap();
+        assert_eq!(job.tasks()[1].id().get(), 3);
+
+        // Apply StartExtracting to id=3. Lookup must use the stable id, not the
+        // old index (2), so the task now at index 1 should become Extracting.
+        job.apply_event(id3, TaskEvent::StartExtracting).unwrap();
+
+        for task in job.tasks() {
+            if task.id().get() == 3 {
+                assert_eq!(task.status(), &TaskStatus::Extracting);
+            } else {
+                assert_eq!(task.status(), &TaskStatus::Pending);
+            }
+        }
+    }
+
+    // ── swap_and_rebind preserves status/progress, rebinds name to position ──
+
+    #[test]
+    fn status_survives_reorder_and_output_name_rebinds_to_new_position() {
+        // Plan 3 items; id=2 is initially at index 1 with name "file2.zip".
+        let mut job = ArchiveJob::plan(sources(3), rule("file{n}"), out_dir()).unwrap();
+        let id2 = job.tasks()[1].id();
+        assert_eq!(id2.get(), 2);
+
+        // Advance id=2 to Extracting before the move.
+        job.apply_event(id2, TaskEvent::StartExtracting).unwrap();
+
+        // Move id=2 up: it should now sit at index 0 with name "file1.zip".
+        job.move_up(id2).unwrap();
+
+        let moved = job.tasks().iter().find(|t| t.id().get() == 2).unwrap();
+        // Status and progress travel with the task object.
+        assert_eq!(moved.status(), &TaskStatus::Extracting);
+        assert_eq!(moved.progress(), &TaskProgress::zero());
+        // The name is rebound to the new position (index 0 → "file1.zip").
+        assert_eq!(moved.output_name().as_str(), "file1.zip");
+
+        // The displaced task (originally id=1, now at index 1) is still Pending
+        // and has the name bound to index 1 ("file2.zip").
+        let displaced = job.tasks().iter().find(|t| t.id().get() == 1).unwrap();
+        assert_eq!(displaced.status(), &TaskStatus::Pending);
+        assert_eq!(displaced.output_name().as_str(), "file2.zip");
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────────

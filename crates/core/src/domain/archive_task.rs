@@ -35,7 +35,7 @@ impl TaskId {
 // ArchiveTask
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// An entity representing a single archive operation within an [`ArchiveJob`].
+/// An entity representing a single archive operation within an [`crate::domain::archive_job::ArchiveJob`].
 ///
 /// All fields are private; callers read state through the public accessors and
 /// mutate it only through the crate-internal `apply_event` / `set_output_name`
@@ -95,8 +95,8 @@ impl ArchiveTask {
 
     /// Replace the output filename.
     ///
-    /// Used by `ArchiveJob` when reordering tasks causes output names to be
-    /// rebound to different tasks.
+    /// Used by `ArchiveJob` during reordering to restore each position's output
+    /// name after the task objects are swapped between positions.
     pub(crate) fn set_output_name(&mut self, name: OutputFileName) {
         self.output_name = name;
     }

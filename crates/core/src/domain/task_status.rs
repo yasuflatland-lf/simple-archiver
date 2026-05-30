@@ -247,6 +247,11 @@ mod tests {
     }
 
     #[test]
+    fn extracting_complete_is_illegal() {
+        assert_illegal(TaskStatus::Extracting, TaskEvent::Complete);
+    }
+
+    #[test]
     fn compressing_start_extracting_is_illegal() {
         assert_illegal(TaskStatus::Compressing, TaskEvent::StartExtracting);
     }
