@@ -114,11 +114,28 @@ impl<A: Archiver + 'static> RunArchiveJob<A> {
         // Single-writer aggregation loop: runs on the caller's async task, never shared.
         let mut aggregator = Aggregator::new(job, clock.now());
         while let Some(msg) = rx.recv().await {
-            let _ = aggregator.apply(msg);
+            // `apply` runs unconditionally (it MUST still run in release). An `Err`
+            // means a worker emitted out-of-order events — an engine-ordering bug.
+            // In debug/test builds we fail loudly to catch it; in release we leave
+            // the task state unchanged (a no-op continue) and `into_summary`
+            // reconciles any non-terminal task to `failed`. Surfacing this via
+            // logging is deferred to a future logging-infrastructure PR.
+            let outcome = aggregator.apply(msg);
+            // Reference `outcome` in both profiles so release (where `debug_assert!`
+            // expands to nothing) does not warn about an unused binding under
+            // `-D warnings`. The `is_ok()` value is discarded in release.
+            let _ = outcome.is_ok();
+            debug_assert!(
+                outcome.is_ok(),
+                "out-of-order worker event (engine-ordering bug): {outcome:?}"
+            );
             sink.report(aggregator.snapshot(clock.now()));
         }
 
         // Join workers (compress outcomes are already captured as terminal events).
+        // A panicked worker yields a join error here; we ignore it because the
+        // task is still tallied as `failed` via `into_summary`'s state reconciliation
+        // (it never reached a terminal status), so no behavior change is needed.
         for handle in handles {
             let _ = handle.await;
         }
@@ -351,6 +368,85 @@ mod tests {
         succeeded.sort_by_key(|i| i.get());
         assert_eq!(succeeded, vec![id[0], id[2]]);
         assert_eq!(summary.cancelled, vec![id[1]]);
+        assert!(summary.failed.is_empty());
+    }
+
+    /// Fires an externally-owned token from inside `compress` for one designated
+    /// output, then re-checks `ctx.is_cancelled()` to return `Cancelled` — proving
+    /// the live token threads through run_one -> CompressContext -> archiver via
+    /// `ctx`, NOT via the engine's pre-start `cancel_names` path.
+    ///
+    /// To keep the cancelled/succeeded split deterministic, the cancel target waits
+    /// on a `Notify` until the sibling has finished compressing before firing the
+    /// token. That ordering guarantees the sibling's pre-start cancellation check
+    /// (in `run_one`) runs while the token is still un-fired, so the sibling always
+    /// reaches `Complete`; only the target observes the live token.
+    struct LiveCancelArchiver {
+        token: CancellationToken,
+        cancel_target: String,
+        sibling_done: Arc<tokio::sync::Notify>,
+    }
+    impl Archiver for LiveCancelArchiver {
+        async fn compress(
+            &self,
+            _src: &Path,
+            dest: &Path,
+            ctx: &CompressContext,
+        ) -> Result<(), ArchiveError> {
+            let name = dest.file_name().unwrap().to_string_lossy().to_string();
+            if name == self.cancel_target {
+                // Wait until the sibling has completed so firing the token cannot
+                // race the sibling's pre-start cancellation check.
+                self.sibling_done.notified().await;
+                // Simulate an external cancel landing after this task has started.
+                self.token.cancel();
+                // Read cancellation ONLY through the context the engine wired up.
+                if ctx.is_cancelled() {
+                    return Err(ArchiveError::Cancelled);
+                }
+                Ok(())
+            } else {
+                // The sibling ignores cancellation and always succeeds, then signals
+                // the target it may fire the token.
+                self.sibling_done.notify_one();
+                Ok(())
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn live_token_fired_mid_run_cancels_in_progress_task_via_ctx() {
+        let job = folder_job(2); // outputs f1.zip (sibling), f2.zip (cancel target)
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+        let token = CancellationToken::new();
+        let archiver = Arc::new(LiveCancelArchiver {
+            token: token.clone(),
+            cancel_target: "f2.zip".to_string(),
+            sibling_done: Arc::new(tokio::sync::Notify::new()),
+        });
+        // parallelism 2 so the target can be in `compress` (awaiting the sibling)
+        // while the sibling runs to completion; `Notify::notify_one` is sticky, so
+        // the order in which the two enter `compress` does not matter.
+        let engine = RunArchiveJob::new(archiver, nz(2));
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            engine.execute_with_cancellation(job, &clock, &sink, token),
+        )
+        .await
+        .expect("must not deadlock");
+
+        // The in-progress task that observed the live token via `ctx` is cancelled.
+        assert_eq!(summary.cancelled, vec![ids[1]]);
+        // A sibling still completes, proving the live token did not tear down the
+        // whole job — only the task that read `ctx.is_cancelled()` ended cancelled.
+        assert!(
+            !summary.succeeded.is_empty(),
+            "a sibling task must still complete"
+        );
+        assert_eq!(summary.succeeded, vec![ids[0]]);
         assert!(summary.failed.is_empty());
     }
 
