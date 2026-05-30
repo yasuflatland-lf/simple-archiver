@@ -10,7 +10,11 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
-    "knip": "knip"
+    "knip": "knip",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "check": "biome check --write .",
+    "biome:ci": "biome ci ."
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.4",
@@ -26,6 +30,7 @@
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
     "@tauri-apps/cli": "^2",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.1.0",
