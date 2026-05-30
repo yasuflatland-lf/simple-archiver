@@ -35,5 +35,9 @@ dist/
 # Rust / Cargo (workspace target at repo root)
 /target/
 
+# Coverage artifacts (lcov from cargo-llvm-cov / vitest; uploaded to Codecov in CI)
+/lcov.info
+/coverage/
+
 # mise (local state)
 .mise.local.toml
