@@ -1,7 +1,7 @@
 # CLAUDE.md — simple-archiver
 
 Mac/Windows native desktop app (Tauri 2) that takes drag-and-dropped rar files/folders and batch-renames them into zip archives.
-State: **PR8 rar extraction landed** (PR6 presentation wiring + PR7 frontend + PR8 `UnrarExtractor`/`TempWorkspace`/`FormatRegistry` rar→temp→zip); engine is end-to-end for both folders and rar files.
+State: **PR9 progress bar + ETA landed** (PR6 presentation wiring + PR7 frontend + PR8 `UnrarExtractor`/`TempWorkspace`/`FormatRegistry` rar→temp→zip + PR9 `EtaEstimator`/`EtaTracker` + shadcn `Progress` bars); engine is end-to-end for both folders and rar files, with live per-task and overall ETA.
 
 ## Mandatory rules (harness)
 
