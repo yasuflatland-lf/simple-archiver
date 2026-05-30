@@ -68,6 +68,72 @@ The spec calls for the compression libraries to be treated as plugins, behind a 
 
 Adding another archive format means adding an adapter behind these ports and a branch in the registry — the engine, domain, and UI stay untouched.
 
+## Processing flow
+
+The end-to-end path from a drop to the final summary, across the four layers:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as Frontend<br/>(React + zustand)
+    participant Cmd as Tauri commands<br/>(presentation)
+    participant Engine as RunArchiveJob + Aggregator<br/>(application)
+    participant Worker as Worker ×N<br/>(per task)
+    participant Reg as FormatRegistry
+    participant Unrar as UnrarExtractor
+    participant Zip as ZipArchiver
+
+    Note over User,Cmd: 1 — Build the draft
+    User->>UI: drag & drop rar files / folders
+    UI->>Cmd: add_items(paths)
+    Cmd->>Cmd: classify_path → Folder | RarFile
+    Cmd-->>UI: DraftSnapshot
+    User->>UI: set naming rule + output dir
+    UI->>Cmd: set_naming_rule / set_output_dir
+    UI->>Cmd: preview_output_name(template, seq)
+    Cmd-->>UI: preview filenames
+
+    Note over User,Zip: 2 — Run the job
+    User->>UI: click Run
+    UI->>Cmd: run_job()
+    Cmd->>Cmd: draft.build() → ArchiveJob, claim run slot
+    Cmd->>Engine: execute_with_cancellation(job, sink, token)
+
+    loop per task — bounded to N parallel workers
+        Engine->>Worker: spawn run_one(task)
+        alt RarFile
+            Worker->>Reg: prepare(RarFile)
+            Reg->>Unrar: extract(path) → temp workspace
+            Unrar-->>Worker: ExtractedTree (RAII temp guard)
+        else Folder
+            Worker->>Reg: prepare(Folder) → dir as-is
+        end
+        Worker->>Zip: compress(dir, dest, ctx)
+        loop while compressing
+            Zip-->>Worker: ctx.report(bytes_done / total)
+            Worker-->>Engine: WorkerMsg::Progress (mpsc)
+            Engine->>Engine: Aggregator.apply + snapshot
+            Engine-->>UI: emit "archive://progress"
+            UI->>UI: applyProgress → per-row & overall bar / ETA
+        end
+        Worker-->>Engine: WorkerMsg::Status (Complete | Fail | Cancel)
+        Note over Worker,Unrar: temp workspace dropped → cleaned up
+    end
+
+    Engine-->>Cmd: JobSummary
+    Cmd-->>UI: JobSummaryDto (run_job resolves)
+    UI-->>User: success / failure summary
+
+    Note over User,Zip: Cancellation — any time during a run
+    User->>UI: click Cancel
+    UI->>Cmd: cancel_job()
+    Cmd->>Engine: request_cancel() → CancellationToken fired
+    Engine-->>Worker: ctx.is_cancelled() → interrupt in-flight task
+```
+
+Workers run concurrently up to `available_parallelism`, but only one task — the aggregator on the engine's own task — ever writes progress: each worker pushes `WorkerMsg` over an `mpsc` channel, the aggregator folds them into a job-wide snapshot, and the presentation layer's `TauriEmitter` forwards each snapshot to the frontend as an `archive://progress` event. A failed item is tallied but never stops its siblings, and `run_job` always resolves with a `JobSummaryDto` — the load-bearing terminal signal — even if some progress frames were dropped along the way.
+
 ## Getting started
 
 Prerequisites: a Rust toolchain, Node.js, and pnpm. The toolchain versions are pinned via [`mise.toml`](mise.toml) (run `mise install` to get them), and the Tauri prerequisites for your OS are listed in the [Tauri docs](https://v2.tauri.app/start/prerequisites/).
