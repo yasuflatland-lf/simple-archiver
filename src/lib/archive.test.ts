@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
+import type { TaskProgressDto } from "@/bindings/TaskProgressDto";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
@@ -110,11 +111,13 @@ describe("archive client", () => {
       const received: ProgressEvent[] = [];
       await subscribeProgress((ev) => received.push(ev));
 
-      // Build a typed ProgressEvent literal — also acts as a compile-time check
-      // that the camelCase field names match the generated binding.
+      // Build a typed ProgressEvent literal with a non-empty perTask array —
+      // acts as a compile-time check that camelCase field names match the
+      // generated bindings, and proves per-task data is forwarded intact.
+      const taskProgress: TaskProgressDto = { taskId: 1, bytesDone: 10, bytesTotal: 20 };
       const payload: ProgressEvent = {
-        overall: { bytesDone: 1, bytesTotal: 2 },
-        perTask: [],
+        overall: { bytesDone: 10, bytesTotal: 20 },
+        perTask: [taskProgress],
         elapsedMs: 3,
       };
 

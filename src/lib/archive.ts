@@ -49,7 +49,8 @@ export function runJob(): Promise<JobSummaryDto> {
 
 /**
  * Request cancellation of the running archive job.
- * Resolves when the cancellation signal has been delivered.
+ * Resolves once the cancellation request has been sent to the backend;
+ * the job may still be winding down after this resolves.
  */
 export function cancelJob(): Promise<void> {
   return invoke<void>("cancel_job");
@@ -58,6 +59,7 @@ export function cancelJob(): Promise<void> {
 /**
  * Subscribe to real-time progress events emitted by the backend during a job.
  * Returns the unlisten function; call it to stop receiving events.
+ * The returned promise rejects on listen failure (e.g. IPC/permission error); callers must handle it.
  */
 export function subscribeProgress(
   onProgress: (event: ProgressEvent) => void,
