@@ -55,8 +55,8 @@ async fn rar_is_extracted_and_recompressed_to_zip() {
         .map(|i| archive.by_index(i).unwrap().name().to_string())
         .collect();
     assert!(
-        names.iter().any(|n| n.ends_with("hello.txt")),
-        "zip should contain hello.txt, got {names:?}"
+        names.iter().any(|n| n.ends_with("hello world.txt")),
+        "zip should contain hello world.txt, got {names:?}"
     );
 }
 

@@ -17,10 +17,11 @@ async fn extracts_fixture_into_a_temp_directory() {
         .await
         .expect("extraction succeeds");
 
-    // Fixture contract (see plan Prerequisites): a top-level `hello.txt` = "hello rar\n".
-    let extracted = std::fs::read_to_string(tree.path().join("hello.txt"))
-        .expect("extracted hello.txt should exist");
-    assert_eq!(extracted, "hello rar\n");
+    // Fixture contract: a top-level `hello world.txt` = "hello world" (11 bytes, no newline).
+    // The committed sample.rar is a real RAR5 archive (user-provided).
+    let extracted = std::fs::read_to_string(tree.path().join("hello world.txt"))
+        .expect("extracted hello world.txt should exist");
+    assert_eq!(extracted, "hello world");
 }
 
 #[tokio::test]
