@@ -1,8 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
-import { NamingRuleForm, DEBOUNCE_MS } from "./NamingRuleForm";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEBOUNCE_MS, NamingRuleForm } from "./NamingRuleForm";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -30,7 +36,9 @@ describe("NamingRuleForm", () => {
   });
 
   it("shows an error when the backend rejects the template", async () => {
-    vi.mocked(invoke).mockRejectedValue("invalid naming template: stray or malformed brace");
+    vi.mocked(invoke).mockRejectedValue(
+      "invalid naming template: stray or malformed brace",
+    );
     render(<NamingRuleForm />);
 
     await waitFor(async () => {
@@ -94,7 +102,9 @@ describe("NamingRuleForm", () => {
 
   it("clears a previous error once a valid template resolves", async () => {
     vi.mocked(invoke)
-      .mockRejectedValueOnce("invalid naming template: stray or malformed brace")
+      .mockRejectedValueOnce(
+        "invalid naming template: stray or malformed brace",
+      )
       .mockResolvedValue("ok_1.zip");
     const user = userEvent.setup();
     render(<NamingRuleForm />);

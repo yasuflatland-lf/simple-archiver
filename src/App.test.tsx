@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -54,7 +54,7 @@ describe("App compress flow", () => {
     // Use the native DOM property — jest-dom is not loaded in this setup.
     expect(
       (screen.getByRole("button", { name: /^compress$/i }) as HTMLButtonElement)
-        .disabled
+        .disabled,
     ).toBe(true);
   });
 });
