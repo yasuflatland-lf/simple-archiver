@@ -162,8 +162,16 @@ mod tests {
         assert_eq!(
             snap.per_task,
             vec![
-                TaskProgressEntry { id: id[0], progress: TaskProgress::new(2, 10), eta: None },
-                TaskProgressEntry { id: id[1], progress: TaskProgress::new(3, 5), eta: None },
+                TaskProgressEntry {
+                    id: id[0],
+                    progress: TaskProgress::new(2, 10),
+                    eta: None
+                },
+                TaskProgressEntry {
+                    id: id[1],
+                    progress: TaskProgress::new(3, 5),
+                    eta: None
+                },
             ]
         );
         assert_eq!(snap.elapsed, Duration::from_millis(50));

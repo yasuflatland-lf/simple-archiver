@@ -181,7 +181,7 @@ mod estimator_tests {
         e.observe(at(base, 1000), 1);
         e.observe(at(base, 1500), 51);
         e.observe(at(base, 2000), 101); // window now [1000ms..2000ms]
-        // Recent window: 100 bytes over 1s = 100 B/s; 200 remaining -> 2s.
+                                        // Recent window: 100 bytes over 1s = 100 B/s; 200 remaining -> 2s.
         assert_eq!(e.eta(200), Some(Duration::from_secs(2)));
     }
 
