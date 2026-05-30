@@ -66,6 +66,73 @@ self.status = self.status.clone().apply(event)?;
 - **`thiserror` `source` field:** a field literally named `source` is auto-treated as the error source (implicit `#[source]`). Add a brief comment at the definition to flag this non-obvious framework behavior so it is not renamed inadvertently.
 - **Defensive guards:** when a check is structurally unreachable via the public API but kept for future-proofing (e.g. `check_unique` inside `ArchiveJob`), add a comment explaining why it exists so a future "cleanup" does not silently remove a safety net.
 
+## Presentation / IPC layer
+
+### HARNESS — RAII guard for must-clear-on-exit managed state
+
+**Why:** a manual `finish()` call on the happy return path is silently skipped if the future panics or is dropped (e.g. during Tauri shutdown or a `select!`-cancel). Any state that MUST be reset on every exit path needs a `Drop`-based guarantee.
+
+**What:** write a small RAII guard struct that holds a `&Mutex<State>` *reference* — NOT a live `MutexGuard` — and calls the reset method inside `Drop`. Because the guard holds only a borrow (not an active lock), nothing is held across any `.await` point, keeping clippy's `await_holding_lock` lint clean. **Arm the guard only after the acquire/registration succeeds**, so a rejected start never clears another holder's state.
+
+```rust
+struct RunSlotGuard<'a> {
+    run: &'a std::sync::Mutex<RunState>,
+}
+impl Drop for RunSlotGuard<'_> {
+    fn drop(&mut self) {
+        // Recover from poisoned lock (see "std Mutex poison policy" below) so the
+        // slot is always freed even after a panic.
+        let mut run = self.run.lock().unwrap_or_else(|p| p.into_inner());
+        run.finish();
+    }
+}
+```
+
+PR6 example: `RunSlotGuard` in `run_job` (`src-tauri/src/presentation/commands.rs`) frees the single-active-job slot on any exit path — normal return, `?` early-return, future drop.
+
+### std Mutex poison policy — asymmetric, by intent
+
+**Why:** acquire sites and cleanup sites have opposite requirements. An acquire site that starts new work should refuse to operate on a corrupted lock (fail loudly). A cleanup/cancel site that must always succeed should never be gated by a prior panic.
+
+**What:** apply asymmetrically:
+
+- **Acquire sites (start new work):** propagate poison as an IPC error — `.lock().map_err(|e| e.to_string())?`. A fresh job that refuses to start on a poisoned lock is better than silently inheriting corrupt state.
+- **Cleanup/cancel sites (must always run):** recover the guard — `.lock().unwrap_or_else(|p| p.into_inner())`. A prior panic must not strand the slot or silently drop a user-requested cancellation.
+
+Document the rationale at each call site with a comment. This is the no-silent-failure interim policy (see the "Error handling" section above) applied to lock poisoning — do not restate that policy here, only the asymmetric lock rule.
+
+PR6 examples: `run_job` uses `.map_err(|e| e.to_string())?` at both the draft and run-slot acquire; `RunSlotGuard::drop` and `cancel_job` use `unwrap_or_else(|p| p.into_inner())`.
+
+### Encapsulate the invariant in the TYPE, not the call site (presentation managed-state)
+
+**Why and What:** the same principle as the aggregate-encapsulation seam (see that section above) applies equally to presentation-layer managed state. A Tauri `State<T>` value should own its invariant via methods, not rely on a guard check that happens to live in one command handler — a second command path could bypass it.
+
+PR6 example: `RunState` in `src-tauri/src/presentation/state.rs` keeps its `token: Option<CancellationToken>` **private** and exposes only `try_start` / `request_cancel` / `finish`. "Reject if already running" is therefore structural: no command handler can poke the field directly or sneak past the guard. Cross-reference: this is the same rule as the aggregate-encapsulation seam — field visibility forces invariant ownership.
+
+### Presentation-layer DTO conventions
+
+**Why:** the wire shape must evolve independently of domain/application types; domain and application crates must stay free of serde and ts-rs dependencies.
+
+**What:**
+
+- Wire-contract DTOs live exclusively in the presentation crate.
+- Derive `Serialize + TS + Clone + Debug + PartialEq + Eq` (for send-only DTOs omit `Deserialize`; `Serialize` alone suffices). For the `Eq` requirement, cross-reference the value-object-equality rule — it applies identically to DTOs, so derive both `PartialEq` and `Eq` whenever all fields are `Eq`-capable.
+- Apply `#[serde(rename_all = "camelCase")]` on every DTO struct and `#[ts(export, export_to = "...")]` to regenerate the TypeScript binding automatically on test runs.
+- Map from domain/application types via `From` impls written **in the presentation layer only** (domain/application stay serde/ts-rs-free). Keep `From` impls in `dto.rs` next to the DTO they produce.
+- When `u64` fields would emit `bigint` in TypeScript (which mismatches Tauri's JSON-number IPC transport), annotate with `#[ts(type = "number")]` and document the reason.
+
+PR6 examples: `ProgressEvent`, `JobSummaryDto`, `DraftSnapshot` in `src-tauri/src/presentation/dto.rs`; mapping impls `From<&JobProgress> for ProgressEvent`, `From<JobSummary> for JobSummaryDto`.
+
+### HARNESS — testability seam at the IPC boundary
+
+**Why:** Tauri command handlers receive an `AppHandle`, which requires a live Tauri application to construct — making them impossible to unit-test in isolation.
+
+**What:** extract the command's load-bearing logic into an inner function (`run_job_inner`) that takes a `&dyn ProgressEmitter` instead of an `AppHandle`. The thin `#[tauri::command]` wrapper constructs the concrete `TauriEmitter` and delegates. Provide a `RecordingEmitter` test double (a `Mutex<Vec<ProgressEvent>>`) that implements `ProgressEmitter` for use in unit and integration tests without the Tauri runtime.
+
+The `ProgressEmitter` trait exposes only `emit_progress(&self, ev: &ProgressEvent)` — never the raw `AppHandle`. This is the same narrow-surface rule as the port discipline in the "Layer boundary discipline" section above (`CompressContext` exposes only `is_cancelled()`, not the full `CancellationToken`). Apply the same discipline here: the port exposes the observation capability, not the underlying handle.
+
+PR6 examples: `run_job_inner` + `ProgressEmitter` trait + `RecordingEmitter` in `src-tauri/src/presentation/events.rs` and `src-tauri/src/presentation/commands.rs`.
+
 ## TypeScript / frontend conventions
 
 - **Validate before using persisted/deserialized external values.** Do not blind-cast `localStorage.getItem(key) as T`; use a type guard and fall back to a safe default on an unrecognized value. (`isTheme` in `theme-provider.tsx` is the canonical shape.)
