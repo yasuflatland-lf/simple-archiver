@@ -9,6 +9,7 @@ tokio = { version = "1", features = ["fs", "io-util", "rt", "sync"] }
 tokio-util = "0.7.18"
 walkdir = "2"
 thiserror = "2"
+tempfile = "3"
 loom = { version = "0.7", optional = true }
 logos = "0.14"
 lalrpop-util = "0.20"
@@ -17,7 +18,6 @@ lalrpop-util = "0.20"
 mockall = "0.13"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 zip = "2"
-tempfile = "3"
 
 [build-dependencies]
 lalrpop = "0.20"

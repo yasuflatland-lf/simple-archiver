@@ -9,3 +9,5 @@
 pub mod system_clock;
 #[cfg(not(loom))]
 pub mod zip_archiver;
+#[cfg(not(loom))]
+pub mod temp_workspace;
