@@ -5,15 +5,12 @@ import type { ProgressEvent } from "@/bindings/ProgressEvent";
 // Namespace import to disambiguate the command wrappers from the store actions,
 // which share names (addItems, reorder, setNamingRule, ...).
 import * as archive from "@/lib/archive";
+import { messageFromReason } from "@/lib/errors";
 
-// Normalize a rejection reason into a human-readable message. Tauri command
-// errors arrive as strings; transport/serialization failures may reject with an
-// Error or other value, so avoid rendering "[object Object]".
-function messageFromReason(reason: unknown): string {
-  if (typeof reason === "string") return reason;
-  if (reason instanceof Error) return reason.message;
-  return "Something went wrong. Please try again.";
-}
+// Monotonic counter tagging each recomputePreviews run. A run only commits its
+// result if it is still the latest; otherwise a slower batch could overwrite a
+// newer one and leave previewNames out of sync with draft.items.
+let previewGeneration = 0;
 
 /**
  * The central UI state for building a draft and running an archive job.
@@ -23,13 +20,20 @@ function messageFromReason(reason: unknown): string {
 export interface JobState {
   /** The current draft (queued items, naming template, output dir). */
   draft: DraftSnapshot;
-  /** Preview output filenames, one per draft item, in order. */
+  /**
+   * Preview output filenames, index-aligned with draft.items: either empty
+   * (no template, or a recompute in flight) or exactly items.length long.
+   */
   previewNames: string[];
   /** The latest progress snapshot received during a job, if any. */
   progress: ProgressEvent | null;
   /** The summary of the most recently finished job, if any. */
   summary: JobSummaryDto | null;
-  /** Task ids in job order, derived from progress / a finished job. */
+  /**
+   * Backend task id for each draft item, positionally aligned with draft.items
+   * (index i corresponds to the task rendered at row i). Derived from the latest
+   * progress event or the finished-job summary; cleared when the draft is edited.
+   */
   taskIdByIndex: number[];
   /** Whether an archive job is currently in flight. */
   running: boolean;
@@ -66,7 +70,15 @@ export const useJobStore = create<JobState>()((set, get) => ({
   addItems: async (paths) => {
     try {
       const draft = await archive.addItems(paths);
-      set({ draft, error: null });
+      // Editing the draft changes item identity/order, so any prior job's
+      // per-row verdicts (summary/progress/taskIdByIndex) are now stale.
+      set({
+        draft,
+        error: null,
+        summary: null,
+        progress: null,
+        taskIdByIndex: [],
+      });
       await get().recomputePreviews();
     } catch (reason) {
       set({ error: messageFromReason(reason) });
@@ -76,7 +88,15 @@ export const useJobStore = create<JobState>()((set, get) => ({
   reorder: async (from, to) => {
     try {
       const draft = await archive.reorder(from, to);
-      set({ draft, error: null });
+      // Reordering rows invalidates the prior job's positionally-aligned
+      // verdicts, so clear them along with the draft replacement.
+      set({
+        draft,
+        error: null,
+        summary: null,
+        progress: null,
+        taskIdByIndex: [],
+      });
       await get().recomputePreviews();
     } catch (reason) {
       set({ error: messageFromReason(reason) });
@@ -133,9 +153,12 @@ export const useJobStore = create<JobState>()((set, get) => ({
   },
 
   recomputePreviews: async () => {
+    // Tag this run; a later run bumps the counter and supersedes us.
+    const generation = ++previewGeneration;
     const { draft } = get();
     const template = draft.namingTemplate;
     if (template === null) {
+      // No await before this set, so no newer run can have started yet.
       set({ previewNames: [] });
       return;
     }
@@ -146,8 +169,12 @@ export const useJobStore = create<JobState>()((set, get) => ({
           archive.previewOutputName(template, i + 1),
         ),
       );
+      // Bail if a newer recompute superseded this one while awaiting.
+      if (generation !== previewGeneration) return;
       set({ previewNames: names, error: null });
     } catch (reason) {
+      // Same staleness check on the failure path.
+      if (generation !== previewGeneration) return;
       set({ previewNames: [], error: messageFromReason(reason) });
     }
   },
