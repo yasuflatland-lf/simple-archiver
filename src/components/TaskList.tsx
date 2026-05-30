@@ -22,7 +22,11 @@ export function basename(path: string): string {
  *
  * Priority:
  * 1. running=true  → bytes from perTask[index] or "Processing"
- * 2. summary≠null  → classify via taskIdByIndex
+ * 2. summary≠null  → maps row `index` → taskId via taskIdByIndex[index], then
+ *    membership-tests that id against summary.succeeded / summary.cancelled /
+ *    summary.failed. This relies on the positional-alignment invariant:
+ *    taskIdByIndex is index-aligned with draft.items (position 0 in
+ *    taskIdByIndex corresponds to position 0 in draft.items, etc.).
  * 3. default        → "Waiting"
  */
 function computeStatus(
@@ -114,7 +118,8 @@ export function TaskList() {
 
             return (
               <tr
-                key={item.path}
+                // biome-ignore lint/suspicious/noArrayIndexKey: rows are a positional, backend-ordered list with no per-row local state; item paths may legitimately duplicate, so they are not unique keys.
+                key={i}
                 className="border-b border-border/50 hover:bg-muted/30 transition-colors"
               >
                 {/* Sequence number */}
@@ -141,7 +146,10 @@ export function TaskList() {
                 </td>
 
                 {/* Output preview name */}
-                <td className="py-2 pr-3 font-mono text-muted-foreground">
+                <td
+                  data-testid={`output-cell-${i}`}
+                  className="py-2 pr-3 font-mono text-muted-foreground"
+                >
                   {outputName}
                 </td>
 

@@ -85,8 +85,12 @@ describe("TaskList rendering", () => {
 
     render(<TaskList />);
 
-    // Row should still be rendered; output cell should be empty string
+    // Row should still be rendered
     expect(screen.getByText("test.rar")).toBeTruthy();
+
+    // Output cell must be empty (guards the previewNames[i] ?? "" fallback)
+    const outputCell = screen.getByTestId("output-cell-0");
+    expect(outputCell.textContent).toBe("");
   });
 });
 
