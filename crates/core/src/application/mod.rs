@@ -4,3 +4,4 @@
 pub mod compress_context;
 pub mod ports;
 pub mod progress;
+pub mod progress_aggregator;
