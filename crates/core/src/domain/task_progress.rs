@@ -7,6 +7,14 @@ pub struct TaskProgress {
 }
 
 impl TaskProgress {
+    /// Create a task progress from explicit byte counters.
+    pub fn new(bytes_done: u64, bytes_total: u64) -> Self {
+        Self {
+            bytes_done,
+            bytes_total,
+        }
+    }
+
     /// Create a task progress at zero bytes.
     pub fn zero() -> Self {
         Self::default()
@@ -60,5 +68,12 @@ mod tests {
         #[allow(clippy::clone_on_copy)]
         let cloned = original.clone();
         assert_eq!(original, cloned);
+    }
+
+    #[test]
+    fn new_sets_both_counters() {
+        let p = TaskProgress::new(3, 10);
+        assert_eq!(p.bytes_done(), 3);
+        assert_eq!(p.bytes_total(), 10);
     }
 }
