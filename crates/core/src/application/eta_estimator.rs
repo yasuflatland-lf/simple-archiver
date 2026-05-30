@@ -208,8 +208,14 @@ mod tracker_tests {
 
         let eta0 = second.per_task[0].eta;
         let eta1 = second.per_task[1].eta;
-        assert!(eta0.is_some(), "task 0 must have a per-task ETA after two observations");
-        assert!(eta1.is_some(), "task 1 must have a per-task ETA after two observations");
+        assert!(
+            eta0.is_some(),
+            "task 0 must have a per-task ETA after two observations"
+        );
+        assert!(
+            eta1.is_some(),
+            "task 1 must have a per-task ETA after two observations"
+        );
         assert_ne!(
             eta0, eta1,
             "per-task ETAs must differ when tasks advance at different rates"
