@@ -8,4 +8,6 @@ pub mod ports;
 pub mod progress;
 pub mod progress_aggregator;
 #[cfg(not(loom))]
+pub mod format_registry;
+#[cfg(not(loom))]
 pub mod run_archive_job;
