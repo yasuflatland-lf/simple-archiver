@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import type { TaskProgressDto } from "@/bindings/TaskProgressDto";
 
@@ -9,13 +9,13 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 // Import after mocks are registered.
 import {
-  PROGRESS_EVENT,
   addItems,
+  cancelJob,
+  PROGRESS_EVENT,
   reorder,
+  runJob,
   setNamingRule,
   setOutputDir,
-  runJob,
-  cancelJob,
   subscribeProgress,
 } from "./archive";
 
@@ -27,9 +27,15 @@ describe("archive client", () => {
 
   describe("addItems", () => {
     it("invokes add_items with a paths array", async () => {
-      vi.mocked(invoke).mockResolvedValue({ items: [], namingTemplate: null, outputDir: null });
+      vi.mocked(invoke).mockResolvedValue({
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+      });
       await addItems(["/a", "/b"]);
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("add_items", { paths: ["/a", "/b"] });
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("add_items", {
+        paths: ["/a", "/b"],
+      });
     });
 
     it("returns the DraftSnapshot from the backend", async () => {
@@ -42,31 +48,54 @@ describe("archive client", () => {
 
   describe("reorder", () => {
     it("invokes reorder with from and to indices", async () => {
-      vi.mocked(invoke).mockResolvedValue({ items: [], namingTemplate: null, outputDir: null });
+      vi.mocked(invoke).mockResolvedValue({
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+      });
       await reorder(0, 1);
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("reorder", { from: 0, to: 1 });
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("reorder", {
+        from: 0,
+        to: 1,
+      });
     });
   });
 
   describe("setNamingRule", () => {
     it("invokes set_naming_rule with the template string", async () => {
-      vi.mocked(invoke).mockResolvedValue({ items: [], namingTemplate: "img_{n}", outputDir: null });
+      vi.mocked(invoke).mockResolvedValue({
+        items: [],
+        namingTemplate: "img_{n}",
+        outputDir: null,
+      });
       await setNamingRule("img_{n}");
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_naming_rule", { template: "img_{n}" });
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_naming_rule", {
+        template: "img_{n}",
+      });
     });
   });
 
   describe("setOutputDir", () => {
     it("invokes set_output_dir with the dir string", async () => {
-      vi.mocked(invoke).mockResolvedValue({ items: [], namingTemplate: null, outputDir: "/out" });
+      vi.mocked(invoke).mockResolvedValue({
+        items: [],
+        namingTemplate: null,
+        outputDir: "/out",
+      });
       await setOutputDir("/out");
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_output_dir", { dir: "/out" });
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_output_dir", {
+        dir: "/out",
+      });
     });
   });
 
   describe("runJob", () => {
     it("invokes run_job with no arguments", async () => {
-      vi.mocked(invoke).mockResolvedValue({ succeeded: [], cancelled: [], failed: [] });
+      vi.mocked(invoke).mockResolvedValue({
+        succeeded: [],
+        cancelled: [],
+        failed: [],
+      });
       await runJob();
       expect(vi.mocked(invoke)).toHaveBeenCalledWith("run_job");
     });
@@ -93,7 +122,10 @@ describe("archive client", () => {
       vi.mocked(listen).mockImplementation(fakeListen);
 
       await subscribeProgress(() => {});
-      expect(fakeListen).toHaveBeenCalledWith("archive://progress", expect.any(Function));
+      expect(fakeListen).toHaveBeenCalledWith(
+        "archive://progress",
+        expect.any(Function),
+      );
     });
 
     it("PROGRESS_EVENT constant matches the channel string", () => {
@@ -102,7 +134,8 @@ describe("archive client", () => {
 
     it("forwards the event payload to the callback", async () => {
       // Capture the handler passed to listen so we can invoke it manually.
-      let capturedHandler: ((e: { payload: ProgressEvent }) => void) | null = null;
+      let capturedHandler: ((e: { payload: ProgressEvent }) => void) | null =
+        null;
       vi.mocked(listen).mockImplementation((_channel, handler) => {
         capturedHandler = handler as (e: { payload: ProgressEvent }) => void;
         return Promise.resolve(() => {});
@@ -114,7 +147,11 @@ describe("archive client", () => {
       // Build a typed ProgressEvent literal with a non-empty perTask array —
       // acts as a compile-time check that camelCase field names match the
       // generated bindings, and proves per-task data is forwarded intact.
-      const taskProgress: TaskProgressDto = { taskId: 1, bytesDone: 10, bytesTotal: 20 };
+      const taskProgress: TaskProgressDto = {
+        taskId: 1,
+        bytesDone: 10,
+        bytesTotal: 20,
+      };
       const payload: ProgressEvent = {
         overall: { bytesDone: 10, bytesTotal: 20 },
         perTask: [taskProgress],

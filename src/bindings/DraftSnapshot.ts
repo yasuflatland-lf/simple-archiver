@@ -4,16 +4,17 @@ import type { DraftItemDto } from "./DraftItemDto";
 /**
  * A snapshot of the current draft (pending plan) shown in the UI.
  */
-export type DraftSnapshot = { 
-/**
- * The source items queued in the draft, in order.
- */
-items: Array<DraftItemDto>, 
-/**
- * The naming template, if one has been set.
- */
-namingTemplate: string | null, 
-/**
- * The output directory, if one has been chosen.
- */
-outputDir: string | null, };
+export type DraftSnapshot = {
+  /**
+   * The source items queued in the draft, in order.
+   */
+  items: Array<DraftItemDto>;
+  /**
+   * The naming template, if one has been set.
+   */
+  namingTemplate: string | null;
+  /**
+   * The output directory, if one has been chosen.
+   */
+  outputDir: string | null;
+};
