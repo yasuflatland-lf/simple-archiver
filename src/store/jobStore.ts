@@ -12,6 +12,19 @@ import { messageFromReason } from "@/lib/errors";
 // newer one and leave previewNames out of sync with draft.items.
 let previewGeneration = 0;
 
+// Build the state patch for a structural draft edit (add/reorder). Editing the
+// draft changes item identity/order, so any prior job's positionally-aligned
+// per-row verdicts (summary/progress/taskIdByIndex) are now stale and cleared.
+function draftEdit(draft: DraftSnapshot): Partial<JobState> {
+  return {
+    draft,
+    error: null,
+    summary: null,
+    progress: null,
+    taskIdByIndex: [],
+  };
+}
+
 /**
  * The central UI state for building a draft and running an archive job.
  * State fields mirror the backend's draft snapshot plus job/progress results;
@@ -70,15 +83,7 @@ export const useJobStore = create<JobState>()((set, get) => ({
   addItems: async (paths) => {
     try {
       const draft = await archive.addItems(paths);
-      // Editing the draft changes item identity/order, so any prior job's
-      // per-row verdicts (summary/progress/taskIdByIndex) are now stale.
-      set({
-        draft,
-        error: null,
-        summary: null,
-        progress: null,
-        taskIdByIndex: [],
-      });
+      set(draftEdit(draft));
       await get().recomputePreviews();
     } catch (reason) {
       set({ error: messageFromReason(reason) });
@@ -88,15 +93,7 @@ export const useJobStore = create<JobState>()((set, get) => ({
   reorder: async (from, to) => {
     try {
       const draft = await archive.reorder(from, to);
-      // Reordering rows invalidates the prior job's positionally-aligned
-      // verdicts, so clear them along with the draft replacement.
-      set({
-        draft,
-        error: null,
-        summary: null,
-        progress: null,
-        taskIdByIndex: [],
-      });
+      set(draftEdit(draft));
       await get().recomputePreviews();
     } catch (reason) {
       set({ error: messageFromReason(reason) });
