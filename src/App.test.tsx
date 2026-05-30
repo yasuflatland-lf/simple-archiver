@@ -100,8 +100,9 @@ describe("App", () => {
     // Simulate a progress event arriving from the backend.
     const progressEvent = {
       overall: { bytesDone: 5, bytesTotal: 10 },
-      perTask: [{ taskId: 1, bytesDone: 5, bytesTotal: 10 }],
+      perTask: [{ taskId: 1, bytesDone: 5, bytesTotal: 10, etaMs: null }],
       elapsedMs: 1,
+      overallEtaMs: null,
     };
 
     await act(async () => {

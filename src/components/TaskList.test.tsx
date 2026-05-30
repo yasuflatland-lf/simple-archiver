@@ -239,6 +239,7 @@ describe("TaskList status", () => {
         overall: { bytesDone: 0, bytesTotal: 0 },
         perTask: [],
         elapsedMs: 0,
+        overallEtaMs: null,
       },
       summary: null,
     });

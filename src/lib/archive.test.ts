@@ -169,11 +169,13 @@ describe("archive client", () => {
         taskId: 1,
         bytesDone: 10,
         bytesTotal: 20,
+        etaMs: null,
       };
       const payload: ProgressEvent = {
         overall: { bytesDone: 10, bytesTotal: 20 },
         perTask: [taskProgress],
         elapsedMs: 3,
+        overallEtaMs: null,
       };
 
       expect(capturedHandler).not.toBeNull();
