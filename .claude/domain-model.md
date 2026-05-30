@@ -9,8 +9,8 @@
 - `NamingRule { template }` — parses the template into a segment list; see "Naming rule details" below.
 - `FileStem` / `OutputFileName` — enforce Windows-superset filename validity (see "FileStem / OutputFileName" below). `OutputFileName::from_stem` appends `.zip`.
 - `SourceItem` — enum `RarFile(PathBuf)` | `Folder(PathBuf)`.
-- `OutputDirectory(PathBuf)` — an existing directory.
-- `TaskProgress { bytes_done, bytes_total, phase }`.
+- `OutputDirectory(PathBuf)` — a newtype wrapper for the output directory path. In the pure `domain` layer it performs **no filesystem-existence check**; that IO validation is deferred to the infrastructure layer (a later PR).
+- `TaskProgress { bytes_done: u64, bytes_total: u64 }` — progress counters only. There is no `phase` field: the current phase is already represented by `TaskStatus` (`Extracting` / `Compressing`), so `TaskProgress` is purely a pair of byte counters.
 
 ## Entities / aggregate
 
@@ -18,6 +18,7 @@
 
 - Fields: `TaskId` / `SourceItem` / resolved `OutputFileName` / `TaskStatus` / `TaskProgress`.
 - `TaskStatus`: `Pending` / `Extracting` / `Compressing` / `Completed` / `Failed { reason }` / `Cancelled`.
+- **`TaskId(u32)` vs `SequenceNumber` (identity vs position):** `TaskId` is a stable task identity assigned once at plan time (`TaskId(i + 1)` for item at index `i`) and is never re-derived or changed by reordering. `SequenceNumber` is the 1-based position in the job's ordering (`position + 1`), is **derived and never stored**, and changes when tasks are reordered via `move_up` / `move_down`. Output names are bound to the sequence/position (not to the `TaskId`), so reordering rebinds names while preserving `TaskId`, `TaskStatus`, and `TaskProgress`.
 
 ### `ArchiveJob` (aggregate root)
 
