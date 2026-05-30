@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::application::compress_context::{CompressContext, TaskProgressReport};
-use crate::application::ports::{Archiver, Clock};
+use crate::application::ports::{ArchiveError, Archiver, Clock};
 use crate::application::progress::ProgressSink;
 use crate::application::progress_aggregator::{Aggregator, JobSummary, WorkerMsg};
 use crate::domain::archive_job::ArchiveJob;
@@ -69,6 +69,18 @@ impl<A: Archiver + 'static> RunArchiveJob<A> {
         clock: &C,
         sink: &S,
     ) -> JobSummary {
+        self.execute_with_cancellation(job, clock, sink, CancellationToken::new())
+            .await
+    }
+
+    /// Execute `job` with a caller-owned cancellation token.
+    pub async fn execute_with_cancellation<C: Clock, S: ProgressSink>(
+        &self,
+        job: ArchiveJob,
+        clock: &C,
+        sink: &S,
+        cancellation_token: CancellationToken,
+    ) -> JobSummary {
         // Extract an immutable work list before the job moves into the aggregator.
         let out_dir = job.output_directory().path().to_path_buf();
         let work: Vec<WorkItem> = job
@@ -89,10 +101,11 @@ impl<A: Archiver + 'static> RunArchiveJob<A> {
             let archiver = self.archiver.clone();
             let semaphore = semaphore.clone();
             let tx = tx.clone();
+            let cancellation_token = cancellation_token.clone();
             handles.push(tokio::spawn(async move {
                 // Bounded concurrency: hold a permit for the whole task.
                 let _permit = semaphore.acquire_owned().await.expect("semaphore open");
-                run_one(archiver.as_ref(), item, tx).await;
+                run_one(archiver.as_ref(), item, tx, cancellation_token).await;
             }));
         }
         // Drop the engine's own sender so the channel closes once workers finish.
@@ -105,7 +118,7 @@ impl<A: Archiver + 'static> RunArchiveJob<A> {
             sink.report(aggregator.snapshot(clock.now()));
         }
 
-        // Join workers (compress errors are already captured as Fail events).
+        // Join workers (compress outcomes are already captured as terminal events).
         for handle in handles {
             let _ = handle.await;
         }
@@ -114,7 +127,20 @@ impl<A: Archiver + 'static> RunArchiveJob<A> {
 }
 
 /// Execute a single work item, sending status + progress over `tx`.
-async fn run_one<A: Archiver>(archiver: &A, item: WorkItem, tx: mpsc::UnboundedSender<WorkerMsg>) {
+async fn run_one<A: Archiver>(
+    archiver: &A,
+    item: WorkItem,
+    tx: mpsc::UnboundedSender<WorkerMsg>,
+    cancellation_token: CancellationToken,
+) {
+    if cancellation_token.is_cancelled() {
+        let _ = tx.send(WorkerMsg::Status {
+            task: item.task,
+            event: TaskEvent::Cancel,
+        });
+        return;
+    }
+
     match item.source {
         SourceItem::Folder(ref src) => {
             let _ = tx.send(WorkerMsg::Status {
@@ -122,9 +148,10 @@ async fn run_one<A: Archiver>(archiver: &A, item: WorkItem, tx: mpsc::UnboundedS
                 event: TaskEvent::StartCompressing,
             });
             let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
-            let ctx = CompressContext::new(item.task, reporter, CancellationToken::new());
+            let ctx = CompressContext::new(item.task, reporter, cancellation_token);
             let event = match archiver.compress(src, &item.dest, &ctx).await {
                 Ok(()) => TaskEvent::Complete,
+                Err(ArchiveError::Cancelled) => TaskEvent::Cancel,
                 Err(e) => TaskEvent::Fail {
                     reason: e.to_string(),
                 },
@@ -161,12 +188,14 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Instant;
 
-    /// A fake archiver: reports two progress ticks, optionally fails for outputs
-    /// whose file name is in `fail_names`, and can rendezvous on a barrier so a
-    /// test can prove tasks ran concurrently.
+    /// A fake archiver: reports two progress ticks, optionally fails or cancels
+    /// outputs by file name, and can rendezvous on a barrier so a test can prove
+    /// tasks ran concurrently.
     struct FakeArchiver {
         fail_names: HashSet<String>,
+        cancel_names: HashSet<String>,
         barrier: Option<Arc<tokio::sync::Barrier>>,
+        calls: Arc<AtomicUsize>,
         live: Arc<AtomicUsize>,
         max_live: Arc<AtomicUsize>,
     }
@@ -174,10 +203,16 @@ mod tests {
         fn new() -> Self {
             Self {
                 fail_names: HashSet::new(),
+                cancel_names: HashSet::new(),
                 barrier: None,
+                calls: Arc::new(AtomicUsize::new(0)),
                 live: Arc::new(AtomicUsize::new(0)),
                 max_live: Arc::new(AtomicUsize::new(0)),
             }
+        }
+
+        fn call_count(&self) -> Arc<AtomicUsize> {
+            self.calls.clone()
         }
     }
     impl Archiver for FakeArchiver {
@@ -187,6 +222,7 @@ mod tests {
             dest: &Path,
             ctx: &CompressContext,
         ) -> Result<(), ArchiveError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
             self.live.fetch_add(1, Ordering::SeqCst);
             ctx.report(5, 10);
             if let Some(b) = &self.barrier {
@@ -199,7 +235,9 @@ mod tests {
             ctx.report(10, 10);
             self.live.fetch_sub(1, Ordering::SeqCst);
             let name = dest.file_name().unwrap().to_string_lossy().to_string();
-            if self.fail_names.contains(&name) {
+            if self.cancel_names.contains(&name) {
+                Err(ArchiveError::Cancelled)
+            } else if self.fail_names.contains(&name) {
                 Err(ArchiveError::Backend("boom".to_string()))
             } else {
                 Ok(())
@@ -239,6 +277,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancellation_before_compression_cancels_tasks_without_calling_archiver() {
+        let job = folder_job(3);
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+        let fake = Arc::new(FakeArchiver::new());
+        let calls = fake.call_count();
+        let engine = RunArchiveJob::new(fake, nz(2));
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let summary = engine
+            .execute_with_cancellation(job, &clock, &sink, cancel)
+            .await;
+
+        assert_eq!(summary.cancelled, ids);
+        assert!(summary.succeeded.is_empty());
+        assert!(summary.failed.is_empty());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
     async fn all_folders_succeed_and_are_tallied() {
         let job = folder_job(3);
         let mut expected: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
@@ -273,6 +333,25 @@ mod tests {
             summary.failed,
             vec![(id[1], "archive backend error: boom".to_string())]
         );
+    }
+
+    #[tokio::test]
+    async fn archiver_cancelled_error_is_summarized_as_cancelled_not_failed() {
+        let job = folder_job(3); // outputs f1.zip, f2.zip, f3.zip
+        let id: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+        let mut fake = FakeArchiver::new();
+        fake.cancel_names.insert("f2.zip".to_string());
+        let engine = RunArchiveJob::new(Arc::new(fake), nz(2));
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        let mut succeeded = summary.succeeded.clone();
+        succeeded.sort_by_key(|i| i.get());
+        assert_eq!(succeeded, vec![id[0], id[2]]);
+        assert_eq!(summary.cancelled, vec![id[1]]);
+        assert!(summary.failed.is_empty());
     }
 
     #[tokio::test]

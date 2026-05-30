@@ -44,7 +44,11 @@ impl CompressContext {
     /// Build a context not tied to any job; all progress reports are dropped.
     /// Used by the single-folder Tauri command and integration tests.
     pub fn detached() -> Self {
-        Self::new(TaskId::new(0), Arc::new(NoopReport), CancellationToken::new())
+        Self::new(
+            TaskId::new(0),
+            Arc::new(NoopReport),
+            CancellationToken::new(),
+        )
     }
 
     /// Access the cancellation token associated with this compression.
