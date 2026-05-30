@@ -1,9 +1,9 @@
-import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { useState } from "react";
 import "./App.css";
-import { Button } from "@/components/ui/button";
 import { NamingRuleForm } from "@/components/NamingRuleForm";
+import { Button } from "@/components/ui/button";
 
 function App() {
   const [src, setSrc] = useState<string | null>(null);

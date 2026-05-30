@@ -8,13 +8,32 @@
   "prConcurrentLimit": 10,
   "labels": ["dependencies"],
   "packageRules": [
-    { "matchManagers": ["npm"], "groupName": "frontend (npm)", "addLabels": ["frontend"] },
-    { "matchManagers": ["cargo"], "groupName": "backend (cargo)", "addLabels": ["backend"] },
-    { "matchManagers": ["github-actions"], "groupName": "github-actions", "addLabels": ["ci"] },
-    { "matchManagers": ["mise"], "groupName": "mise", "addLabels": ["tooling"] },
+    {
+      "matchManagers": ["npm"],
+      "groupName": "frontend (npm)",
+      "addLabels": ["frontend"]
+    },
+    {
+      "matchManagers": ["cargo"],
+      "groupName": "backend (cargo)",
+      "addLabels": ["backend"]
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+      "addLabels": ["ci"]
+    },
+    {
+      "matchManagers": ["mise"],
+      "groupName": "mise",
+      "addLabels": ["tooling"]
+    },
     {
       "matchPackageNames": [
-        "tauri", "tauri-build", "tauri-plugin-opener", "tauri-plugin-dialog",
+        "tauri",
+        "tauri-build",
+        "tauri-plugin-opener",
+        "tauri-plugin-dialog",
         "@tauri-apps/**"
       ],
       "matchUpdateTypes": ["major"],

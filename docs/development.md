@@ -15,6 +15,7 @@
 | TypeScript bindings | ts-rs 10 (`#[derive(TS)]` on DTOs generates `.ts` files committed to `src/bindings/`) |
 | Parser / lexer | LALRPOP 0.20.x (parser codegen from `.lalrpop` grammar) + logos (lexer); both are build-time tooling inside `simple-archiver-core` |
 | Frontend tests | Vitest |
+| Frontend format / lint | Biome (`biome.json`; single formatter + linter, fills the ESLint/Prettier role) |
 
 Technology choices are fixed. **Do not swap in alternative libraries on your own.** If a change is needed, propose it together with an update to the design (the source of truth).
 
@@ -37,6 +38,8 @@ cargo clippy -p simple-archiver --all-targets -- -D warnings
 cargo nextest run -p simple-archiver          # also regenerates ts-rs bindings in src/bindings/
 
 # Frontend
+pnpm check                 # Biome: format + lint with autofix (run before committing)
+pnpm biome:ci              # Biome: CI gate — format + lint, no writes (mirrors CI)
 pnpm test                  # Vitest
 pnpm run test:coverage     # Vitest coverage -> coverage/lcov.info
 pnpm build                 # tsc + vite build
@@ -94,7 +97,7 @@ activated on codecov.io for reports to appear. Coverage config lives in
 - Target **one PR ≤ 1000 lines**, with the walking skeleton (folder → zip e2e) going first. The line count includes co-located tests; a TDD-heavy, cohesive pure-domain PR can legitimately exceed 1000 lines (PR4 ran to ~1.5k, largely tests). When that happens, surface it explicitly and get maintainer approval rather than silently splitting interdependent code across stacked PRs.
 - Stack PRs in order of high-impact × low-effort (follow the PR1–PR10 split and dependency graph in the design).
 - Each PR has acceptance criteria in the design; do not mix in out-of-scope items.
-- Before merge, `cargo clippy` / `cargo fmt` / `cargo nextest run` / `pnpm test` must all be green. CI builds on both Mac and Windows.
+- Before merge, `cargo clippy` / `cargo fmt` / `cargo nextest run` / `pnpm biome:ci` / `pnpm test` must all be green. CI builds on both Mac and Windows.
 - Never run `git commit` / `git push` until the user explicitly asks.
 
 ## Build / scaffold notes (learnings)

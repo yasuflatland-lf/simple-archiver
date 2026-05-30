@@ -26,7 +26,7 @@ This repository requires **all in-code comments to be written in English**.
 ## Naming / style
 
 - Rust: `rustfmt`-compliant. Types `UpperCamelCase`, functions/variables `snake_case`, constants `SCREAMING_SNAKE_CASE`.
-- TypeScript: follow the project's ESLint/Prettier config (finalized at scaffold time).
+- TypeScript / JS / JSON: formatted and linted by **Biome** (`biome.json`). Run `pnpm check` (format + lint, with autofix) before committing; CI enforces it via `pnpm biome:ci`. Biome owns style (2-space indent, double quotes, semicolons) and import organization; `tsc` still owns type-checking and `knip` owns unused-code detection.
 - Match the surrounding code's comment density, naming, and idioms. Do not introduce a new style.
 
 ## Layer boundary discipline (implementation level)
