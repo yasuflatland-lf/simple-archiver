@@ -1,8 +1,9 @@
 //! Output ports for the application layer.
 //!
-//! The minimal `Archiver` contract for the walking skeleton (PR2): compress a
-//! source directory into a single zip file. Progress reporting and cancellation
-//! are intentionally absent here and are introduced in PR5 (issue #5).
+//! Defines the `Archiver` and `Clock` ports used by the execution engine.
+//! `Archiver::compress` takes a `CompressContext` for per-task byte-progress
+//! reporting; `Clock` lets the engine run against a controllable time source
+//! in tests. (Cancellation is added in PR-5b.)
 
 use crate::application::compress_context::CompressContext;
 use std::future::Future;
