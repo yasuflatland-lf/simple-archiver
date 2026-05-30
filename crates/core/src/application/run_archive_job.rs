@@ -409,8 +409,11 @@ mod tests {
         let job = folder_job(3);
         let mut expected: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         expected.sort_by_key(|i| i.get());
-        let engine =
-            RunArchiveJob::new(Arc::new(FakeArchiver::new()), Arc::new(FakeExtractor::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(FakeExtractor::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = engine.execute(job, &clock, &sink).await;
@@ -571,7 +574,11 @@ mod tests {
         expected.sort_by_key(|i| i.get());
         assert_eq!(succeeded, expected);
         assert!(summary.failed.is_empty());
-        assert_eq!(calls.load(Ordering::SeqCst), 1, "exactly the rar task extracts");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "exactly the rar task extracts"
+        );
     }
 
     #[tokio::test]
@@ -590,8 +597,11 @@ mod tests {
 
         let mut fake_extractor = FakeExtractor::new();
         fake_extractor.fail_names.insert("bad.rar".to_string());
-        let engine =
-            RunArchiveJob::new(Arc::new(FakeArchiver::new()), Arc::new(fake_extractor), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(fake_extractor),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -607,8 +617,11 @@ mod tests {
     async fn emits_progress_snapshots_tallying_overall() {
         let job = folder_job(2);
         let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
-        let engine =
-            RunArchiveJob::new(Arc::new(FakeArchiver::new()), Arc::new(FakeExtractor::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(FakeExtractor::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         engine.execute(job, &clock, &sink).await;

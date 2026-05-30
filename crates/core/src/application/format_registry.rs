@@ -130,7 +130,10 @@ mod tests {
             .expect("rar prepares");
 
         assert_eq!(calls.load(Ordering::SeqCst), 1, "rar must extract once");
-        assert!(prepared.dir().is_dir(), "prepared dir should be a real directory");
+        assert!(
+            prepared.dir().is_dir(),
+            "prepared dir should be a real directory"
+        );
         assert!(matches!(prepared, Prepared::Extracted(_)));
     }
 

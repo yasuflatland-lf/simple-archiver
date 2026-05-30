@@ -9,8 +9,8 @@
 // Loom-tested concurrency code lives in application/loom_nucleus.rs (PR-5b).
 pub mod system_clock;
 #[cfg(not(loom))]
-pub mod zip_archiver;
-#[cfg(not(loom))]
 pub mod temp_workspace;
 #[cfg(not(loom))]
 pub mod unrar_extractor;
+#[cfg(not(loom))]
+pub mod zip_archiver;

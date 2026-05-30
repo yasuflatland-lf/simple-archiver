@@ -38,7 +38,11 @@ async fn rar_is_extracted_and_recompressed_to_zip() {
     );
     let summary = engine.execute(job, &SystemClock::new(), &NullSink).await;
 
-    assert_eq!(summary.succeeded.len(), 1, "the rar task should succeed: {summary:?}");
+    assert_eq!(
+        summary.succeeded.len(),
+        1,
+        "the rar task should succeed: {summary:?}"
+    );
     assert!(summary.failed.is_empty());
 
     // The output zip exists and contains the fixture's file.
@@ -79,7 +83,11 @@ async fn mixed_folder_and_rar_both_produce_zips() {
     );
     let summary = engine.execute(job, &SystemClock::new(), &NullSink).await;
 
-    assert_eq!(summary.succeeded.len(), 2, "both tasks should succeed: {summary:?}");
+    assert_eq!(
+        summary.succeeded.len(),
+        2,
+        "both tasks should succeed: {summary:?}"
+    );
     assert!(summary.failed.is_empty());
 
     // Folder → out1.zip (position 0); rar → out2.zip (position 1).

@@ -23,34 +23,35 @@ impl Extractor for UnrarExtractor {
     async fn extract(&self, src_rar: &Path) -> Result<Box<dyn ExtractedTree>, ExtractError> {
         let src = src_rar.to_path_buf();
         // `unrar` is blocking and CPU/IO-bound; run it off the async runtime.
-        let workspace = tokio::task::spawn_blocking(move || -> Result<TempWorkspace, ExtractError> {
-            let workspace = TempWorkspace::new()?; // io::Error -> ExtractError::Io
-            let dest = workspace.path().to_path_buf();
+        let workspace =
+            tokio::task::spawn_blocking(move || -> Result<TempWorkspace, ExtractError> {
+                let workspace = TempWorkspace::new()?; // io::Error -> ExtractError::Io
+                let dest = workspace.path().to_path_buf();
 
-            let mut archive = Archive::new(&src)
-                .open_for_processing()
-                .map_err(|e| ExtractError::Backend(e.to_string()))?;
-            // Stream entries: extract files under `dest` (preserving relative paths),
-            // skip directory headers. `extract_with_base`/`skip` consume and return
-            // the next cursor, so reassign `archive` each iteration.
-            while let Some(header) = archive
-                .read_header()
-                .map_err(|e| ExtractError::Backend(e.to_string()))?
-            {
-                archive = if header.entry().is_file() {
-                    header
-                        .extract_with_base(&dest)
-                        .map_err(|e| ExtractError::Backend(e.to_string()))?
-                } else {
-                    header
-                        .skip()
-                        .map_err(|e| ExtractError::Backend(e.to_string()))?
-                };
-            }
-            Ok(workspace)
-        })
-        .await
-        .map_err(|e| ExtractError::Backend(format!("extraction task panicked: {e}")))??;
+                let mut archive = Archive::new(&src)
+                    .open_for_processing()
+                    .map_err(|e| ExtractError::Backend(e.to_string()))?;
+                // Stream entries: extract files under `dest` (preserving relative paths),
+                // skip directory headers. `extract_with_base`/`skip` consume and return
+                // the next cursor, so reassign `archive` each iteration.
+                while let Some(header) = archive
+                    .read_header()
+                    .map_err(|e| ExtractError::Backend(e.to_string()))?
+                {
+                    archive = if header.entry().is_file() {
+                        header
+                            .extract_with_base(&dest)
+                            .map_err(|e| ExtractError::Backend(e.to_string()))?
+                    } else {
+                        header
+                            .skip()
+                            .map_err(|e| ExtractError::Backend(e.to_string()))?
+                    };
+                }
+                Ok(workspace)
+            })
+            .await
+            .map_err(|e| ExtractError::Backend(format!("extraction task panicked: {e}")))??;
 
         Ok(Box::new(workspace))
     }

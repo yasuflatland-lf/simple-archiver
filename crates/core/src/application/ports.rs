@@ -111,10 +111,7 @@ mod tests {
         let backend = ExtractError::Backend("bad header".to_string());
         assert_eq!(backend.to_string(), "unrar error: bad header");
 
-        let io = ExtractError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "missing",
-        ));
+        let io = ExtractError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"));
         assert_eq!(io.to_string(), "I/O error: missing");
     }
 }
