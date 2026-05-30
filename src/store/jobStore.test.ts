@@ -91,7 +91,7 @@ describe("addItems", () => {
     const summary: JobSummaryDto = {
       succeeded: [10],
       cancelled: [],
-      failed: [11],
+      failed: [{ taskId: 11, reason: "boom" }],
     };
     const progress: ProgressEvent = {
       overall: { bytesDone: 100, bytesTotal: 100 },
@@ -141,7 +141,7 @@ describe("reorder", () => {
     const summary: JobSummaryDto = {
       succeeded: [10],
       cancelled: [],
-      failed: [11],
+      failed: [{ taskId: 11, reason: "boom" }],
     };
     const progress: ProgressEvent = {
       overall: { bytesDone: 100, bytesTotal: 100 },

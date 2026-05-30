@@ -111,8 +111,12 @@ describe("TaskList reorder buttons", () => {
 
     render(<TaskList />);
 
-    const upButtons = screen.getAllByRole("button", { name: /move up/i });
-    const downButtons = screen.getAllByRole("button", { name: /move down/i });
+    const upButtons = screen.getAllByRole("button", {
+      name: /move up/i,
+    }) as HTMLButtonElement[];
+    const downButtons = screen.getAllByRole("button", {
+      name: /move down/i,
+    }) as HTMLButtonElement[];
 
     // First row: Up disabled
     expect(upButtons[0].disabled).toBe(true);

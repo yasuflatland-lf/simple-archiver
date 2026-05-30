@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 import App from "./App";
 
@@ -81,7 +82,7 @@ describe("App", () => {
   // -------------------------------------------------------------------------
   it("subscribes to progress on mount and routes events into the store", async () => {
     // Capture the callback that App passes to subscribeProgress.
-    let capturedCallback: ((e: unknown) => void) | undefined;
+    let capturedCallback: ((event: ProgressEvent) => void) | undefined;
     vi.mocked(archiveMock.subscribeProgress).mockImplementation((cb) => {
       capturedCallback = cb;
       return Promise.resolve(() => {});

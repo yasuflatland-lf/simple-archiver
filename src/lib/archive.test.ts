@@ -177,7 +177,10 @@ describe("archive client", () => {
       };
 
       expect(capturedHandler).not.toBeNull();
-      capturedHandler?.({ payload });
+      const handler = capturedHandler as unknown as (e: {
+        payload: ProgressEvent;
+      }) => void;
+      handler({ payload });
 
       expect(received).toHaveLength(1);
       expect(received[0]).toEqual(payload);

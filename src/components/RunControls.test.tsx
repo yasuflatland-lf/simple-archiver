@@ -32,7 +32,9 @@ describe("RunControls – Run button disabled states", () => {
       summary: null,
     });
     render(<RunControls />);
-    const run = screen.getByRole("button", { name: /run/i });
+    const run = screen.getByRole("button", {
+      name: /run/i,
+    }) as HTMLButtonElement;
     expect(run.disabled).toBe(true);
   });
 
@@ -44,7 +46,9 @@ describe("RunControls – Run button disabled states", () => {
       summary: null,
     });
     render(<RunControls />);
-    const run = screen.getByRole("button", { name: /run/i });
+    const run = screen.getByRole("button", {
+      name: /run/i,
+    }) as HTMLButtonElement;
     expect(run.disabled).toBe(true);
   });
 
@@ -56,7 +60,9 @@ describe("RunControls – Run button disabled states", () => {
       summary: null,
     });
     render(<RunControls />);
-    const run = screen.getByRole("button", { name: /run/i });
+    const run = screen.getByRole("button", {
+      name: /run/i,
+    }) as HTMLButtonElement;
     expect(run.disabled).toBe(true);
   });
 });
@@ -73,7 +79,9 @@ describe("RunControls – Run button enabled and calls runJob", () => {
     });
     const user = userEvent.setup();
     render(<RunControls />);
-    const run = screen.getByRole("button", { name: /run/i });
+    const run = screen.getByRole("button", {
+      name: /run/i,
+    }) as HTMLButtonElement;
     expect(run.disabled).toBe(false);
     await user.click(run);
     expect(runJob).toHaveBeenCalledTimes(1);
@@ -89,7 +97,9 @@ describe("RunControls – Cancel button", () => {
       summary: null,
     });
     render(<RunControls />);
-    const cancel = screen.getByRole("button", { name: /cancel/i });
+    const cancel = screen.getByRole("button", {
+      name: /cancel/i,
+    }) as HTMLButtonElement;
     expect(cancel.disabled).toBe(true);
   });
 
@@ -101,7 +111,9 @@ describe("RunControls – Cancel button", () => {
       summary: null,
     });
     render(<RunControls />);
-    const cancel = screen.getByRole("button", { name: /cancel/i });
+    const cancel = screen.getByRole("button", {
+      name: /cancel/i,
+    }) as HTMLButtonElement;
     expect(cancel.disabled).toBe(false);
   });
 
