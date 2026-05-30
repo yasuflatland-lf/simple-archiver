@@ -1,0 +1,64 @@
+//! Byte progress counters for a single archive task.
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct TaskProgress {
+    bytes_done: u64,
+    bytes_total: u64,
+}
+
+impl TaskProgress {
+    /// Create a task progress at zero bytes.
+    pub fn zero() -> Self {
+        Self::default()
+    }
+
+    /// Return bytes processed so far.
+    pub fn bytes_done(&self) -> u64 {
+        self.bytes_done
+    }
+
+    /// Return total bytes in the task.
+    pub fn bytes_total(&self) -> u64 {
+        self.bytes_total
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_has_zero_bytes_done() {
+        let progress = TaskProgress::zero();
+        assert_eq!(progress.bytes_done(), 0);
+    }
+
+    #[test]
+    fn zero_has_zero_bytes_total() {
+        let progress = TaskProgress::zero();
+        assert_eq!(progress.bytes_total(), 0);
+    }
+
+    #[test]
+    fn default_equals_zero() {
+        let default_progress = TaskProgress::default();
+        let zero_progress = TaskProgress::zero();
+        assert_eq!(default_progress, zero_progress);
+    }
+
+    #[test]
+    fn copy_produces_equal_value() {
+        let original = TaskProgress::zero();
+        let copied = original;
+        assert_eq!(original, copied);
+    }
+
+    #[test]
+    fn clone_produces_equal_value() {
+        let original = TaskProgress::zero();
+        // Clone via trait method (Copy also implements Clone semantics)
+        #[allow(clippy::clone_on_copy)]
+        let cloned = original.clone();
+        assert_eq!(original, cloned);
+    }
+}
