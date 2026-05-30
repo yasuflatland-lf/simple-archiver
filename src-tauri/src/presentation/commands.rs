@@ -18,7 +18,7 @@ use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 
 use crate::presentation::dto::{DraftSnapshot, JobSummaryDto};
 use crate::presentation::events::{EventSink, ProgressEmitter, TauriEmitter};
-use crate::presentation::state::AppState;
+use crate::presentation::state::{AppState, RunState};
 
 /// Compress the folder at `src` into a zip file at `out`.
 ///
@@ -141,6 +141,32 @@ pub async fn run_job_inner(
     JobSummaryDto::from(summary)
 }
 
+/// RAII guard that clears the active-job slot when dropped.
+///
+/// This exists for panic/drop safety: if `run_job_inner(...).await` panics or the
+/// command future is dropped mid-flight, `Drop` still runs and frees the slot, so
+/// a later `run_job` is not stranded returning "a job is already running" forever.
+///
+/// It holds a *reference* to the mutex (not a live `MutexGuard`) so nothing is
+/// held across the `.await`, preserving the "no std `Mutex` across await" rule
+/// (and clippy's `await_holding_lock`); it locks only inside `Drop`.
+struct RunSlotGuard<'a> {
+    run: &'a std::sync::Mutex<RunState>,
+}
+
+impl Drop for RunSlotGuard<'_> {
+    fn drop(&mut self) {
+        // Recover from a poisoned lock so the slot is always cleared: a prior
+        // panic must not strand the active-job slot (interim no-silent-failure
+        // policy — cleanup must not be silently skipped).
+        let mut run = self
+            .run
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        run.finish();
+    }
+}
+
 /// Build the current draft into a job and run it, streaming progress events.
 ///
 /// Rejects with an error if a job is already running. No `std::sync::Mutex`
@@ -149,29 +175,30 @@ pub async fn run_job_inner(
 #[tauri::command]
 pub async fn run_job(app: AppHandle, state: State<'_, AppState>) -> Result<JobSummaryDto, String> {
     // 1. Build the job (lock draft -> build -> drop guard before awaiting).
+    //    A fresh job refuses to start on a poisoned lock, so propagate poison as
+    //    an IPC error here rather than recovering.
     let job = {
         let draft = state.draft.lock().map_err(|e| e.to_string())?;
         draft.build()?
     };
 
-    // 2. Register cancellation (reject if already running -> store token clone).
+    // 2. Claim the active-job slot (rejects with the contract message if a job
+    //    is already running). Propagate a poisoned lock as an IPC error: a fresh
+    //    job should refuse to start when the lock is poisoned.
     let token = CancellationToken::new();
     {
         let mut run = state.run.lock().map_err(|e| e.to_string())?;
-        if run.token.is_some() {
-            return Err("a job is already running".to_string());
-        }
-        run.token = Some(token.clone());
+        run.try_start(token.clone())?;
     }
 
-    // 3. Run with no lock held.
+    // 3. Arm the clear guard ONLY after a successful claim, so a rejected start
+    //    never clears another job's slot. The guard frees the slot on normal
+    //    return AND on any unwind/drop of this future.
+    let _slot = RunSlotGuard { run: &state.run };
+
+    // 4. Run with no lock held; the guard clears the slot when it drops.
     let emitter = TauriEmitter::new(app);
     let summary = run_job_inner(&emitter, job, token).await;
-
-    // 4. Clear the active-job slot.
-    if let Ok(mut run) = state.run.lock() {
-        run.token = None;
-    }
 
     Ok(summary)
 }
@@ -179,11 +206,14 @@ pub async fn run_job(app: AppHandle, state: State<'_, AppState>) -> Result<JobSu
 /// Cancel the currently running job, if any. A no-op when idle.
 #[tauri::command]
 pub fn cancel_job(state: State<'_, AppState>) {
-    if let Ok(run) = state.run.lock() {
-        if let Some(token) = run.token.as_ref() {
-            token.cancel();
-        }
-    }
+    // Recover from a poisoned lock so a cancellation request is never silently
+    // dropped: an abort the user asked for must still reach the active token
+    // even if a prior job panicked (interim no-silent-failure policy).
+    let run = state
+        .run
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    run.request_cancel();
 }
 
 #[cfg(test)]
@@ -306,37 +336,38 @@ mod tests {
 
     // ── RunState guard / cancel semantics ────────────────────────────────────
 
-    /// The "already running" guard used by `run_job`: once a token is stored,
-    /// the slot is occupied so a second registration would be rejected.
+    /// The "already running" guard used by `run_job`: once `try_start` claims the
+    /// slot, a second `try_start` is rejected with the exact contract message.
     #[test]
     fn run_state_already_running_guard() {
         let state = AppState::default();
         {
             let mut run = state.run.lock().unwrap();
-            assert!(run.token.is_none(), "slot starts empty");
-            run.token = Some(CancellationToken::new());
+            run.try_start(CancellationToken::new())
+                .expect("first claim should succeed on an idle slot");
         }
-        let run = state.run.lock().unwrap();
-        assert!(
-            run.token.is_some(),
-            "a stored token marks the slot as running"
-        );
+        let mut run = state.run.lock().unwrap();
+        let err = run
+            .try_start(CancellationToken::new())
+            .expect_err("a second claim must be rejected while a job runs");
+        assert_eq!(err, "a job is already running");
     }
 
-    /// `cancel_job` semantics at the token level: cancelling a stored token
-    /// flips its `is_cancelled` flag.
+    /// `cancel_job` semantics at the token level: `request_cancel` on the stored
+    /// token flips its `is_cancelled` flag.
     #[test]
     fn cancel_marks_stored_token_cancelled() {
         let state = AppState::default();
         let token = CancellationToken::new();
         {
             let mut run = state.run.lock().unwrap();
-            run.token = Some(token.clone());
+            run.try_start(token.clone())
+                .expect("claim should succeed on an idle slot");
         }
-        // Mimic `cancel_job`: lock, cancel the stored token.
+        // Mimic `cancel_job`: lock, then request cancellation of the active token.
         {
             let run = state.run.lock().unwrap();
-            run.token.as_ref().unwrap().cancel();
+            run.request_cancel();
         }
         assert!(token.is_cancelled(), "token must report cancellation");
     }

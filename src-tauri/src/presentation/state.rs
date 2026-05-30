@@ -137,11 +137,56 @@ impl Default for JobDraft {
 /// State for the currently running job (if any).
 ///
 /// Holds a [`CancellationToken`] that the presentation layer can cancel when
-/// the user requests an abort. `token` is `None` when no job is running.
-#[derive(Default)]
+/// the user requests an abort. The slot is `None` when no job is running.
+///
+/// The token is **private** so the "single active job" invariant is owned by
+/// this type, not by any caller: only [`try_start`] may occupy the slot (and it
+/// rejects a second job), [`request_cancel`] only observes-and-cancels, and
+/// [`finish`] is the sole way to clear it. A caller cannot bypass the guard by
+/// poking the field directly.
+///
+/// [`try_start`]: RunState::try_start
+/// [`request_cancel`]: RunState::request_cancel
+/// [`finish`]: RunState::finish
+#[derive(Debug, Default)]
 pub struct RunState {
     /// The cancellation token for the active job, or `None` when idle.
-    pub token: Option<CancellationToken>,
+    token: Option<CancellationToken>,
+}
+
+impl RunState {
+    /// Claim the active-job slot with `token`.
+    ///
+    /// Returns `Ok(())` if the slot was idle (and stores the token). If a job is
+    /// already running, leaves the existing token untouched and returns
+    /// `Err("a job is already running")`. This exact message is part of the IPC
+    /// contract — the frontend depends on it, so do not change it.
+    pub fn try_start(&mut self, token: CancellationToken) -> Result<(), String> {
+        if self.token.is_some() {
+            return Err("a job is already running".to_string());
+        }
+        self.token = Some(token);
+        Ok(())
+    }
+
+    /// Cancel the active job's token if one is present; a no-op when idle.
+    ///
+    /// Only observes-and-cancels: it never clears the slot (that is [`finish`]'s
+    /// job, run by the owning command once the job future settles).
+    ///
+    /// [`finish`]: RunState::finish
+    pub fn request_cancel(&self) {
+        if let Some(token) = self.token.as_ref() {
+            token.cancel();
+        }
+    }
+
+    /// Clear the active-job slot so a later [`try_start`] can succeed again.
+    ///
+    /// [`try_start`]: RunState::try_start
+    pub fn finish(&mut self) {
+        self.token = None;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -337,5 +382,65 @@ mod tests {
             .build()
             .expect("fully configured draft should plan OK");
         assert_eq!(job.tasks().len(), 2, "job should have one task per item");
+    }
+
+    // ── RunState ──────────────────────────────────────────────────────────────
+
+    /// `try_start` succeeds on a fresh (idle) state.
+    #[test]
+    fn try_start_succeeds_on_fresh_state() {
+        let mut run = RunState::default();
+        assert!(
+            run.try_start(CancellationToken::new()).is_ok(),
+            "claiming an idle slot should succeed"
+        );
+    }
+
+    /// A second `try_start` is rejected with the exact contract message while a
+    /// job is already running.
+    #[test]
+    fn second_try_start_returns_already_running_err() {
+        let mut run = RunState::default();
+        run.try_start(CancellationToken::new())
+            .expect("first claim should succeed");
+        let err = run
+            .try_start(CancellationToken::new())
+            .expect_err("second claim must be rejected");
+        // This exact string is part of the IPC contract (frontend depends on it).
+        assert_eq!(err, "a job is already running");
+    }
+
+    /// `request_cancel` on an idle state is a no-op (and must not panic).
+    #[test]
+    fn request_cancel_on_idle_state_is_noop() {
+        let run = RunState::default();
+        run.request_cancel(); // must not panic with no token present
+    }
+
+    /// After `try_start`, `request_cancel` cancels the stored token.
+    #[test]
+    fn request_cancel_after_try_start_cancels_token() {
+        let mut run = RunState::default();
+        let token = CancellationToken::new();
+        run.try_start(token.clone()).expect("claim should succeed");
+        assert!(!token.is_cancelled(), "token starts uncancelled");
+        run.request_cancel();
+        assert!(
+            token.is_cancelled(),
+            "request_cancel must cancel the active token"
+        );
+    }
+
+    /// `finish` clears the slot so a later `try_start` succeeds again.
+    #[test]
+    fn finish_clears_slot_so_try_start_succeeds_again() {
+        let mut run = RunState::default();
+        run.try_start(CancellationToken::new())
+            .expect("first claim should succeed");
+        run.finish();
+        assert!(
+            run.try_start(CancellationToken::new()).is_ok(),
+            "after finish the slot is free for a new job"
+        );
     }
 }
