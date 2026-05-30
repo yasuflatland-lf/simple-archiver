@@ -2,3 +2,4 @@
 //! RunArchiveJob (the parallel/cancellation use case) is added in PR5 (issue #5).
 
 pub mod ports;
+pub mod progress;
