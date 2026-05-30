@@ -1,5 +1,6 @@
 //! Tauri commands (presentation adapter).
 
+use simple_archiver_core::application::compress_context::CompressContext;
 use simple_archiver_core::application::ports::Archiver;
 use simple_archiver_core::domain::naming_rule::NamingRule;
 use simple_archiver_core::domain::sequence_number::SequenceNumber;
@@ -13,7 +14,7 @@ use std::path::Path;
 #[tauri::command]
 pub async fn compress_folder(src: String, out: String) -> Result<(), String> {
     ZipArchiver::new()
-        .compress(Path::new(&src), Path::new(&out))
+        .compress(Path::new(&src), Path::new(&out), &CompressContext::detached())
         .await
         .map_err(|e| e.to_string())
 }

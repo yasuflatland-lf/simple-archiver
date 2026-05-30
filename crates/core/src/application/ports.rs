@@ -4,6 +4,8 @@
 //! source directory into a single zip file. Progress reporting and cancellation
 //! are intentionally absent here and are introduced in PR5 (issue #5).
 
+use crate::application::compress_context::CompressContext;
+use std::future::Future;
 use std::path::Path;
 
 /// Error returned by an [`Archiver`].
@@ -21,18 +23,21 @@ pub enum ArchiveError {
 }
 
 /// Compresses a directory tree into a zip archive.
-// A bare `async fn` in a trait is sufficient for PR2: every caller (the Tauri
-// command and the smoke test) uses the concrete `ZipArchiver`, never a
-// `dyn Archiver` or a `T: Archiver` bound, so the compiler sees the concrete
-// future type and infers its `Send`-ness automatically. PR5 revisits this when
-// parallelism needs `Send` futures across `tokio::spawn`.
-#[allow(async_fn_in_trait)]
-pub trait Archiver {
-    /// Compress every regular file under `src_dir` into the zip at `dest_zip`.
-    /// Directory entries are not stored explicitly (empty directories are dropped);
-    /// each file is recorded under its `/`-separated path relative to `src_dir`.
-    /// The output zip is never included in itself.
-    async fn compress(&self, src_dir: &Path, dest_zip: &Path) -> Result<(), ArchiveError>;
+///
+/// The future is `Send` (and the trait `Send + Sync`) so the engine can run
+/// implementations across `tokio::spawn`. Progress is reported through `ctx`.
+pub trait Archiver: Send + Sync {
+    /// Compress every regular file under `src_dir` into the zip at `dest_zip`,
+    /// reporting cumulative byte progress through `ctx`. Each file is recorded
+    /// under its `/`-separated path relative to `src_dir`; empty directories are
+    /// dropped; the output zip is never included in itself. Implementations must
+    /// **not** overwrite an existing `dest_zip`.
+    fn compress(
+        &self,
+        src_dir: &Path,
+        dest_zip: &Path,
+        ctx: &CompressContext,
+    ) -> impl Future<Output = Result<(), ArchiveError>> + Send;
 }
 
 /// A source of monotonic time, behind a port so the application can be tested
