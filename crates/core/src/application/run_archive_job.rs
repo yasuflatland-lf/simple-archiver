@@ -154,6 +154,11 @@ async fn run_one<A: Archiver, E: Extractor>(
     tx: mpsc::UnboundedSender<WorkerMsg>,
     cancellation_token: CancellationToken,
 ) {
+    // Best-effort `Status` sends (here and below): every one of these carries a
+    // terminal/load-bearing event. A failed send means the aggregator already tore
+    // down during teardown; the dropped terminal status is then reconstructed by
+    // `into_summary`'s state reconciliation (a non-terminal task is classified from
+    // its final `TaskStatus`), so `succeeded + cancelled + failed` stays whole.
     // Not-started cancellation checkpoint: cancel before any extraction/compression.
     if cancellation_token.is_cancelled() {
         let _ = tx.send(WorkerMsg::Status {
@@ -366,6 +371,39 @@ mod tests {
         assert!(summary.succeeded.is_empty());
         assert!(summary.failed.is_empty());
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn rar_task_cancelled_before_start_emits_cancel_and_does_not_extract() {
+        let job = ArchiveJob::plan(
+            vec![SourceItem::RarFile(PathBuf::from("a.rar"))],
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+        let extractor = Arc::new(FakeExtractor::new());
+        let calls = extractor.calls.clone();
+        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, nz(2));
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let summary = engine
+            .execute_with_cancellation(job, &clock, &sink, cancel)
+            .await;
+
+        // The not-started checkpoint short-circuits before `registry.prepare`, so the
+        // rar task ends Cancelled (not failed/succeeded) and the extractor is never run.
+        assert_eq!(summary.cancelled, ids);
+        assert!(summary.succeeded.is_empty());
+        assert!(summary.failed.is_empty());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "extractor must not be called when cancelled before start"
+        );
     }
 
     #[tokio::test]

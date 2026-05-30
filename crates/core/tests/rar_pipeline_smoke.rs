@@ -55,3 +55,36 @@ async fn rar_is_extracted_and_recompressed_to_zip() {
         "zip should contain hello.txt, got {names:?}"
     );
 }
+
+#[tokio::test]
+async fn mixed_folder_and_rar_both_produce_zips() {
+    let out = tempfile::tempdir().expect("output dir");
+    let src_folder = tempfile::tempdir().expect("source folder");
+    std::fs::write(src_folder.path().join("file.txt"), b"from folder").expect("write folder file");
+
+    // Two items in order: a folder (out1.zip) then a rar fixture (out2.zip).
+    let job = simple_archiver_core::domain::archive_job::ArchiveJob::plan(
+        vec![
+            SourceItem::Folder(src_folder.path().to_path_buf()),
+            SourceItem::RarFile(fixture()),
+        ],
+        NamingRule::parse("out{n}").unwrap(),
+        OutputDirectory::new(out.path().to_path_buf()),
+    )
+    .unwrap();
+
+    let engine = RunArchiveJob::with_default_parallelism(
+        Arc::new(ZipArchiver::new()),
+        Arc::new(UnrarExtractor::new()),
+    );
+    let summary = engine.execute(job, &SystemClock::new(), &NullSink).await;
+
+    assert_eq!(summary.succeeded.len(), 2, "both tasks should succeed: {summary:?}");
+    assert!(summary.failed.is_empty());
+
+    // Folder → out1.zip (position 0); rar → out2.zip (position 1).
+    let folder_zip = out.path().join("out1.zip");
+    let rar_zip = out.path().join("out2.zip");
+    assert!(folder_zip.is_file(), "expected {folder_zip:?} to exist");
+    assert!(rar_zip.is_file(), "expected {rar_zip:?} to exist");
+}
