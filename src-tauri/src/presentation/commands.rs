@@ -131,7 +131,8 @@ pub fn set_output_dir(state: State<'_, AppState>, dir: String) -> Result<DraftSn
 /// `&dyn ProgressEmitter` instead of an [`AppHandle`] so integration tests can
 /// drive a full job without a live Tauri application.
 ///
-/// `pub` (not `pub(crate)`) solely so the `tests/` integration crate can drive it without a Tauri AppHandle.
+/// It is `pub` (not `pub(crate)`) solely so the `tests/` integration crate can
+/// reach it.
 #[doc(hidden)]
 pub async fn run_job_inner(
     emitter: &dyn ProgressEmitter,

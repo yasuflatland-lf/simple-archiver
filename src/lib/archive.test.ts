@@ -129,11 +129,9 @@ describe("archive client", () => {
     });
 
     it("returns the unlisten function provided by listen", async () => {
-      const fakeListen = vi.fn().mockResolvedValue(() => {});
-      vi.mocked(listen).mockImplementation(fakeListen);
-
       const unlistenFn = () => {};
-      fakeListen.mockResolvedValue(unlistenFn);
+      const fakeListen = vi.fn().mockResolvedValue(unlistenFn);
+      vi.mocked(listen).mockImplementation(fakeListen);
 
       const result = await subscribeProgress(() => {});
       expect(result).toBe(unlistenFn);
