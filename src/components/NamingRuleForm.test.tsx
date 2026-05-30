@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { fireEvent } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { NamingRuleForm, DEBOUNCE_MS } from "./NamingRuleForm";
 
