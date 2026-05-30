@@ -1,5 +1,6 @@
 //! Zip archiving adapter backed by `async_zip` (tokio).
 
+use crate::application::compress_context::CompressContext;
 use crate::application::ports::{ArchiveError, Archiver};
 use async_zip::base::write::ZipFileWriter;
 use async_zip::{Compression, ZipEntryBuilder};
@@ -22,16 +23,37 @@ impl Archiver for ZipArchiver {
     /// Directory entries are not stored explicitly (empty directories are dropped);
     /// each file is recorded under its `/`-separated path relative to `src_dir`.
     /// The output zip is never included in itself.
-    async fn compress(&self, src_dir: &Path, dest_zip: &Path) -> Result<(), ArchiveError> {
+    async fn compress(
+        &self,
+        src_dir: &Path,
+        dest_zip: &Path,
+        ctx: &CompressContext,
+    ) -> Result<(), ArchiveError> {
         // Collect the file list from the walk BEFORE creating the output file.
         // If `dest_zip` lives inside `src_dir`, this guarantees it cannot appear
         // in the walk at all, so it is never archived into itself — regardless
         // of WalkDir ordering, canonicalization success, or platform symlinks.
         let files = collect_files(src_dir)?;
 
-        let file = tokio::fs::File::create(dest_zip).await?;
+        // Sum the input sizes up front so progress can be reported as a fraction
+        // of a known total. Metadata failures (e.g. a file removed mid-walk) fall
+        // back to zero rather than aborting the whole task.
+        let bytes_total: u64 = files
+            .iter()
+            .map(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
+            .sum();
+        ctx.report(0, bytes_total);
+
+        // Refuse to overwrite an existing destination: a collision fails the task
+        // (AlreadyExists surfaces as ArchiveError::Io) rather than clobbering it.
+        let file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dest_zip)
+            .await?;
         let mut writer = ZipFileWriter::with_tokio(file);
 
+        let mut bytes_done: u64 = 0;
         for path in &files {
             let name = zip_entry_name(src_dir, path)?;
             let data = tokio::fs::read(path).await?;
@@ -40,6 +62,8 @@ impl Archiver for ZipArchiver {
                 .write_entry_whole(builder, &data)
                 .await
                 .map_err(|e| ArchiveError::Backend(e.to_string()))?;
+            bytes_done += data.len() as u64;
+            ctx.report(bytes_done, bytes_total);
         }
 
         // `ZipFileWriter::close` writes the central directory + EOCD record and
@@ -108,7 +132,64 @@ pub(crate) fn zip_entry_name(root: &Path, path: &Path) -> Result<String, Archive
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::compress_context::{CompressContext, TaskProgressReport};
+    use crate::domain::archive_task::TaskId;
+    use crate::domain::task_progress::TaskProgress;
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    struct Capture(Mutex<Vec<TaskProgress>>);
+    impl TaskProgressReport for Capture {
+        fn report(&self, _task: TaskId, progress: TaskProgress) {
+            self.0.lock().unwrap().push(progress);
+        }
+    }
+
+    #[tokio::test]
+    async fn reports_monotonic_bytes_up_to_total() {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), b"hello").unwrap(); // 5 bytes
+        std::fs::write(src.path().join("b.txt"), b"world!").unwrap(); // 6 bytes
+        let out = tempfile::tempdir().unwrap();
+        let dest = out.path().join("o.zip");
+
+        let capture = Arc::new(Capture(Mutex::new(Vec::new())));
+        let ctx = CompressContext::new(TaskId::new(1), capture.clone());
+        ZipArchiver::new()
+            .compress(src.path(), &dest, &ctx)
+            .await
+            .unwrap();
+
+        let reports = capture.0.lock().unwrap().clone();
+        assert!(!reports.is_empty(), "expected at least one progress report");
+        let total = reports[0].bytes_total();
+        assert_eq!(total, 11, "total is the sum of file sizes");
+        let mut last = 0;
+        for r in &reports {
+            assert_eq!(r.bytes_total(), total, "total is constant");
+            assert!(r.bytes_done() >= last, "bytes_done is non-decreasing");
+            last = r.bytes_done();
+        }
+        assert_eq!(reports.last().unwrap().bytes_done(), total, "ends at total");
+    }
+
+    #[tokio::test]
+    async fn refuses_to_overwrite_existing_output() {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), b"hi").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let dest = out.path().join("o.zip");
+        std::fs::write(&dest, b"pre-existing").unwrap();
+
+        let err = ZipArchiver::new()
+            .compress(src.path(), &dest, &CompressContext::detached())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ArchiveError::Io(_)),
+            "expected Io(AlreadyExists), got {err:?}"
+        );
+    }
 
     #[test]
     fn top_level_file_keeps_its_name() {

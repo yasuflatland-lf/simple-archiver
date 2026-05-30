@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 async_zip = { version = "0.0.18", features = ["tokio", "deflate"] }
-tokio = { version = "1", features = ["fs", "io-util"] }
+tokio = { version = "1", features = ["fs", "io-util", "rt", "sync"] }
 walkdir = "2"
 thiserror = "2"
 loom = { version = "0.7", optional = true }
@@ -14,7 +14,7 @@ lalrpop-util = "0.20"
 
 [dev-dependencies]
 mockall = "0.13"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 zip = "2"
 tempfile = "3"
 
