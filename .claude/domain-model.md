@@ -17,18 +17,21 @@
 ### `ArchiveTask` (entity)
 
 - Fields: `TaskId` / `SourceItem` / resolved `OutputFileName` / `TaskStatus` / `TaskProgress`.
-- `TaskStatus`: `Pending` / `Extracting` / `Compressing` / `Completed` / `Failed { reason }` / `Cancelled`.
+- **`TaskStatus` state machine:** source-agnostic, forward-only; terminal states (`Completed` / `Failed` / `Cancelled`) are irreversible. Normal path: `Pending → Extracting → Compressing → Completed`. Folder fast-path: `Pending → Compressing → Completed` (no extraction needed; the engine picks the first event, the machine doesn't inspect the source type). Error/cancel transitions: any non-terminal state → `Failed` or `Cancelled`. Modelled as `apply(self, Event) -> Result<Self, IllegalTransition>` — see conventions.md "State-machine convention".
+- `TaskStatus` variants: `Pending` / `Extracting` / `Compressing` / `Completed` / `Failed { reason }` / `Cancelled`.
 - **`TaskId(u32)` vs `SequenceNumber` (identity vs position):** `TaskId` is a stable task identity assigned once at plan time (`TaskId(i + 1)` for item at index `i`) and is never re-derived or changed by reordering. `SequenceNumber` is the 1-based position in the job's ordering (`position + 1`), is **derived and never stored**, and changes when tasks are reordered via `move_up` / `move_down`. Output names are bound to the sequence/position (not to the `TaskId`), so reordering rebinds names while preserving `TaskId`, `TaskStatus`, and `TaskProgress`.
 
 ### `ArchiveJob` (aggregate root)
 
 - Composition: an ordered `Vec<ArchiveTask>` / `NamingRule` / `OutputDirectory`.
+- **Full value type**: derives `PartialEq + Eq` (possible because `NamingRule` and all constituent types are `Eq`-capable).
 - **Invariants**:
   - Order ↔ sequence number (head = 1) always match.
   - Output names are unique within the job.
 - Operations:
   - `move_up` / `move_down` — re-derive sequence numbers and output names after reordering.
   - Factory `ArchiveJob::plan(items, rule, out_dir) -> Result<_, PlanError>` — number → resolve names → uniqueness check.
+- **Name-invariance under reordering (structural key insight):** output names are position-derived and number rendering is injective, so the SET `{resolve(rule, k) : k ∈ 1..N}` is **invariant under reordering** — a reorder only permutes which task holds which name. Consequences: (1) reorder can never introduce a new name-resolution failure or collision; (2) `move_up` / `move_down` only re-bind each position's already-validated name and **cannot fail on naming** — the only error is `TaskNotFound`; (3) the `plan` uniqueness check is therefore a defensive guard against future code paths, not a guard against reordering.
 
 ## Naming rule details (`NamingRule`)
 
