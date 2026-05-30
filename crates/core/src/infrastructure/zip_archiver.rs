@@ -43,6 +43,9 @@ impl Archiver for ZipArchiver {
             .map(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
             .sum();
         ctx.report(0, bytes_total);
+        if ctx.cancellation_token().is_cancelled() {
+            return Err(ArchiveError::Cancelled);
+        }
 
         // Refuse to overwrite an existing destination: a collision fails the task
         // (AlreadyExists surfaces as ArchiveError::Io) rather than clobbering it.
@@ -55,6 +58,12 @@ impl Archiver for ZipArchiver {
 
         let mut bytes_done: u64 = 0;
         for path in &files {
+            if ctx.cancellation_token().is_cancelled() {
+                drop(writer);
+                remove_partial_output(dest_zip).await;
+                return Err(ArchiveError::Cancelled);
+            }
+
             let name = zip_entry_name(src_dir, path)?;
             let data = tokio::fs::read(path).await?;
             let builder = ZipEntryBuilder::new(name.into(), Compression::Deflate);
@@ -64,6 +73,12 @@ impl Archiver for ZipArchiver {
                 .map_err(|e| ArchiveError::Backend(e.to_string()))?;
             bytes_done += data.len() as u64;
             ctx.report(bytes_done, bytes_total);
+
+            if ctx.cancellation_token().is_cancelled() {
+                drop(writer);
+                remove_partial_output(dest_zip).await;
+                return Err(ArchiveError::Cancelled);
+            }
         }
 
         // `ZipFileWriter::close` writes the central directory + EOCD record and
@@ -90,6 +105,11 @@ impl Archiver for ZipArchiver {
         file.sync_all().await?;
         Ok(())
     }
+}
+
+/// Best-effort cleanup for a cancelled compression.
+async fn remove_partial_output(dest_zip: &Path) {
+    let _ = tokio::fs::remove_file(dest_zip).await;
 }
 
 /// Walk `root` and return the paths of every regular file it contains.
@@ -136,13 +156,29 @@ mod tests {
     use crate::domain::archive_task::TaskId;
     use crate::domain::task_progress::TaskProgress;
     use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    };
     use tokio_util::sync::CancellationToken;
 
     struct Capture(Mutex<Vec<TaskProgress>>);
     impl TaskProgressReport for Capture {
         fn report(&self, _task: TaskId, progress: TaskProgress) {
             self.0.lock().unwrap().push(progress);
+        }
+    }
+
+    struct CancelOnFirstReport {
+        calls: AtomicUsize,
+        token: CancellationToken,
+    }
+
+    impl TaskProgressReport for CancelOnFirstReport {
+        fn report(&self, _task: TaskId, _progress: TaskProgress) {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                self.token.cancel();
+            }
         }
     }
 
@@ -189,6 +225,32 @@ mod tests {
         assert!(
             matches!(err, ArchiveError::Io(_)),
             "expected Io(AlreadyExists), got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancels_and_removes_partial_output_when_reporter_requests_it() {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), b"hello").unwrap();
+        std::fs::write(src.path().join("b.txt"), b"world").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let dest = out.path().join("o.zip");
+
+        let token = CancellationToken::new();
+        let reporter = Arc::new(CancelOnFirstReport {
+            calls: AtomicUsize::new(0),
+            token: token.clone(),
+        });
+        let ctx = CompressContext::new(TaskId::new(1), reporter, token);
+
+        let err = ZipArchiver::new()
+            .compress(src.path(), &dest, &ctx)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ArchiveError::Cancelled), "got {err:?}");
+        assert!(
+            !dest.exists(),
+            "partial output should be removed after cancellation"
         );
     }
 
