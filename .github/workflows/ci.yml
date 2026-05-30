@@ -26,13 +26,35 @@ jobs:
           flags: rust
           fail_ci_if_error: false
 
+  hygiene:
+    name: hygiene (deps + orphan files)
+    runs-on: ubuntu-latest
+    # Load mise.ci-hygiene.toml so mise-action installs cargo-modules here only — it compiles
+    # rust-analyzer from source (~16 min on Windows), and this is the sole job that runs it.
+    env:
+      MISE_ENV: ci-hygiene
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      # Unused Cargo.toml dependencies across the whole workspace (no compilation needed).
+      # Intentional declarations (transitive version pins, PR5 pre-declarations) are
+      # allow-listed via `[package.metadata.cargo-machete]` in each crate's Cargo.toml.
+      - run: cargo machete
+      # Orphan source files: `.rs` files not wired into the module tree (`--deny` fails on any).
+      # Scoped to the pure core crate; src-tauri would need the GTK/webkit build env on Linux.
+      # (Module-cycle detection via `cargo modules dependencies --acyclic` is intentionally not
+      # run: it flags every type<->method pair as a cycle and cannot be filtered. See PR notes.)
+      - run: cargo modules orphans -p simple-archiver-core --lib --deny
+
   frontend:
-    name: frontend (vitest + build)
+    name: frontend (vitest + build + knip)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
       - run: pnpm install --frozen-lockfile
+      # Frontend dependency hygiene: unused files / deps / exports (config in knip.json).
+      - run: pnpm knip
       - run: pnpm run test:coverage
       - uses: codecov/codecov-action@v5
         with:

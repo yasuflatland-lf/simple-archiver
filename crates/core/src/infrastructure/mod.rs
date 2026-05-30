@@ -6,5 +6,6 @@
 // (tokio disables fs for loom model-checking). PR2 has no concurrency code to
 // model-check, so the IO adapter is excluded from loom builds. PR5 will add
 // loom-tested concurrency code separately.
+pub mod system_clock;
 #[cfg(not(loom))]
 pub mod zip_archiver;

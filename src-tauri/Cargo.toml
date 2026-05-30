@@ -34,6 +34,16 @@ tauri-plugin-dialog = "2"
 # bitflags fixes the recursive expansion.
 bitflags = "=2.8.0"
 
+[package.metadata.cargo-machete]
+# These are reported as unused because they are never referenced directly in source:
+# - bitflags: declared only to pin the *transitive* bitflags version (see the comment on the
+#   dependency above). Removing it would un-pin the transitive bitflags and reintroduce the
+#   dispatch2 recursion_limit build failure, so it must stay and must be ignored here.
+# - serde/serde_json: part of the Tauri scaffold for command (de)serialization. The current
+#   commands use only primitive types, so there is no direct reference yet; they are kept for
+#   forthcoming custom command payloads. Remove from Cargo.toml and this list together if dropped.
+ignored = ["bitflags", "serde", "serde_json"]
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 zip = "2"
