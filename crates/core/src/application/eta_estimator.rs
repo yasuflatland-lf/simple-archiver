@@ -8,8 +8,12 @@
 //! (a true moving average), which keeps the ETA responsive to the irregular
 //! per-zip-entry tick cadence rather than a whole-run average.
 
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
+
+use crate::application::progress::JobProgress;
+use crate::domain::archive_task::TaskId;
 
 /// Window over which throughput is averaged for ETA. Tunable.
 pub const ETA_WINDOW: Duration = Duration::from_secs(3);
@@ -72,6 +76,72 @@ impl EtaEstimator {
             return None;
         }
         Duration::try_from_secs_f64(secs).ok()
+    }
+}
+
+/// Owns one `EtaEstimator` per track (overall + each task) and annotates a
+/// `JobProgress` snapshot with ETAs in place. Created fresh per job run (it lives
+/// on the engine's `execute` stack), so estimator state resets automatically.
+pub struct EtaTracker {
+    window: Duration,
+    overall: EtaEstimator,
+    per_task: HashMap<TaskId, EtaEstimator>,
+}
+
+impl EtaTracker {
+    /// Create a tracker whose estimators all average over `window`.
+    pub fn new(window: Duration) -> Self {
+        Self {
+            window,
+            overall: EtaEstimator::new(window),
+            per_task: HashMap::new(),
+        }
+    }
+
+    /// Observe `progress` as of `now`, filling `overall_eta` and each entry's `eta`.
+    pub fn enrich(&mut self, progress: &mut JobProgress, now: Instant) {
+        self.overall.observe(now, progress.overall.bytes_done());
+        progress.overall_eta = self.overall.eta(progress.overall.remaining());
+        for entry in &mut progress.per_task {
+            let est = self
+                .per_task
+                .entry(entry.id)
+                .or_insert_with(|| EtaEstimator::new(self.window));
+            est.observe(now, entry.progress.bytes_done());
+            entry.eta = est.eta(entry.progress.remaining());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tracker_tests {
+    use super::*;
+    use crate::application::progress::JobProgress;
+    use crate::domain::task_progress::TaskProgress;
+
+    #[test]
+    fn enrich_fills_overall_eta_from_advancing_observations() {
+        let base = Instant::now();
+        let mut tracker = EtaTracker::new(Duration::from_secs(60));
+
+        let mut first = JobProgress {
+            overall: TaskProgress::new(0, 100),
+            overall_eta: None,
+            per_task: Vec::new(),
+            elapsed: Duration::ZERO,
+        };
+        tracker.enrich(&mut first, base);
+        assert_eq!(first.overall_eta, None, "one sample -> no ETA yet");
+
+        let mut second = JobProgress {
+            overall: TaskProgress::new(10, 100),
+            overall_eta: None,
+            per_task: Vec::new(),
+            elapsed: Duration::from_secs(1),
+        };
+        tracker.enrich(&mut second, base + Duration::from_secs(1));
+        // 10 B/s, 90 remaining -> 9s.
+        assert_eq!(second.overall_eta, Some(Duration::from_secs(9)));
     }
 }
 
