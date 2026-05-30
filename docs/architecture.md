@@ -15,15 +15,18 @@
 
 ## Current state
 
-**Scaffold landed (PR1).** A Cargo workspace + Tauri shell + Vite/React frontend + CI now exist; the domain/application/infrastructure logic is still to be built. Treat the structure and commands here as the live target.
+**Presentation layer wired (PR6).** The execution engine is connected end-to-end: Tauri commands mutate a backend-held session draft, drive the application engine, and stream progress events to the frontend. Domain / application / infrastructure and the presentation adapter are all implemented. Treat this document as the live architecture description.
 
 ## Layered / hexagonal structure
 
 The Rust backend is split across a **Cargo workspace** with two crates: a pure `simple-archiver-core` crate holding `domain` / `application` / `infrastructure`, and the `src-tauri` crate holding `presentation`.
 
 ```
-presentation   src-tauri crate — Tauri commands + events
-               add_items / reorder / set_naming_rule / set_output_dir / run_job / cancel_job → emit progress
+presentation   src-tauri/src/presentation/ — Tauri commands, session state, DTO/event wiring
+               commands.rs  — six granular Tauri commands + run_job_inner testability seam
+               state.rs     — JobDraft (mutable session draft) + RunState (single-active-job guard) + AppState (Tauri managed state)
+               dto.rs       — wire-contract DTOs with serde + ts-rs bindings (ProgressEvent, DraftSnapshot, JobSummaryDto, …)
+               events.rs    — ProgressEmitter trait seam + TauriEmitter (production) + RecordingEmitter (test double)
 application    simple-archiver-core — use case / orchestration
                RunArchiveJob: N parallel workers, progress aggregation, cancellation, error tally / ports: Extractor, Archiver, Clock
 domain         simple-archiver-core — pure, no IO (the main TDD battleground)
@@ -55,6 +58,30 @@ infrastructure simple-archiver-core — isolates the variation / adapters
 - **Error isolation + completeness:** one task failing never stops the others; failures are tallied into `JobSummary { succeeded, cancelled: Vec<TaskId>, failed: Vec<(TaskId, String)> }`. The reason is the full `ArchiveError::to_string()` (Display), not the raw backend message. `into_summary` reconciles any task left non-terminal (e.g. a panicked worker) into `failed`, so `succeeded + cancelled + failed` always equals the task count. **The summary is state-derived, not message-derived:** it iterates `job.tasks()` and classifies each task's *final* `TaskStatus` (disjoint + total — every task classified exactly once), which is precisely what makes the engine's `let _ = tx.send(…)` drops safe: a lost or out-of-order worker message can never drop a task from the tally. Latent constraint: if the summary were ever recomputed from the message *stream* instead of job state, those ignored sends would become lost-terminal-event bugs.
 - **Folder-only in PR-5a:** `SourceItem::RarFile` fails its own task with a clear reason; `FormatRegistry` + `Extractor` (rar→temp→Archiver) arrive with rar support.
 - **PR-5b (implemented):** cancellation via `CancellationToken` threaded through `CompressContext` — not-started checkpoint (cancel before compress → task ends `Cancelled`, archiver never called) + per-zip-entry checkpoint in `ZipArchiver::compress` (drops the writer, best-effort-deletes the partial `dest_zip`, returns `ArchiveError::Cancelled`); `JobSummary.cancelled` tallies cancelled tasks. A loom verification suite (`application/loom_nucleus.rs`, gated `#[cfg(loom)]`) drives the real `Aggregator`/`WorkerMsg`/`ArchiveJob` under loom primitives: three concurrent loom-thread workers send terminal/progress messages over a loom mpsc channel into the single-writer aggregator. Under every loom interleaving it verifies that no message is lost and the summary partitions every task into exactly one of succeeded/cancelled/failed — this checks the **concurrency model** (single-writer aggregation), NOT the tokio runtime, and NOT `CancellationToken` propagation (that signal path is covered by the regular tokio cancel-path tests). Note: loom 0.7 models message count, not sender-drop/channel closure, so the production worker→channel-close→drain ordering is covered by the regular tokio tests, not loom.
-- **Pending:** `EtaEstimator` (moving-average throughput); the presentation `ProgressSink`→Tauri adapter and `run_job` / `cancel_job` commands.
+- **Pending:** `EtaEstimator` (moving-average throughput).
 
 For domain model details and invariants, see L3 [`/.claude/domain-model.md`](../.claude/domain-model.md).
+
+## Presentation layer — wiring the engine to the UI (PR6)
+
+The four modules in `src-tauri/src/presentation/` form the adapter between the application engine and the Tauri frontend.
+
+### Backend-held session state (single source of truth = Rust)
+
+`JobDraft` (in `state.rs`) accumulates the user's pending job configuration inside `AppState`, which is registered with `tauri::Builder::manage`. The four mutation commands (`add_items` / `reorder` / `set_naming_rule` / `set_output_dir`) each mutate the draft and return a `DraftSnapshot` so the frontend reflects the current state. `run_job` calls `JobDraft::build` (which calls `ArchiveJob::plan`) and hands the planned job to the engine. WHY: Rust is the single source of truth — no job state is duplicated in the TypeScript layer, so the frontend never needs to sync with the backend between commands.
+
+### Single-active-job invariant
+
+`RunState` (in `state.rs`) holds at most one `CancellationToken`. Its public API is intentionally narrow: `try_start` claims the slot and rejects a second concurrent job with the IPC-contract message `"a job is already running"`; `request_cancel` signals the token; `finish` is the sole way to clear the slot. The slot is freed on every exit path (normal completion, error, or drop) because `run_job` calls `finish` in a deferred cleanup path — the invariant is owned by the type, not by the caller.
+
+### Progress event transport
+
+Progress snapshots flow from the application engine to the frontend via Tauri global events on the channel `archive://progress` (constant `PROGRESS_EVENT` in `dto.rs`). The `run_job` command's awaited return value — a `JobSummaryDto` — IS the completion signal; there is no separate "done" event. Missed progress ticks (e.g. a failed `app.emit`) are silently discarded: a dropped tick must never abort a running job.
+
+### DTO boundary preserves layer purity
+
+Wire-contract types (`ProgressEvent`, `ProgressCounts`, `TaskProgressDto`, `DraftSnapshot`, `JobSummaryDto`, etc.) are authored exclusively in `dto.rs` (presentation). `domain` and `application` carry no `serde` or `ts-rs` derives. Application types (`JobProgress` / `JobSummary`) are mapped to DTOs via `From` impls inside presentation. WHY: this is a concrete realization of the `presentation → application → domain` dependency rule — the wire shape can evolve without touching the core model, and the core stays independently testable.
+
+### Testability seam at the IPC boundary
+
+`ProgressEmitter` (in `events.rs`) is a `trait` over `emit_progress`. Production code uses `TauriEmitter` (wrapping `AppHandle`); integration tests use a `RecordingEmitter` double. The engine entry point is extracted into `run_job_inner(emitter: &dyn ProgressEmitter, …)` in `commands.rs`, which can be called in tests without a live Tauri application. Path classification (directory → `Folder`, `.rar` extension → `RarFile`) is a free function in `commands.rs` because it is IO, keeping `JobDraft` pure and independently unit-testable.

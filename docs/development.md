@@ -12,6 +12,7 @@
 | zip creation | `async_zip` |
 | rar extraction | `unrar` (extract-only; bundled C++ source for both Mac/Win) |
 | Rust tests | cargo-nextest (runner) / mockall (port mocks) / loom (concurrency verification) |
+| TypeScript bindings | ts-rs 10 (`#[derive(TS)]` on DTOs generates `.ts` files committed to `src/bindings/`) |
 | Parser / lexer | LALRPOP 0.20.x (parser codegen from `.lalrpop` grammar) + logos (lexer); both are build-time tooling inside `simple-archiver-core` |
 | Frontend tests | Vitest |
 
@@ -30,6 +31,10 @@ cargo llvm-cov nextest -p simple-archiver-core --lcov --output-path lcov.info  #
 
 # loom concurrency verification (target tests only; kept separate from normal runs)
 RUSTFLAGS="--cfg loom" cargo nextest run -p simple-archiver-core --features loom
+
+# Rust — presentation crate (Tauri commands, IPC layer; requires the Tauri toolchain)
+cargo clippy -p simple-archiver --all-targets -- -D warnings
+cargo nextest run -p simple-archiver          # also regenerates ts-rs bindings in src/bindings/
 
 # Frontend
 pnpm test                  # Vitest
@@ -53,17 +58,34 @@ This project is designed around TDD. **Write tests before implementation.**
 - **Infrastructure**: narrow integration tests against small real fixtures (small folder, small .rar). Few and slow, so isolate them with a marker.
   - **A test asserting absence must first prove presence (no vacuous side-effect tests).** A cleanup/cancel test that fires its trigger at the *first* checkpoint runs **before** the side-effect happens (e.g. the output file is not yet created), so an "artifact was removed" assertion passes vacuously and never exercises the real cleanup path. Fire the trigger *after* the side-effect and prove it occurred first — e.g. assert the progress reporter was called ≥2 times ⇒ ≥1 entry was written ⇒ the dest file genuinely existed — *then* assert it was cleaned up (`ZipArchiver`'s `cancels_after_a_write_removes_the_partial_output` is the canonical shape).
 - **Presentation (Tauri commands)**: a `#[tauri::command] pub fn` is an ordinary Rust function; its `Result<_, String>` mapping can be asserted in a plain `#[cfg(test)]` unit test **without** constructing an `App` or `Window`. Integration-level coverage (command seam: argument names `src`/`out`, `ArchiveError`→`String` IPC mapping) can be added via `src-tauri/tests/*.rs` — the macro does not consume the original fn. Requires: the `presentation` module is `pub`, the lib crate is `simple_archiver_lib` with `[lib] crate-type` including `"rlib"`, and dev-deps `tokio` (macros, rt-multi-thread) + `zip` + `tempfile`.
+  - **HARNESS — IPC/wire layer testing** (origin: PR6). Use three complementary layers:
+    1. **Serde-shape tests** (unit): assert `serde_json::to_value(&dto)` equals the expected camelCase JSON structure and that snake_case keys are absent. These pin the wire contract without a running Tauri app.
+    2. **`RecordingEmitter` test double** (unit): implement the `ProgressEmitter` trait with a `Mutex<Vec<ProgressEvent>>` that records every emitted event. Use it in unit tests that need to verify event ordering or field mapping without an `AppHandle`.
+    3. **`run_job_inner` integration tests** (`src-tauri/tests/run_job_command.rs`): drive the IPC-free core with a real `ZipArchiver` + `SystemClock` + temp dirs. Happy path: assert `summary.succeeded.len() == N`, that at least one progress event was emitted with `overall.bytes_done > 0`, and that output zips exist on disk. Pre-cancelled path: assert the cancelled **count** (not exact ids — thread-pool order is nondeterministic) and that no output zips were written.
+  - **Testing constraint — `TaskId` visibility**: `TaskId::new` is `pub(crate)`, so tests in the separate `src-tauri` crate cannot fabricate a `TaskId`. Cover `From<JobSummary>`/`From<&JobProgress>` mappings with empty id collections and rely on serde-shape tests for field-level contract coverage.
 - **Frontend**: Vitest on jsdom + Testing Library for preview computation, reordering, and progress rendering, including event-payload contract tests. Mock `@tauri-apps/api/core` (`invoke`) and `@tauri-apps/plugin-dialog` (`open`/`save`).
   - `@testing-library/user-event` treats `{` as a special key sequence — type a literal brace as `{{` (e.g. `img_{{n:03}` produces `img_{n:03}`).
   - Combining `vi.useFakeTimers()` with `userEvent` can deadlock in jsdom. For debounce-timing tests, drive input with `fireEvent.change` + `vi.advanceTimersByTimeAsync`, and confirm the test fails when the debounce is removed as a correctness check.
 - **E2E**: a folder → zip walking-skeleton smoke test.
+
+## CI jobs
+
+| Job | Runner | What it does |
+|---|---|---|
+| `core` | ubuntu | `cargo fmt --check`, clippy + llvm-cov nextest for `simple-archiver-core`, Codecov upload (`rust` flag) |
+| `loom` | ubuntu | loom-clippy + loom-nextest for `simple-archiver-core` (concurrency model verification) |
+| `hygiene` | ubuntu | cargo-machete (unused deps) + cargo-modules orphan check on the core crate |
+| `frontend` | ubuntu | `pnpm knip`, `pnpm run test:coverage`, Codecov upload (`frontend` flag), `pnpm build` |
+| `app` | macos + windows (matrix) | `cargo fmt --check`, clippy + nextest for **both** `simple-archiver-core` and the presentation crate `simple-archiver`, `pnpm test`, `pnpm build`, `pnpm tauri build --no-bundle` |
+
+The presentation-crate clippy + nextest steps in the `app` job were added in PR6; the Tauri toolchain (gtk/webkit headers on Linux) is unavailable on ubuntu, so those steps run only on the mac/windows runners.
 
 ## Coverage (Codecov)
 
 Coverage is reported to Codecov **informationally** — it never blocks a PR. The
 ubuntu `core` and `frontend` CI jobs upload lcov to Codecov under flags `rust`
 and `frontend` (auth via the `CODECOV_TOKEN` repository secret). The
-mac/windows `app` job is build-only and is not measured. The repository must be
+mac/windows `app` job runs tests but does not upload coverage. The repository must be
 activated on codecov.io for reports to appear. Coverage config lives in
 `codecov.yml`; local lcov artifacts (`lcov.info`, `coverage/`) are git-ignored.
 
@@ -86,5 +108,8 @@ activated on codecov.io for reports to appear. Coverage config lives in
 - **clippy `-D warnings` gotchas (CI gate).** Two patterns tripped this PR:
   - Use `!(1..=N).contains(&x)` instead of `x < 1 || x > N`; the latter triggers `clippy::manual_range_contains`.
   - A `pub` / `pub(crate)` item is exempt from `dead_code`, but a non-public fn that is only consumed by tests until a later task wires real callers may need a temporary `#[allow(dead_code)]`; remove it once production code calls it.
+
+- **ts-rs binding generation workflow.** Wire-contract DTOs live in `src-tauri/src/` and derive `TS` with `#[ts(export, export_to = "../../src/bindings/")]`. The `export_to` path is relative to the **source-file directory** (`src-tauri/src/`), so `"../../src/bindings/"` resolves to the repo's `src/bindings/`. Bindings are regenerated whenever the Rust tests run (`cargo nextest run -p simple-archiver`). The generated `.ts` files are **committed** — they are a derived artifact with a single authored source (the Rust DTO) and the frontend imports them directly. A CI "bindings freshness" check (`git diff --exit-code src/bindings`) is deferred to a follow-up PR because the `src-tauri` codegen step requires a pre-built `dist/`; within each PR the contract is locked instead by Rust-side serde-shape tests.
+- **HARNESS — ts-rs `u64` → always `#[ts(type = "number")]`.** ts-rs 10 maps Rust `u64` to TypeScript `bigint`, but Tauri IPC delivers JSON `number`. A `bigint`-typed binding mismatches the runtime payload. Annotate every `u64` DTO field with `#[ts(type = "number")]` (safe for values below 2^53; byte counters in practice). `u32` maps to `number` without an override. Pair this with a regression test asserting that the generated binding file emits `number` and not `bigint`.
 
 For coding conventions (including the English-comment rule), see L3 [`/.claude/conventions.md`](../.claude/conventions.md).
