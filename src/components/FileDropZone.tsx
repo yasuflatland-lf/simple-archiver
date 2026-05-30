@@ -45,6 +45,9 @@ export function FileDropZone() {
         if (!mounted) {
           unlisten();
         }
+      })
+      .catch((reason) => {
+        console.error("drag-drop subscription failed", reason);
       });
 
     return () => {
