@@ -730,5 +730,13 @@ mod tests {
             snaps.iter().any(|s| s.overall_eta.is_some()),
             "at least one snapshot must carry an overall ETA once bytes advance over time"
         );
+        // Prove the per-task ETA path runs end-to-end through the real engine:
+        // at least one snapshot must have a per_task entry with a Some ETA.
+        assert!(
+            snaps
+                .iter()
+                .any(|s| s.per_task.iter().any(|e| e.eta.is_some())),
+            "at least one snapshot must carry a per-task ETA once throughput is known"
+        );
     }
 }

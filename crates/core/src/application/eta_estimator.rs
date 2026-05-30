@@ -37,9 +37,14 @@ impl EtaEstimator {
 
     /// Record a cumulative `bytes_done` reading observed at `now`.
     ///
-    /// Samples older than `now - window` are evicted, but at least the most
-    /// recent two are always retained, so a stall longer than `window` still
-    /// leaves an interval to measure (its throughput simply trends toward zero).
+    /// Callers must pass monotonically non-decreasing `now` and `bytes_done`;
+    /// out-of-order input is tolerated (saturating arithmetic) but yields a
+    /// conservative or `None` estimate.
+    ///
+    /// Samples older than `now - window` are evicted, but at least the two most
+    /// recent samples are always retained. While progress is merely *slowing*,
+    /// throughput drops and ETA grows; once progress *fully stalls* (no byte
+    /// delta across the retained interval), `eta()` returns `None`.
     pub fn observe(&mut self, now: Instant, bytes_done: u64) {
         self.samples.push_back((now, bytes_done));
         if let Some(cutoff) = now.checked_sub(self.window) {
@@ -51,9 +56,12 @@ impl EtaEstimator {
         }
     }
 
-    /// Estimate time remaining to process `bytes_remaining`, or `None` when
-    /// throughput cannot be determined (fewer than two samples, zero elapsed
-    /// across the window, or no byte progress across the window).
+    /// Estimate time remaining to process `bytes_remaining`.
+    ///
+    /// Returns `Some(Duration::ZERO)` immediately when `bytes_remaining == 0`.
+    /// Otherwise returns `None` when throughput cannot be determined: fewer than
+    /// two samples, zero elapsed across the window, or no byte progress across
+    /// the window (full stall).
     pub fn eta(&self, bytes_remaining: u64) -> Option<Duration> {
         if bytes_remaining == 0 {
             return Some(Duration::ZERO);
@@ -116,8 +124,102 @@ impl EtaTracker {
 #[cfg(test)]
 mod tracker_tests {
     use super::*;
-    use crate::application::progress::JobProgress;
+    use crate::application::progress::{JobProgress, TaskProgressEntry};
+    use crate::domain::archive_job::ArchiveJob;
+    use crate::domain::naming_rule::NamingRule;
+    use crate::domain::output_directory::OutputDirectory;
+    use crate::domain::source_item::SourceItem;
     use crate::domain::task_progress::TaskProgress;
+    use std::path::PathBuf;
+
+    /// Build a two-task job; return the job and the two task ids in plan order.
+    fn two_task_job() -> (ArchiveJob, [crate::domain::archive_task::TaskId; 2]) {
+        let items = vec![
+            SourceItem::Folder(PathBuf::from("dir0")),
+            SourceItem::Folder(PathBuf::from("dir1")),
+        ];
+        let job = ArchiveJob::plan(
+            items,
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let ids = [job.tasks()[0].id(), job.tasks()[1].id()];
+        (job, ids)
+    }
+
+    /// Build a `JobProgress` snapshot with two per-task entries at the given
+    /// byte counters (total is fixed at 100 for each task).
+    fn snapshot_with(
+        ids: &[crate::domain::archive_task::TaskId; 2],
+        done0: u64,
+        done1: u64,
+    ) -> JobProgress {
+        JobProgress {
+            overall: TaskProgress::new(done0 + done1, 200),
+            overall_eta: None,
+            per_task: vec![
+                TaskProgressEntry {
+                    id: ids[0],
+                    progress: TaskProgress::new(done0, 100),
+                    eta: None,
+                },
+                TaskProgressEntry {
+                    id: ids[1],
+                    progress: TaskProgress::new(done1, 100),
+                    eta: None,
+                },
+            ],
+            elapsed: Duration::ZERO,
+        }
+    }
+
+    #[cfg(not(loom))]
+    #[test]
+    fn per_task_etas_are_independent_and_reflect_each_tasks_rate() {
+        // Task 0 advances slowly (5 B/s) and task 1 advances quickly (20 B/s).
+        // After two enrich calls with distinct `now` values and distinct byte
+        // counts, each entry's `eta` must be `Some` and they must DIFFER,
+        // proving the per-task estimators are independent (not sharing the
+        // overall estimator).
+        let (_job, ids) = two_task_job();
+        let base = Instant::now();
+        let mut tracker = EtaTracker::new(Duration::from_secs(60));
+
+        // First observation: both tasks at 0 bytes done.
+        let mut first = snapshot_with(&ids, 0, 0);
+        tracker.enrich(&mut first, base);
+        // Only one sample per estimator -> no ETA yet.
+        assert!(
+            first.per_task[0].eta.is_none(),
+            "one sample: no per-task ETA yet"
+        );
+        assert!(
+            first.per_task[1].eta.is_none(),
+            "one sample: no per-task ETA yet"
+        );
+
+        // Second observation 1 second later:
+        //   task 0: 5 bytes done  -> 5 B/s, 95 remaining -> 19 s ETA
+        //   task 1: 20 bytes done -> 20 B/s, 80 remaining -> 4 s ETA
+        let t1 = base + Duration::from_secs(1);
+        let mut second = snapshot_with(&ids, 5, 20);
+        tracker.enrich(&mut second, t1);
+
+        let eta0 = second.per_task[0].eta;
+        let eta1 = second.per_task[1].eta;
+        assert!(eta0.is_some(), "task 0 must have a per-task ETA after two observations");
+        assert!(eta1.is_some(), "task 1 must have a per-task ETA after two observations");
+        assert_ne!(
+            eta0, eta1,
+            "per-task ETAs must differ when tasks advance at different rates"
+        );
+        // Sanity-check the magnitudes: task 0 should be slower (larger ETA).
+        assert!(
+            eta0.unwrap() > eta1.unwrap(),
+            "task 0 (5 B/s) must have a larger ETA than task 1 (20 B/s)"
+        );
+    }
 
     #[test]
     fn enrich_fills_overall_eta_from_advancing_observations() {
