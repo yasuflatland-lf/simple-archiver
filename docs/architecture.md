@@ -37,9 +37,10 @@ infrastructure simple-archiver-core — isolates the variation / adapters
 ## Layer boundary discipline (strict)
 
 - **Dependency direction**: `presentation → application → domain`, `infrastructure → domain`. `domain` depends on no other layer.
-- **`domain` is pure**: no IO, async, or external-crate dependencies. All file/process/clock access goes through ports.
+- **`domain` is pure**: no IO, async, or external-crate dependencies. All file/process/clock access goes through ports. This includes naming logic: the logos lexer + LALRPOP grammar that parse/validate/resolve naming templates generate pure, IO-free, async-free code and live entirely in `domain`. Keeping naming in `domain` makes it testable-first and reusable by later job/execution work.
 - **IO is isolated behind ports**: `Extractor` (rar→dir) / `Archiver` (dir→zip) / `Clock`, with implementations in `infrastructure`. Ports are async traits (`async fn` in trait with `#[allow(async_fn_in_trait)]`), acceptable while every caller uses the concrete adapter (future `Send`-ness is inferred); revisited in PR5 when parallelism needs `Send` futures across `tokio::spawn`.
-- Default visibility is `pub(crate)`; layer boundaries are enforced with clippy.
+- **Default visibility is `pub(crate)`**; layer boundaries are enforced with clippy. Parser/codegen internals — `Token`, `Lexer`, `LexError`, `Segment`, the generated `template` module, and `parse_segments` — are `pub(crate)` or private. The crate's public surface is limited to validated value objects (`NamingRule`, `SequenceNumber`, `FileStem`, `OutputFileName`) and their error enums. WHY: callers cannot bypass `NamingRule::parse` to build unvalidated `Segment`s, and lexer/grammar changes remain non-breaking.
+- **IPC error boundary**: domain errors (`NamingRuleError` / `NameError` / `SequenceError`) cross to the frontend as a `String` via `e.to_string()` at the Tauri command layer. The exact message text is a shared contract pinned by tests on both sides (Rust command test and frontend test assert the same string). WHY: the Tauri command is a thin bridge with Rust as the single source of truth — no validation logic is duplicated in TypeScript. The only naming-related outward touch points are the `preview_output_name` Tauri command (presentation) and the React `NamingRuleForm`.
 
 ### Infrastructure adapter invariants
 
