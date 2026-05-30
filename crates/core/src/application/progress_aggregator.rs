@@ -69,11 +69,7 @@ impl Aggregator {
             .tasks()
             .iter()
             .map(|t| {
-                let p = self
-                    .progress
-                    .get(&t.id())
-                    .copied()
-                    .unwrap_or_else(TaskProgress::zero);
+                let p = self.progress.get(&t.id()).copied().unwrap_or_default();
                 done += p.bytes_done();
                 total += p.bytes_total();
                 (t.id(), p)

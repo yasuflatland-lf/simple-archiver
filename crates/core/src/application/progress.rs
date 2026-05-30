@@ -25,7 +25,6 @@ pub trait ProgressSink: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::task_progress::TaskProgress;
     use std::sync::Mutex;
     use std::time::Duration;
 

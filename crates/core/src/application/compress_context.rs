@@ -50,7 +50,6 @@ impl CompressContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::task_progress::TaskProgress;
     use std::sync::Mutex;
 
     struct Capture(Mutex<Vec<(u32, TaskProgress)>>);
