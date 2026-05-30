@@ -24,6 +24,9 @@ build/
 # Design docs (kept local / mirrored to Notion, not committed)
 docs/superpowers/
 
+# Claude Code local plans (kept local, not committed)
+.claude/plans/
+
 # Node
 node_modules/
 dist/

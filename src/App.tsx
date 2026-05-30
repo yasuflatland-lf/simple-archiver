@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import { Button } from "@/components/ui/button";
+import { NamingRuleForm } from "@/components/NamingRuleForm";
 
 function App() {
   const [src, setSrc] = useState<string | null>(null);
@@ -63,6 +64,7 @@ function App() {
       <p>Source: {src ?? "(none)"}</p>
       <p>Output: {out ?? "(none)"}</p>
       <p>{status}</p>
+      <NamingRuleForm />
     </main>
   );
 }
