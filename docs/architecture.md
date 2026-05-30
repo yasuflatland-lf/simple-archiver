@@ -17,6 +17,8 @@
 
 **Presentation layer wired (PR6).** The execution engine is connected end-to-end: Tauri commands mutate a backend-held session draft, drive the application engine, and stream progress events to the frontend. Domain / application / infrastructure and the presentation adapter are all implemented. Treat this document as the live architecture description.
 
+**Frontend**: the design-system foundation is in place (ASICS tokens, light/dark theme, Inter typography, Button/Input/Label primitives, ThemeProvider). The main screen, card layout, draft list, per-file progress, job summary, and failed-task list are deferred to a later cycle, now that the backend DTOs have landed.
+
 ## Layered / hexagonal structure
 
 The Rust backend is split across a **Cargo workspace** with two crates: a pure `simple-archiver-core` crate holding `domain` / `application` / `infrastructure`, and the `src-tauri` crate holding `presentation`.
@@ -59,6 +61,19 @@ infrastructure simple-archiver-core — isolates the variation / adapters
 - **Folder-only in PR-5a:** `SourceItem::RarFile` fails its own task with a clear reason; `FormatRegistry` + `Extractor` (rar→temp→Archiver) arrive with rar support.
 - **PR-5b (implemented):** cancellation via `CancellationToken` threaded through `CompressContext` — not-started checkpoint (cancel before compress → task ends `Cancelled`, archiver never called) + per-zip-entry checkpoint in `ZipArchiver::compress` (drops the writer, best-effort-deletes the partial `dest_zip`, returns `ArchiveError::Cancelled`); `JobSummary.cancelled` tallies cancelled tasks. A loom verification suite (`application/loom_nucleus.rs`, gated `#[cfg(loom)]`) drives the real `Aggregator`/`WorkerMsg`/`ArchiveJob` under loom primitives: three concurrent loom-thread workers send terminal/progress messages over a loom mpsc channel into the single-writer aggregator. Under every loom interleaving it verifies that no message is lost and the summary partitions every task into exactly one of succeeded/cancelled/failed — this checks the **concurrency model** (single-writer aggregation), NOT the tokio runtime, and NOT `CancellationToken` propagation (that signal path is covered by the regular tokio cancel-path tests). Note: loom 0.7 models message count, not sender-drop/channel closure, so the production worker→channel-close→drain ordering is covered by the regular tokio tests, not loom.
 - **Pending:** `EtaEstimator` (moving-average throughput).
+
+## Presentation layer — design-system foundation
+
+The frontend uses a **two-layer design-token system** in `src/App.css`:
+
+- **Primitive layer** — ASICS raw hex values declared in `:root` (e.g. `--asics-ink: #0a1f4f`, `--asics-brand-red: #e60012`). Dark primitives (charcoal palette, navy lift) are invented since ASICS has no official dark spec.
+- **Semantic layer** — the shadcn contract variables (`--primary`, `--background`, `--destructive`, …) are wired to the primitives. Tailwind v4 utilities (`bg-primary`, `text-foreground`, etc.) are exposed via `@theme inline { --color-*: var(--*) }`.
+
+**Dark mode** is class-driven: `.dark` on `<html>` overrides only the semantic layer. `@custom-variant dark (&:is(.dark *))` replaces Tailwind v4's default media-query dark variant so the theme is user-controlled. `ThemeProvider` (`src/components/theme-provider.tsx`) toggles the class, persists the choice to `localStorage` under the key `simple-archiver-theme`, and follows the OS via a `matchMedia change` listener only while the theme is set to `"system"`. Persisted values are validated through a type guard (`isTheme`) before use — unrecognised strings fall back to the default rather than being cast blindly.
+
+**Color discipline:** navy (`--asics-ink`) is `--primary`; red `#e60012` is reserved for the single `--brand` CTA (`Button variant="brand"`), `--destructive`, and error badges — not a general accent.
+
+**shadcn/ui (new-york)** primitives live in `src/components/ui/`. Keep them faithful to upstream templates; the `cn` helper (`clsx` + `tailwind-merge`) is used throughout, so later utility classes win conflicts (e.g. a variant's `rounded-full` overrides the base `rounded-md`). The `@/` path alias resolves to `src/` (tsconfig `paths` + vite `resolve.alias`).
 
 For domain model details and invariants, see L3 [`/.claude/domain-model.md`](../.claude/domain-model.md).
 

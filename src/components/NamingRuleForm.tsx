@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 // Live preview always uses the first (1-based) sequence number.
 const PREVIEW_SEQ = 1;
@@ -46,15 +48,26 @@ export function NamingRuleForm() {
   }, [template]);
 
   return (
-    <section>
-      <label htmlFor="naming-template">Naming template</label>
-      <input
+    <section className="flex flex-col gap-2 border-t border-border pt-4">
+      <Label
+        htmlFor="naming-template"
+        className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground"
+      >
+        Naming template
+      </Label>
+      <Input
         id="naming-template"
         value={template}
         onChange={(event) => setTemplate(event.target.value)}
       />
-      <p>Preview: {preview}</p>
-      {error ? <p role="alert">{error}</p> : null}
+      <p className="text-sm text-muted-foreground">
+        Preview: <span className="text-foreground">{preview}</span>
+      </p>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
     </section>
   );
 }

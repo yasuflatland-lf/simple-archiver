@@ -7,14 +7,14 @@
 | Area | Choice |
 |---|---|
 | Framework | Tauri 2 (single native app for Mac/Windows) |
-| Frontend | Vite + React + TypeScript + shadcn/ui (shadcn-admin layout / asics design tokens), state via zustand |
+| Frontend | Vite + React 19 + TypeScript + Tailwind v4 (`@tailwindcss/vite`) + shadcn/ui (new-york, ASICS design tokens) + Radix |
 | Backend | Rust, DDD layered (Cargo workspace: pure `simple-archiver-core` crate + `src-tauri` presentation crate) |
 | zip creation | `async_zip` |
 | rar extraction | `unrar` (extract-only; bundled C++ source for both Mac/Win) |
 | Rust tests | cargo-nextest (runner) / mockall (port mocks) / loom (concurrency verification) |
 | TypeScript bindings | ts-rs 10 (`#[derive(TS)]` on DTOs generates `.ts` files committed to `src/bindings/`) |
 | Parser / lexer | LALRPOP 0.20.x (parser codegen from `.lalrpop` grammar) + logos (lexer); both are build-time tooling inside `simple-archiver-core` |
-| Frontend tests | Vitest |
+| Frontend tests | Vitest + Testing Library (jsdom; native DOM assertions — jest-dom is intentionally not installed) |
 | Frontend format / lint | Biome (`biome.json`; single formatter + linter, fills the ESLint/Prettier role) |
 
 Technology choices are fixed. **Do not swap in alternative libraries on your own.** If a change is needed, propose it together with an update to the design (the source of truth).
@@ -40,8 +40,10 @@ cargo nextest run -p simple-archiver          # also regenerates ts-rs bindings 
 # Frontend
 pnpm check                 # Biome: format + lint with autofix (run before committing)
 pnpm biome:ci              # Biome: CI gate — format + lint, no writes (mirrors CI)
-pnpm test                  # Vitest
+pnpm test                  # Vitest one-shot (= vitest run)
+pnpm test:watch            # Vitest watch mode
 pnpm run test:coverage     # Vitest coverage -> coverage/lcov.info
+pnpm knip                  # unused files / deps / exports gate
 pnpm build                 # tsc + vite build
 
 # App run / build
@@ -67,6 +69,9 @@ This project is designed around TDD. **Write tests before implementation.**
     3. **`run_job_inner` integration tests** (`src-tauri/tests/run_job_command.rs`): drive the IPC-free core with a real `ZipArchiver` + `SystemClock` + temp dirs. Happy path: assert `summary.succeeded.len() == N`, that at least one progress event was emitted with `overall.bytes_done > 0`, and that output zips exist on disk. Pre-cancelled path: assert the cancelled **count** (not exact ids — thread-pool order is nondeterministic) and that no output zips were written.
   - **Testing constraint — `TaskId` visibility**: `TaskId::new` is `pub(crate)`, so tests in the separate `src-tauri` crate cannot fabricate a `TaskId`. Cover `From<JobSummary>`/`From<&JobProgress>` mappings with empty id collections and rely on serde-shape tests for field-level contract coverage.
 - **Frontend**: Vitest on jsdom + Testing Library for preview computation, reordering, and progress rendering, including event-payload contract tests. Mock `@tauri-apps/api/core` (`invoke`) and `@tauri-apps/plugin-dialog` (`open`/`save`).
+  - **Native DOM assertions only** — jest-dom is intentionally not installed. Use `el.className`, `classList.contains(…)`, `.textContent`, `.disabled`, etc. Never `toBeInTheDocument` / `toHaveClass`.
+  - **CSS variables are not resolvable in jsdom.** Do not assert computed token values (colors, radii) in unit tests — those can only be verified visually or in a browser. Confirm token wiring compiles correctly via `pnpm build`.
+  - Shared test helpers and stubs live in `src/test/` (e.g. `setup.ts` for cleanup, `stub-match-media.ts`). The knip entry point covers `src/components/ui/**` so shadcn primitives are not flagged unused.
   - `@testing-library/user-event` treats `{` as a special key sequence — type a literal brace as `{{` (e.g. `img_{{n:03}` produces `img_{n:03}`).
   - Combining `vi.useFakeTimers()` with `userEvent` can deadlock in jsdom. For debounce-timing tests, drive input with `fireEvent.change` + `vi.advanceTimersByTimeAsync`, and confirm the test fails when the debounce is removed as a correctness check.
 - **E2E**: a folder → zip walking-skeleton smoke test.

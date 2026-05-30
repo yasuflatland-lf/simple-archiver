@@ -27,6 +27,7 @@ This repository requires **all in-code comments to be written in English**.
 
 - Rust: `rustfmt`-compliant. Types `UpperCamelCase`, functions/variables `snake_case`, constants `SCREAMING_SNAKE_CASE`.
 - TypeScript / JS / JSON: formatted and linted by **Biome** (`biome.json`). Run `pnpm check` (format + lint, with autofix) before committing; CI enforces it via `pnpm biome:ci`. Biome owns style (2-space indent, double quotes, semicolons) and import organization; `tsc` still owns type-checking and `knip` owns unused-code detection.
+  - **`lint/a11y/useButtonType` is enforced.** Every raw `<button>` element — including in tests — must carry an explicit `type` attribute (e.g. `type="button"`). Run `pnpm exec biome check --write <touched files>` before staging to catch this automatically.
 - Match the surrounding code's comment density, naming, and idioms. Do not introduce a new style.
 
 ## Layer boundary discipline (implementation level)
@@ -131,3 +132,9 @@ PR6 examples: `ProgressEvent`, `JobSummaryDto`, `DraftSnapshot` in `src-tauri/sr
 The `ProgressEmitter` trait exposes only `emit_progress(&self, ev: &ProgressEvent)` — never the raw `AppHandle`. This is the same narrow-surface rule as the port discipline in the "Layer boundary discipline" section above (`CompressContext` exposes only `is_cancelled()`, not the full `CancellationToken`). Apply the same discipline here: the port exposes the observation capability, not the underlying handle.
 
 PR6 examples: `run_job_inner` + `ProgressEmitter` trait + `RecordingEmitter` in `src-tauri/src/presentation/events.rs` and `src-tauri/src/presentation/commands.rs`.
+
+## TypeScript / frontend conventions
+
+- **Validate before using persisted/deserialized external values.** Do not blind-cast `localStorage.getItem(key) as T`; use a type guard and fall back to a safe default on an unrecognized value. (`isTheme` in `theme-provider.tsx` is the canonical shape.)
+- **Share string-literal union types; don't re-declare them.** When two modules need the same union, export the type from one and import it in the other. Use `Record<Union, …>` for exhaustive mappings to avoid unsound `as` casts that silently hide drift.
+- **shadcn/ui primitives (`src/components/ui/`) are kept faithful to upstream templates.** Do not deviate from the shadcn contract. The `cn` helper is `clsx` + `tailwind-merge`; later utility classes win conflicts (e.g. a variant's `rounded-full` overrides the base `rounded-md`).
