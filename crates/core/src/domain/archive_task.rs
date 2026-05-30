@@ -21,7 +21,6 @@ impl TaskId {
     ///
     /// This constructor is crate-internal so that only `ArchiveJob` assigns ids;
     /// external callers must obtain a `TaskId` from [`ArchiveTask::id`].
-    #[allow(dead_code)] // used by ArchiveJob (PR5) and tests; not yet called in production code
     pub(crate) fn new(value: u32) -> Self {
         Self(value)
     }
@@ -55,7 +54,6 @@ impl ArchiveTask {
     /// zero progress.
     ///
     /// This constructor is crate-internal; only `ArchiveJob` builds tasks.
-    #[allow(dead_code)] // used by ArchiveJob (PR5) and tests; not yet called in production code
     pub(crate) fn new(id: TaskId, source: SourceItem, output_name: OutputFileName) -> Self {
         Self {
             id,
@@ -99,7 +97,6 @@ impl ArchiveTask {
     ///
     /// Used by `ArchiveJob` when reordering tasks causes output names to be
     /// rebound to different tasks.
-    #[allow(dead_code)] // used by ArchiveJob (PR5) and tests; not yet called in production code
     pub(crate) fn set_output_name(&mut self, name: OutputFileName) {
         self.output_name = name;
     }
@@ -109,7 +106,6 @@ impl ArchiveTask {
     /// On a legal transition the status is updated and `Ok(())` is returned.
     /// On an illegal transition an [`IllegalTransition`] error is returned and
     /// the status is left **unchanged**.
-    #[allow(dead_code)] // used by ArchiveJob (PR5) and tests; not yet called in production code
     pub(crate) fn apply_event(&mut self, event: TaskEvent) -> Result<(), IllegalTransition> {
         self.status = self.status.clone().apply(event)?;
         Ok(())
