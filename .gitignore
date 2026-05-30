@@ -27,6 +27,9 @@ docs/superpowers/
 # Claude Code local plans (kept local, not committed)
 .claude/plans/
 
+# Superpowers visual-companion brainstorm artifacts (kept local)
+.superpowers/
+
 # Node
 node_modules/
 dist/
