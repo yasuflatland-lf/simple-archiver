@@ -3,6 +3,22 @@ import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import { useJobStore } from "@/store/jobStore";
 
 // ---------------------------------------------------------------------------
+// Shared class strings
+// ---------------------------------------------------------------------------
+
+// Base styling shared by every kind badge; the per-kind colors are appended.
+const KIND_BADGE_BASE =
+  "inline-block rounded px-1.5 py-0.5 text-xs font-medium";
+const KIND_BADGE_COLORS = {
+  folder: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  rar: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
+} as const;
+
+// Styling shared by both reorder buttons (Move up / Move down).
+const REORDER_BUTTON_CLASS =
+  "rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors";
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -130,11 +146,7 @@ export function TaskList() {
                 {/* Kind badge */}
                 <td className="py-2 pr-3">
                   <span
-                    className={
-                      item.kind === "folder"
-                        ? "inline-block rounded px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                        : "inline-block rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
-                    }
+                    className={`${KIND_BADGE_BASE} ${KIND_BADGE_COLORS[item.kind]}`}
                   >
                     {item.kind}
                   </span>
@@ -164,7 +176,7 @@ export function TaskList() {
                       aria-label="Move up"
                       disabled={isFirst}
                       onClick={() => reorder(i, i - 1)}
-                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      className={REORDER_BUTTON_CLASS}
                     >
                       ▲
                     </button>
@@ -173,7 +185,7 @@ export function TaskList() {
                       aria-label="Move down"
                       disabled={isLast}
                       onClick={() => reorder(i, i + 1)}
-                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      className={REORDER_BUTTON_CLASS}
                     >
                       ▼
                     </button>

@@ -1,5 +1,5 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open } from "@tauri-apps/plugin-dialog";
+import { type OpenDialogOptions, open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { messageFromReason } from "@/lib/errors";
@@ -23,19 +23,17 @@ export function FileDropZone() {
 
     getCurrentWebview()
       .onDragDropEvent((event) => {
-        const { type } = event.payload;
-        if (type === "enter" || type === "over") {
+        const payload = event.payload;
+        if (payload.type === "enter" || payload.type === "over") {
           setIsDragging(true);
-        } else if (type === "leave") {
+        } else if (payload.type === "leave") {
           setIsDragging(false);
-        } else if (type === "drop") {
+        } else if (payload.type === "drop") {
           setIsDragging(false);
-          const paths = (event.payload as { type: "drop"; paths: string[] })
-            .paths;
           // Mirror the browse handlers: skip addItems when the OS delivers an
           // empty paths array (can happen with certain drag sources).
-          if (paths.length > 0) {
-            useJobStore.getState().addItems(paths);
+          if (payload.paths.length > 0) {
+            useJobStore.getState().addItems(payload.paths);
           }
         }
       })
@@ -59,37 +57,30 @@ export function FileDropZone() {
     };
   }, []);
 
-  async function handleAddFiles() {
+  // Shared logic for both browse buttons: open the picker, then add the
+  // selected paths. open() rejects only on a real dialog/IPC failure;
+  // cancellation resolves to null (handled by the Array.isArray guard).
+  async function browseAndAdd(options: OpenDialogOptions) {
     try {
-      const result = await open({
-        multiple: true,
-        directory: false,
-        filters: [{ name: "rar", extensions: ["rar"] }],
-      });
+      const result = await open(options);
       if (Array.isArray(result) && result.length > 0) {
         useJobStore.getState().addItems(result as string[]);
       }
     } catch (reason) {
-      // open() rejects only on a real dialog/IPC failure; cancellation resolves
-      // to null (already handled by the Array.isArray guard above).
       useJobStore.setState({ error: messageFromReason(reason) });
     }
   }
 
-  async function handleAddFolder() {
-    try {
-      const result = await open({
-        directory: true,
-        multiple: true,
-      });
-      if (Array.isArray(result) && result.length > 0) {
-        useJobStore.getState().addItems(result as string[]);
-      }
-    } catch (reason) {
-      // open() rejects only on a real dialog/IPC failure; cancellation resolves
-      // to null (already handled by the Array.isArray guard above).
-      useJobStore.setState({ error: messageFromReason(reason) });
-    }
+  function handleAddFiles() {
+    return browseAndAdd({
+      multiple: true,
+      directory: false,
+      filters: [{ name: "rar", extensions: ["rar"] }],
+    });
+  }
+
+  function handleAddFolder() {
+    return browseAndAdd({ directory: true, multiple: true });
   }
 
   return (
