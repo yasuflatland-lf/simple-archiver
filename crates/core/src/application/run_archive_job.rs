@@ -10,6 +10,8 @@ use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::application::compress_context::{CompressContext, TaskProgressReport};
+use crate::application::format_registry::FormatRegistry;
+use crate::application::ports::Extractor;
 use crate::application::ports::{ArchiveError, Archiver, Clock};
 use crate::application::progress::ProgressSink;
 use crate::application::progress_aggregator::{Aggregator, JobSummary, WorkerMsg};
@@ -39,25 +41,28 @@ struct WorkItem {
 }
 
 /// Runs an `ArchiveJob` with up to N concurrent workers.
-pub struct RunArchiveJob<A: Archiver> {
+pub struct RunArchiveJob<A: Archiver, E: Extractor> {
     archiver: Arc<A>,
+    registry: FormatRegistry<E>,
     parallelism: NonZeroUsize,
 }
 
-impl<A: Archiver + 'static> RunArchiveJob<A> {
+impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
     /// Build an engine with an explicit parallelism limit.
-    pub fn new(archiver: Arc<A>, parallelism: NonZeroUsize) -> Self {
+    pub fn new(archiver: Arc<A>, extractor: Arc<E>, parallelism: NonZeroUsize) -> Self {
         Self {
             archiver,
+            registry: FormatRegistry::new(extractor),
             parallelism,
         }
     }
 
     /// Build an engine using `available_parallelism` (falling back to 1).
-    pub fn with_default_parallelism(archiver: Arc<A>) -> Self {
+    pub fn with_default_parallelism(archiver: Arc<A>, extractor: Arc<E>) -> Self {
         let parallelism = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
         Self {
             archiver,
+            registry: FormatRegistry::new(extractor),
             parallelism,
         }
     }
@@ -99,13 +104,14 @@ impl<A: Archiver + 'static> RunArchiveJob<A> {
         let mut handles = Vec::with_capacity(work.len());
         for item in work {
             let archiver = self.archiver.clone();
+            let registry = self.registry.clone();
             let semaphore = semaphore.clone();
             let tx = tx.clone();
             let cancellation_token = cancellation_token.clone();
             handles.push(tokio::spawn(async move {
                 // Bounded concurrency: hold a permit for the whole task.
                 let _permit = semaphore.acquire_owned().await.expect("semaphore open");
-                run_one(archiver.as_ref(), item, tx, cancellation_token).await;
+                run_one(archiver.as_ref(), &registry, item, tx, cancellation_token).await;
             }));
         }
         // Drop the engine's own sender so the channel closes once workers finish.
@@ -139,13 +145,16 @@ impl<A: Archiver + 'static> RunArchiveJob<A> {
     }
 }
 
-/// Execute a single work item, sending status + progress over `tx`.
-async fn run_one<A: Archiver>(
+/// Execute a single work item: resolve its source to a directory (extracting rar
+/// into a temp guard), then compress that directory. Sends status + progress over `tx`.
+async fn run_one<A: Archiver, E: Extractor>(
     archiver: &A,
+    registry: &FormatRegistry<E>,
     item: WorkItem,
     tx: mpsc::UnboundedSender<WorkerMsg>,
     cancellation_token: CancellationToken,
 ) {
+    // Not-started cancellation checkpoint: cancel before any extraction/compression.
     if cancellation_token.is_cancelled() {
         let _ = tx.send(WorkerMsg::Status {
             task: item.task,
@@ -154,43 +163,55 @@ async fn run_one<A: Archiver>(
         return;
     }
 
-    match item.source {
-        SourceItem::Folder(ref src) => {
-            let _ = tx.send(WorkerMsg::Status {
-                task: item.task,
-                event: TaskEvent::StartCompressing,
-            });
-            let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
-            let ctx = CompressContext::new(item.task, reporter, cancellation_token);
-            let event = match archiver.compress(src, &item.dest, &ctx).await {
-                Ok(()) => TaskEvent::Complete,
-                Err(ArchiveError::Cancelled) => TaskEvent::Cancel,
-                Err(e) => TaskEvent::Fail {
-                    reason: e.to_string(),
-                },
-            };
-            let _ = tx.send(WorkerMsg::Status {
-                task: item.task,
-                event,
-            });
-        }
-        SourceItem::RarFile(_) => {
-            // rar extraction is deferred to a later PR; fail this task so the
-            // others continue (FormatRegistry + Extractor are out of scope here).
+    // rar files extract first; folders compress directly. Emit the extraction
+    // status only for sources that actually extract, so the task walks the legal
+    // Pending -> Extracting -> Compressing path (folders take the fast-path).
+    let needs_extract = matches!(item.source, SourceItem::RarFile(_));
+    if needs_extract {
+        let _ = tx.send(WorkerMsg::Status {
+            task: item.task,
+            event: TaskEvent::StartExtracting,
+        });
+    }
+
+    let prepared = match registry.prepare(&item.source).await {
+        Ok(prepared) => prepared,
+        Err(e) => {
             let _ = tx.send(WorkerMsg::Status {
                 task: item.task,
                 event: TaskEvent::Fail {
-                    reason: "rar extraction is not yet supported (PR5a is folder-only)".to_string(),
+                    reason: e.to_string(),
                 },
             });
+            return;
         }
-    }
+    };
+
+    let _ = tx.send(WorkerMsg::Status {
+        task: item.task,
+        event: TaskEvent::StartCompressing,
+    });
+    let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
+    let ctx = CompressContext::new(item.task, reporter, cancellation_token);
+    let event = match archiver.compress(prepared.dir(), &item.dest, &ctx).await {
+        Ok(()) => TaskEvent::Complete,
+        Err(ArchiveError::Cancelled) => TaskEvent::Cancel,
+        Err(e) => TaskEvent::Fail {
+            reason: e.to_string(),
+        },
+    };
+    let _ = tx.send(WorkerMsg::Status {
+        task: item.task,
+        event,
+    });
+    // `prepared` drops here — an extracted rar's temp directory is removed.
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::application::ports::ArchiveError;
+    use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
     use crate::application::progress::{JobProgress, ProgressSink};
     use crate::domain::naming_rule::NamingRule;
     use crate::domain::output_directory::OutputDirectory;
@@ -258,6 +279,42 @@ mod tests {
         }
     }
 
+    /// A fake extracted tree over a real temp dir.
+    struct FakeTree {
+        dir: tempfile::TempDir,
+    }
+    impl ExtractedTree for FakeTree {
+        fn path(&self) -> &Path {
+            self.dir.path()
+        }
+    }
+
+    /// A fake extractor: records calls, optionally fails for given rar file names.
+    struct FakeExtractor {
+        fail_names: HashSet<String>,
+        calls: Arc<AtomicUsize>,
+    }
+    impl FakeExtractor {
+        fn new() -> Self {
+            Self {
+                fail_names: HashSet::new(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+    impl Extractor for FakeExtractor {
+        async fn extract(&self, src: &Path) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let name = src.file_name().unwrap().to_string_lossy().to_string();
+            if self.fail_names.contains(&name) {
+                return Err(ExtractError::Backend("extract boom".to_string()));
+            }
+            Ok(Box::new(FakeTree {
+                dir: tempfile::tempdir().unwrap(),
+            }))
+        }
+    }
+
     #[derive(Default)]
     struct RecordingSink(Mutex<Vec<JobProgress>>);
     impl ProgressSink for RecordingSink {
@@ -295,7 +352,7 @@ mod tests {
         let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let fake = Arc::new(FakeArchiver::new());
         let calls = fake.call_count();
-        let engine = RunArchiveJob::new(fake, nz(2));
+        let engine = RunArchiveJob::new(fake, Arc::new(FakeExtractor::new()), nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let cancel = CancellationToken::new();
@@ -316,7 +373,8 @@ mod tests {
         let job = folder_job(3);
         let mut expected: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         expected.sort_by_key(|i| i.get());
-        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), nz(2));
+        let engine =
+            RunArchiveJob::new(Arc::new(FakeArchiver::new()), Arc::new(FakeExtractor::new()), nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = engine.execute(job, &clock, &sink).await;
@@ -332,7 +390,7 @@ mod tests {
         let id: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let mut fake = FakeArchiver::new();
         fake.fail_names.insert("f2.zip".to_string());
-        let engine = RunArchiveJob::new(Arc::new(fake), nz(2));
+        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = engine.execute(job, &clock, &sink).await;
@@ -354,7 +412,7 @@ mod tests {
         let id: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let mut fake = FakeArchiver::new();
         fake.cancel_names.insert("f2.zip".to_string());
-        let engine = RunArchiveJob::new(Arc::new(fake), nz(2));
+        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -423,7 +481,7 @@ mod tests {
         // parallelism 2 so the target can be in `compress` (awaiting the sibling)
         // while the sibling runs to completion; `Notify::notify_one` is sticky, so
         // the order in which the two enter `compress` does not matter.
-        let engine = RunArchiveJob::new(archiver, nz(2));
+        let engine = RunArchiveJob::new(archiver, Arc::new(FakeExtractor::new()), nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -447,7 +505,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rar_item_fails_its_own_task_only() {
+    async fn rar_item_extracts_then_compresses_and_succeeds() {
         let items = vec![
             SourceItem::Folder(PathBuf::from("dir0")),
             SourceItem::RarFile(PathBuf::from("a.rar")),
@@ -458,22 +516,63 @@ mod tests {
             OutputDirectory::new(PathBuf::from("/out")),
         )
         .unwrap();
-        let id: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
-        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), nz(2));
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        let extractor = Arc::new(FakeExtractor::new());
+        let calls = extractor.calls.clone();
+        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
+
         let summary = engine.execute(job, &clock, &sink).await;
-        assert_eq!(summary.succeeded, vec![id[0]]);
+
+        // Both tasks succeed; reaching Completed proves the rar task walked the
+        // legal Pending -> Extracting -> Compressing -> Completed sequence (an
+        // out-of-order event would trip the engine's debug_assert).
+        let mut succeeded = summary.succeeded.clone();
+        succeeded.sort_by_key(|i| i.get());
+        let mut expected = ids.clone();
+        expected.sort_by_key(|i| i.get());
+        assert_eq!(succeeded, expected);
+        assert!(summary.failed.is_empty());
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "exactly the rar task extracts");
+    }
+
+    #[tokio::test]
+    async fn rar_extract_failure_fails_only_its_task() {
+        let items = vec![
+            SourceItem::Folder(PathBuf::from("dir0")),
+            SourceItem::RarFile(PathBuf::from("bad.rar")),
+        ];
+        let job = ArchiveJob::plan(
+            items,
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        let mut fake_extractor = FakeExtractor::new();
+        fake_extractor.fail_names.insert("bad.rar".to_string());
+        let engine =
+            RunArchiveJob::new(Arc::new(FakeArchiver::new()), Arc::new(fake_extractor), nz(2));
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        assert_eq!(summary.succeeded, vec![ids[0]]);
         assert_eq!(summary.failed.len(), 1);
-        assert_eq!(summary.failed[0].0, id[1]);
-        assert!(summary.failed[0].1.contains("rar"));
+        assert_eq!(summary.failed[0].0, ids[1]);
+        assert_eq!(summary.failed[0].1, "unrar error: extract boom");
     }
 
     #[tokio::test]
     async fn emits_progress_snapshots_tallying_overall() {
         let job = folder_job(2);
         let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
-        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), nz(2));
+        let engine =
+            RunArchiveJob::new(Arc::new(FakeArchiver::new()), Arc::new(FakeExtractor::new()), nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         engine.execute(job, &clock, &sink).await;
@@ -494,7 +593,7 @@ mod tests {
         let mut fake = FakeArchiver::new();
         fake.barrier = Some(barrier.clone());
         let max_live = fake.max_live.clone();
-        let engine = RunArchiveJob::new(Arc::new(fake), nz(2));
+        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         // A Barrier(2) only releases if both workers are inside compress at once;
@@ -519,7 +618,7 @@ mod tests {
         let mut fake = FakeArchiver::new();
         fake.barrier = Some(barrier.clone());
         let max_live = fake.max_live.clone();
-        let engine = RunArchiveJob::new(Arc::new(fake), nz(2));
+        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), nz(2));
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = tokio::time::timeout(

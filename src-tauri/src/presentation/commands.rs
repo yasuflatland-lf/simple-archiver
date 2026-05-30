@@ -14,6 +14,7 @@ use simple_archiver_core::domain::naming_rule::NamingRule;
 use simple_archiver_core::domain::sequence_number::SequenceNumber;
 use simple_archiver_core::domain::source_item::SourceItem;
 use simple_archiver_core::infrastructure::system_clock::SystemClock;
+use simple_archiver_core::infrastructure::unrar_extractor::UnrarExtractor;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 
 use crate::presentation::dto::{DraftSnapshot, JobSummaryDto};
@@ -139,7 +140,10 @@ pub async fn run_job_inner(
     job: ArchiveJob,
     token: CancellationToken,
 ) -> JobSummaryDto {
-    let engine = RunArchiveJob::with_default_parallelism(Arc::new(ZipArchiver::new()));
+    let engine = RunArchiveJob::with_default_parallelism(
+        Arc::new(ZipArchiver::new()),
+        Arc::new(UnrarExtractor::new()),
+    );
     let clock = SystemClock::new();
     let sink = EventSink::new(emitter);
     let summary = engine

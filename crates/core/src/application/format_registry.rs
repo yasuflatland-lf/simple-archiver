@@ -29,9 +29,19 @@ impl Prepared {
 }
 
 /// Resolves source items to compressible directories using an `Extractor`.
-#[derive(Clone)]
 pub struct FormatRegistry<E: Extractor> {
     extractor: Arc<E>,
+}
+
+// Manual `Clone` so the registry is cloneable for any `E` (it only holds an
+// `Arc<E>`). A `#[derive(Clone)]` would wrongly require `E: Clone`, which the
+// extractor implementations (and the engine's `E: Extractor` bound) do not provide.
+impl<E: Extractor> Clone for FormatRegistry<E> {
+    fn clone(&self) -> Self {
+        Self {
+            extractor: Arc::clone(&self.extractor),
+        }
+    }
 }
 
 impl<E: Extractor> FormatRegistry<E> {
