@@ -120,14 +120,10 @@ impl<A: Archiver + 'static> RunArchiveJob<A> {
             // the task state unchanged (a no-op continue) and `into_summary`
             // reconciles any non-terminal task to `failed`. Surfacing this via
             // logging is deferred to a future logging-infrastructure PR.
-            let outcome = aggregator.apply(msg);
-            // Reference `outcome` in both profiles so release (where `debug_assert!`
-            // expands to nothing) does not warn about an unused binding under
-            // `-D warnings`. The `is_ok()` value is discarded in release.
-            let _ = outcome.is_ok();
+            let _outcome = aggregator.apply(msg);
             debug_assert!(
-                outcome.is_ok(),
-                "out-of-order worker event (engine-ordering bug): {outcome:?}"
+                _outcome.is_ok(),
+                "out-of-order worker event (engine-ordering bug): {_outcome:?}"
             );
             sink.report(aggregator.snapshot(clock.now()));
         }
