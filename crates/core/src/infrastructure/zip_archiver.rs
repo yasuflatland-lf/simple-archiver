@@ -137,6 +137,7 @@ mod tests {
     use crate::domain::task_progress::TaskProgress;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use tokio_util::sync::CancellationToken;
 
     struct Capture(Mutex<Vec<TaskProgress>>);
     impl TaskProgressReport for Capture {
@@ -154,7 +155,7 @@ mod tests {
         let dest = out.path().join("o.zip");
 
         let capture = Arc::new(Capture(Mutex::new(Vec::new())));
-        let ctx = CompressContext::new(TaskId::new(1), capture.clone());
+        let ctx = CompressContext::new(TaskId::new(1), capture.clone(), CancellationToken::new());
         ZipArchiver::new()
             .compress(src.path(), &dest, &ctx)
             .await

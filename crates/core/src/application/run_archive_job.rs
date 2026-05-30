@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, Semaphore};
+use tokio_util::sync::CancellationToken;
 
 use crate::application::compress_context::{CompressContext, TaskProgressReport};
 use crate::application::ports::{Archiver, Clock};
@@ -121,7 +122,7 @@ async fn run_one<A: Archiver>(archiver: &A, item: WorkItem, tx: mpsc::UnboundedS
                 event: TaskEvent::StartCompressing,
             });
             let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
-            let ctx = CompressContext::new(item.task, reporter);
+            let ctx = CompressContext::new(item.task, reporter, CancellationToken::new());
             let event = match archiver.compress(src, &item.dest, &ctx).await {
                 Ok(()) => TaskEvent::Complete,
                 Err(e) => TaskEvent::Fail {
