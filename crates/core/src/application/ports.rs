@@ -3,7 +3,8 @@
 //! Defines the `Archiver` and `Clock` ports used by the execution engine.
 //! `Archiver::compress` takes a `CompressContext` for per-task byte-progress
 //! reporting; `Clock` lets the engine run against a controllable time source
-//! in tests. (Cancellation is added in PR-5b.)
+//! in tests. `ArchiveError::Cancelled` is returned when the caller cancels
+//! via the `CancellationToken` carried by `CompressContext`.
 
 use crate::application::compress_context::CompressContext;
 use std::future::Future;
@@ -21,6 +22,9 @@ pub enum ArchiveError {
     /// The archiving backend reported a failure.
     #[error("archive backend error: {0}")]
     Backend(String),
+    /// The archive operation was cancelled by the caller.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 /// Compresses a directory tree into a zip archive.
@@ -46,4 +50,17 @@ pub trait Archiver: Send + Sync {
 pub trait Clock: Send + Sync {
     /// Return the current instant.
     fn now(&self) -> std::time::Instant;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ArchiveError;
+
+    #[test]
+    fn cancelled_displays_as_cancelled_and_has_no_source() {
+        let err = ArchiveError::Cancelled;
+
+        assert_eq!(err.to_string(), "cancelled");
+        assert!(std::error::Error::source(&err).is_none());
+    }
 }

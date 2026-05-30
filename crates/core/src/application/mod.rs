@@ -2,6 +2,8 @@
 //! RunArchiveJob (the parallel/cancellation use case) is added in PR5 (issue #5).
 
 pub mod compress_context;
+#[cfg(loom)]
+pub(crate) mod loom_nucleus;
 pub mod ports;
 pub mod progress;
 pub mod progress_aggregator;

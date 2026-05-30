@@ -25,6 +25,8 @@ pub(crate) enum WorkerMsg {
 pub struct JobSummary {
     /// Tasks that completed successfully, in job order.
     pub succeeded: Vec<TaskId>,
+    /// Tasks that were cancelled, in job order.
+    pub cancelled: Vec<TaskId>,
     /// Tasks that failed, paired with their reason, in job order.
     pub failed: Vec<(TaskId, String)>,
 }
@@ -85,21 +87,26 @@ impl Aggregator {
     /// Consume the aggregator and derive the summary from final task statuses.
     pub fn into_summary(self) -> JobSummary {
         let mut succeeded = Vec::new();
+        let mut cancelled = Vec::new();
         let mut failed = Vec::new();
         for t in self.job.tasks() {
             match t.status() {
                 TaskStatus::Completed => succeeded.push(t.id()),
+                TaskStatus::Cancelled => cancelled.push(t.id()),
                 TaskStatus::Failed { reason } => failed.push((t.id(), reason.clone())),
                 other => failed.push((
                     t.id(),
-                    // A task that never reached Completed/Failed (e.g. its worker panicked)
+                    // A task that never reached a terminal state (e.g. its worker panicked)
                     // must still be accounted for, so the summary is always complete.
-                    // PR-5b will refine this once Cancelled is a distinct outcome.
                     format!("task did not reach a terminal state (status: {other:?})"),
                 )),
             }
         }
-        JobSummary { succeeded, failed }
+        JobSummary {
+            succeeded,
+            cancelled,
+            failed,
+        }
     }
 }
 
@@ -191,6 +198,38 @@ mod tests {
         let s = agg.into_summary();
         assert_eq!(s.succeeded, vec![id[0], id[2]]);
         assert_eq!(s.failed, vec![(id[1], "boom".to_string())]);
+    }
+
+    #[test]
+    fn summary_routes_cancelled_tasks_to_cancelled_and_not_failed() {
+        let j = job(2);
+        let id = ids(&j);
+        let mut agg = Aggregator::new(j, Instant::now());
+        agg.apply(WorkerMsg::Status {
+            task: id[0],
+            event: TaskEvent::StartCompressing,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[0],
+            event: TaskEvent::Cancel,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[1],
+            event: TaskEvent::StartCompressing,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[1],
+            event: TaskEvent::Complete,
+        })
+        .unwrap();
+
+        let s = agg.into_summary();
+        assert_eq!(s.succeeded, vec![id[1]]);
+        assert_eq!(s.cancelled, vec![id[0]]);
+        assert!(s.failed.is_empty());
     }
 
     #[test]

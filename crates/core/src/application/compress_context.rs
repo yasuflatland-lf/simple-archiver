@@ -3,6 +3,7 @@
 use crate::domain::archive_task::TaskId;
 use crate::domain::task_progress::TaskProgress;
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 /// Internal report target so `CompressContext` can forward per-task byte
 /// progress without exposing the engine's channel type on the public port.
@@ -23,21 +24,41 @@ impl TaskProgressReport for NoopReport {
 pub struct CompressContext {
     task: TaskId,
     reporter: Arc<dyn TaskProgressReport>,
+    cancellation_token: CancellationToken,
 }
 
 impl CompressContext {
     /// Build a context bound to `task` that forwards progress to `reporter`.
-    pub(crate) fn new(task: TaskId, reporter: Arc<dyn TaskProgressReport>) -> Self {
-        Self { task, reporter }
+    pub(crate) fn new(
+        task: TaskId,
+        reporter: Arc<dyn TaskProgressReport>,
+        cancellation_token: CancellationToken,
+    ) -> Self {
+        Self {
+            task,
+            reporter,
+            cancellation_token,
+        }
     }
 
     /// Build a context not tied to any job; all progress reports are dropped.
-    /// Used by the single-folder Tauri command and integration tests.
+    /// Used by the single-folder Tauri command and integration tests. The token
+    /// is freshly created and never cancelled, so `is_cancelled()` is always
+    /// `false` for a detached context.
     pub fn detached() -> Self {
-        Self {
-            task: TaskId::new(0),
-            reporter: Arc::new(NoopReport),
-        }
+        Self::new(
+            TaskId::new(0),
+            Arc::new(NoopReport),
+            CancellationToken::new(),
+        )
+    }
+
+    /// Observe whether this compression has been cancelled. Archivers may only
+    /// OBSERVE cancellation — exposing the token itself would let an archiver
+    /// call `.cancel()` and tear down the whole job, so only this read-only
+    /// predicate is exposed.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation_token.is_cancelled()
     }
 
     /// Report cumulative byte progress for this task.
@@ -51,6 +72,7 @@ impl CompressContext {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+    use tokio_util::sync::CancellationToken;
 
     struct Capture(Mutex<Vec<(u32, TaskProgress)>>);
     impl TaskProgressReport for Capture {
@@ -62,12 +84,23 @@ mod tests {
     #[test]
     fn report_forwards_task_id_and_progress() {
         let capture = Arc::new(Capture(Mutex::new(Vec::new())));
-        let ctx = CompressContext::new(TaskId::new(7), capture.clone());
+        let ctx = CompressContext::new(TaskId::new(7), capture.clone(), CancellationToken::new());
         ctx.report(4, 8);
         assert_eq!(
             capture.0.lock().unwrap().as_slice(),
             &[(7, TaskProgress::new(4, 8))]
         );
+    }
+
+    #[test]
+    fn is_cancelled_observes_the_shared_token() {
+        let capture = Arc::new(Capture(Mutex::new(Vec::new())));
+        let token = CancellationToken::new();
+        let ctx = CompressContext::new(TaskId::new(7), capture, token.clone());
+
+        assert!(!ctx.is_cancelled());
+        token.cancel();
+        assert!(ctx.is_cancelled());
     }
 
     #[test]

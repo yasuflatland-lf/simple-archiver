@@ -12,12 +12,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
-      # Belt and suspenders: mise.toml requests rustfmt/clippy components, but
-      # ensure they exist on the active toolchain even if a cached install lacks them.
-      - run: rustup component add rustfmt clippy
+      # Belt and suspenders: mise.toml requests rustfmt/clippy/llvm-tools-preview
+      # components, but ensure they exist on the active toolchain even if a cached
+      # install lacks them. llvm-tools-preview is required by cargo-llvm-cov.
+      - run: rustup component add rustfmt clippy llvm-tools-preview
       - run: cargo fmt --check
       - run: cargo clippy -p simple-archiver-core --all-targets -- -D warnings
-      - run: cargo nextest run -p simple-archiver-core --profile ci
+      - run: cargo llvm-cov nextest -p simple-archiver-core --profile ci --lcov --output-path lcov.info --ignore-filename-regex 'build\.rs'
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          flags: rust
+          fail_ci_if_error: false
+
+  loom:
+    name: loom (concurrency model)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      # Belt and suspenders: ensure clippy is available even if a cached install lacks it.
+      - run: rustup component add clippy
+      # Keep the loom-gated build warning-clean (normal clippy never sees #[cfg(loom)] code).
+      - run: RUSTFLAGS="--cfg loom" cargo clippy -p simple-archiver-core --features loom -- -D warnings
+      # Run the loom nucleus: verifies single-writer aggregation (no message lost, correct
+      # summary partition) under every loom interleaving. loom 0.7 models message count, not
+      # sender-drop/channel closure, so the production worker→channel-close→drain ordering is
+      # covered by the regular tokio tests, not loom. Does NOT verify the tokio runtime or
+      # CancellationToken propagation (those are covered by the regular tokio cancel-path tests).
+      - run: RUSTFLAGS="--cfg loom" cargo nextest run -p simple-archiver-core --features loom
 
   hygiene:
     name: hygiene (deps + orphan files)
@@ -50,7 +74,13 @@ jobs:
       - run: pnpm biome:ci
       # Frontend dependency hygiene: unused files / deps / exports (config in knip.json).
       - run: pnpm knip
-      - run: pnpm test
+      - run: pnpm run test:coverage
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: false
       - run: pnpm build
 
   app:
