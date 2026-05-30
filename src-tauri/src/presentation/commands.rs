@@ -1,11 +1,24 @@
 //! Tauri commands (presentation adapter).
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use tauri::{AppHandle, State};
+use tokio_util::sync::CancellationToken;
+
 use simple_archiver_core::application::compress_context::CompressContext;
 use simple_archiver_core::application::ports::Archiver;
+use simple_archiver_core::application::run_archive_job::RunArchiveJob;
+use simple_archiver_core::domain::archive_job::ArchiveJob;
 use simple_archiver_core::domain::naming_rule::NamingRule;
 use simple_archiver_core::domain::sequence_number::SequenceNumber;
+use simple_archiver_core::domain::source_item::SourceItem;
+use simple_archiver_core::infrastructure::system_clock::SystemClock;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
-use std::path::Path;
+
+use crate::presentation::dto::{DraftSnapshot, JobSummaryDto};
+use crate::presentation::events::{EventSink, ProgressEmitter, TauriEmitter};
+use crate::presentation::state::AppState;
 
 /// Compress the folder at `src` into a zip file at `out`.
 ///
@@ -33,6 +46,144 @@ pub fn preview_output_name(template: String, seq: u32) -> Result<String, String>
     let rule = NamingRule::parse(&template).map_err(|e| e.to_string())?;
     let name = rule.resolve(seq).map_err(|e| e.to_string())?;
     Ok(name.as_str().to_string())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Path classification
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Classify a filesystem path into a [`SourceItem`].
+///
+/// A directory becomes [`SourceItem::Folder`]; a file whose extension is `rar`
+/// (case-insensitive) becomes [`SourceItem::RarFile`]; anything else yields an
+/// error string suitable for the IPC boundary.
+fn classify_path(path: &Path) -> Result<SourceItem, String> {
+    if path.is_dir() {
+        return Ok(SourceItem::Folder(path.to_path_buf()));
+    }
+    let is_rar = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("rar"));
+    if is_rar {
+        return Ok(SourceItem::RarFile(path.to_path_buf()));
+    }
+    Err(format!("unsupported item: {}", path.display()))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Draft commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Classify and append the given paths to the draft, returning the new snapshot.
+///
+/// The first unclassifiable path aborts the whole call with its error, so an
+/// invalid drop never mutates the draft.
+#[tauri::command]
+pub fn add_items(state: State<'_, AppState>, paths: Vec<String>) -> Result<DraftSnapshot, String> {
+    let items = paths
+        .iter()
+        .map(|p| classify_path(Path::new(p)))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+    draft.add_items(items);
+    Ok(draft.snapshot())
+}
+
+/// Move the draft item at `from` to `to`, returning the new snapshot.
+#[tauri::command]
+pub fn reorder(state: State<'_, AppState>, from: usize, to: usize) -> Result<DraftSnapshot, String> {
+    let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+    draft.reorder(from, to)?;
+    Ok(draft.snapshot())
+}
+
+/// Set the draft's naming template, returning the new snapshot.
+#[tauri::command]
+pub fn set_naming_rule(
+    state: State<'_, AppState>,
+    template: String,
+) -> Result<DraftSnapshot, String> {
+    let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+    draft.set_template(template)?;
+    Ok(draft.snapshot())
+}
+
+/// Set the draft's output directory, returning the new snapshot.
+#[tauri::command]
+pub fn set_output_dir(state: State<'_, AppState>, dir: String) -> Result<DraftSnapshot, String> {
+    let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+    draft.set_out_dir(PathBuf::from(dir));
+    Ok(draft.snapshot())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Run commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Run the built job to completion, emitting progress through `emitter`.
+///
+/// This inner function is the IPC-free core of [`run_job`]: it takes a
+/// `&dyn ProgressEmitter` instead of an [`AppHandle`] so integration tests can
+/// drive a full job without a live Tauri application.
+#[doc(hidden)]
+pub async fn run_job_inner(
+    emitter: &dyn ProgressEmitter,
+    job: ArchiveJob,
+    token: CancellationToken,
+) -> JobSummaryDto {
+    let engine = RunArchiveJob::with_default_parallelism(Arc::new(ZipArchiver::new()));
+    let clock = SystemClock::new();
+    let sink = EventSink::new(emitter);
+    let summary = engine
+        .execute_with_cancellation(job, &clock, &sink, token)
+        .await;
+    JobSummaryDto::from(summary)
+}
+
+/// Build the current draft into a job and run it, streaming progress events.
+///
+/// Rejects with an error if a job is already running. No `std::sync::Mutex`
+/// guard is ever held across the `.await`: each lock lives in its own scope and
+/// is dropped before the engine runs.
+#[tauri::command]
+pub async fn run_job(app: AppHandle, state: State<'_, AppState>) -> Result<JobSummaryDto, String> {
+    // 1. Build the job (lock draft -> build -> drop guard before awaiting).
+    let job = {
+        let draft = state.draft.lock().map_err(|e| e.to_string())?;
+        draft.build()?
+    };
+
+    // 2. Register cancellation (reject if already running -> store token clone).
+    let token = CancellationToken::new();
+    {
+        let mut run = state.run.lock().map_err(|e| e.to_string())?;
+        if run.token.is_some() {
+            return Err("a job is already running".to_string());
+        }
+        run.token = Some(token.clone());
+    }
+
+    // 3. Run with no lock held.
+    let emitter = TauriEmitter::new(app);
+    let summary = run_job_inner(&emitter, job, token).await;
+
+    // 4. Clear the active-job slot.
+    if let Ok(mut run) = state.run.lock() {
+        run.token = None;
+    }
+
+    Ok(summary)
+}
+
+/// Cancel the currently running job, if any. A no-op when idle.
+#[tauri::command]
+pub fn cancel_job(state: State<'_, AppState>) {
+    if let Ok(run) = state.run.lock() {
+        if let Some(token) = run.token.as_ref() {
+            token.cancel();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -91,5 +242,102 @@ mod tests {
         // A trailing space passes template parsing but fails FileStem at resolve.
         let err = preview_output_name("{n} ".to_string(), 1).unwrap_err();
         assert_eq!(err, "file name must not end with a dot or space");
+    }
+
+    // ── classify_path ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn classify_path_directory_is_folder() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let item = classify_path(dir.path()).expect("a directory should classify");
+        assert_eq!(item, SourceItem::Folder(dir.path().to_path_buf()));
+    }
+
+    #[test]
+    fn classify_path_rar_file_is_rar() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let rar = dir.path().join("foo.rar");
+        std::fs::write(&rar, b"").expect("write foo.rar");
+        let item = classify_path(&rar).expect("a .rar file should classify");
+        assert_eq!(item, SourceItem::RarFile(rar));
+    }
+
+    #[test]
+    fn classify_path_rar_extension_is_case_insensitive() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let rar = dir.path().join("FOO.RAR");
+        std::fs::write(&rar, b"").expect("write FOO.RAR");
+        let item = classify_path(&rar).expect("an uppercase .RAR file should classify");
+        assert_eq!(item, SourceItem::RarFile(rar));
+    }
+
+    #[test]
+    fn classify_path_other_file_is_err() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let txt = dir.path().join("note.txt");
+        std::fs::write(&txt, b"").expect("write note.txt");
+        let err = classify_path(&txt).expect_err("a .txt file should not classify");
+        assert!(
+            err.contains("unsupported item"),
+            "unexpected message: {err}"
+        );
+    }
+
+    // ── AppState-level draft behavior ────────────────────────────────────────
+
+    /// Exercising the draft through `AppState` (whose fields are `pub`) mirrors
+    /// what the thin command shells do, without needing a Tauri `State` wrapper.
+    #[test]
+    fn app_state_draft_builds_after_items_template_and_out_dir() {
+        let state = AppState::default();
+        {
+            let mut draft = state.draft.lock().unwrap();
+            draft.add_items(vec![
+                SourceItem::RarFile(PathBuf::from("/a.rar")),
+                SourceItem::Folder(PathBuf::from("/b")),
+            ]);
+            draft.set_template("out_{n}".to_string()).unwrap();
+            draft.set_out_dir(PathBuf::from("/out"));
+        }
+        let draft = state.draft.lock().unwrap();
+        let job = draft.build().expect("configured draft should build");
+        assert_eq!(job.tasks().len(), 2);
+    }
+
+    // ── RunState guard / cancel semantics ────────────────────────────────────
+
+    /// The "already running" guard used by `run_job`: once a token is stored,
+    /// the slot is occupied so a second registration would be rejected.
+    #[test]
+    fn run_state_already_running_guard() {
+        let state = AppState::default();
+        {
+            let mut run = state.run.lock().unwrap();
+            assert!(run.token.is_none(), "slot starts empty");
+            run.token = Some(CancellationToken::new());
+        }
+        let run = state.run.lock().unwrap();
+        assert!(
+            run.token.is_some(),
+            "a stored token marks the slot as running"
+        );
+    }
+
+    /// `cancel_job` semantics at the token level: cancelling a stored token
+    /// flips its `is_cancelled` flag.
+    #[test]
+    fn cancel_marks_stored_token_cancelled() {
+        let state = AppState::default();
+        let token = CancellationToken::new();
+        {
+            let mut run = state.run.lock().unwrap();
+            run.token = Some(token.clone());
+        }
+        // Mimic `cancel_job`: lock, cancel the stored token.
+        {
+            let run = state.run.lock().unwrap();
+            run.token.as_ref().unwrap().cancel();
+        }
+        assert!(token.is_cancelled(), "token must report cancellation");
     }
 }
