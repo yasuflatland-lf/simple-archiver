@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Integration smoke test for the real `unrar` adapter against a committed fixture.
 
 use simple_archiver_core::application::ports::Extractor;
