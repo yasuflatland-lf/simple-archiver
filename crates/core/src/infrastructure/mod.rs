@@ -11,3 +11,5 @@ pub mod system_clock;
 pub mod zip_archiver;
 #[cfg(not(loom))]
 pub mod temp_workspace;
+#[cfg(not(loom))]
+pub mod unrar_extractor;
