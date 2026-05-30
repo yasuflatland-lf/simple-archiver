@@ -94,7 +94,13 @@ impl Aggregator {
             match t.status() {
                 TaskStatus::Completed => succeeded.push(t.id()),
                 TaskStatus::Failed { reason } => failed.push((t.id(), reason.clone())),
-                _ => {}
+                other => failed.push((
+                    t.id(),
+                    // A task that never reached Completed/Failed (e.g. its worker panicked)
+                    // must still be accounted for, so the summary is always complete.
+                    // PR-5b will refine this once Cancelled is a distinct outcome.
+                    format!("task did not reach a terminal state (status: {other:?})"),
+                )),
             }
         }
         JobSummary { succeeded, failed }
@@ -202,5 +208,41 @@ mod tests {
         })
         .unwrap();
         assert_eq!(agg.snapshot(Instant::now()).per_task.len(), 1);
+    }
+
+    #[test]
+    fn non_terminal_task_is_reconciled_as_failed() {
+        let j = job(2);
+        let id = ids(&j);
+        let mut agg = Aggregator::new(j, Instant::now());
+        // task 0 reaches a terminal state; task 1 starts but never completes
+        // (mirrors a worker that panicked before emitting Complete/Fail).
+        agg.apply(WorkerMsg::Status {
+            task: id[0],
+            event: TaskEvent::StartCompressing,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[0],
+            event: TaskEvent::Complete,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[1],
+            event: TaskEvent::StartCompressing,
+        })
+        .unwrap();
+        let s = agg.into_summary();
+        assert_eq!(s.succeeded, vec![id[0]]);
+        assert_eq!(
+            s.failed.len(),
+            1,
+            "non-terminal task must be tallied as failed"
+        );
+        assert_eq!(s.failed[0].0, id[1]);
+        assert!(
+            !s.failed[0].1.is_empty(),
+            "reconciled failure must carry a non-empty reason"
+        );
     }
 }
