@@ -8,3 +8,4 @@
 // loom-tested concurrency code separately.
 #[cfg(not(loom))]
 pub mod zip_archiver;
+pub mod system_clock;

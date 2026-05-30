@@ -34,3 +34,10 @@ pub trait Archiver {
     /// The output zip is never included in itself.
     async fn compress(&self, src_dir: &Path, dest_zip: &Path) -> Result<(), ArchiveError>;
 }
+
+/// A source of monotonic time, behind a port so the application can be tested
+/// with a controllable clock instead of the real wall clock.
+pub trait Clock: Send + Sync {
+    /// Return the current instant.
+    fn now(&self) -> std::time::Instant;
+}
