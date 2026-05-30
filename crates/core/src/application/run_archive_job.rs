@@ -10,6 +10,7 @@ use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::application::compress_context::{CompressContext, TaskProgressReport};
+use crate::application::eta_estimator::{EtaTracker, ETA_WINDOW};
 use crate::application::format_registry::FormatRegistry;
 use crate::application::ports::{ArchiveError, Archiver, Clock, Extractor};
 use crate::application::progress::ProgressSink;
@@ -118,6 +119,7 @@ impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
 
         // Single-writer aggregation loop: runs on the caller's async task, never shared.
         let mut aggregator = Aggregator::new(job, clock.now());
+        let mut eta = EtaTracker::new(ETA_WINDOW);
         while let Some(msg) = rx.recv().await {
             // `apply` runs unconditionally (it MUST still run in release). An `Err`
             // means a worker emitted out-of-order events — an engine-ordering bug.
@@ -130,7 +132,10 @@ impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
                 _outcome.is_ok(),
                 "out-of-order worker event (engine-ordering bug): {_outcome:?}"
             );
-            sink.report(aggregator.snapshot(clock.now()));
+            let now = clock.now();
+            let mut snapshot = aggregator.snapshot(now);
+            eta.enrich(&mut snapshot, now);
+            sink.report(snapshot);
         }
 
         // Join workers (compress outcomes are already captured as terminal events).
@@ -221,9 +226,9 @@ mod tests {
     use std::collections::HashSet;
     use std::path::Path;
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::Mutex;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     /// A fake archiver: reports two progress ticks, optionally fails or cancels
     /// outputs by file name, and can rendezvous on a barrier so a test can prove
@@ -681,6 +686,49 @@ mod tests {
             max_live.load(Ordering::SeqCst),
             2,
             "must never exceed the parallelism limit"
+        );
+    }
+
+    /// A `Clock` that advances by `step` on every `now()` call, so successive
+    /// snapshots within one run carry distinct, increasing timestamps.
+    struct SteppingClock {
+        base: Instant,
+        step: Duration,
+        calls: AtomicU64,
+    }
+    impl SteppingClock {
+        fn new(step: Duration) -> Self {
+            Self {
+                base: Instant::now(),
+                step,
+                calls: AtomicU64::new(0),
+            }
+        }
+    }
+    impl Clock for SteppingClock {
+        fn now(&self) -> Instant {
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            self.base + self.step * (n as u32)
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshots_carry_overall_eta_once_throughput_is_known() {
+        let job = folder_job(2);
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(FakeExtractor::new()),
+            nz(2),
+        );
+        let sink = RecordingSink::default();
+        let clock = SteppingClock::new(Duration::from_millis(100));
+
+        engine.execute(job, &clock, &sink).await;
+
+        let snaps = sink.0.lock().unwrap();
+        assert!(
+            snaps.iter().any(|s| s.overall_eta.is_some()),
+            "at least one snapshot must carry an overall ETA once bytes advance over time"
         );
     }
 }
