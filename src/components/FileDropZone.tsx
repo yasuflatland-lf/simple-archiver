@@ -2,6 +2,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { messageFromReason } from "@/lib/errors";
 import { useJobStore } from "@/store/jobStore";
 
 /**
@@ -31,7 +32,11 @@ export function FileDropZone() {
           setIsDragging(false);
           const paths = (event.payload as { type: "drop"; paths: string[] })
             .paths;
-          useJobStore.getState().addItems(paths);
+          // Mirror the browse handlers: skip addItems when the OS delivers an
+          // empty paths array (can happen with certain drag sources).
+          if (paths.length > 0) {
+            useJobStore.getState().addItems(paths);
+          }
         }
       })
       .then((unlisten) => {
@@ -61,8 +66,10 @@ export function FileDropZone() {
       if (Array.isArray(result) && result.length > 0) {
         useJobStore.getState().addItems(result as string[]);
       }
-    } catch {
-      // Swallow errors — dialog errors or user cancellation should not crash.
+    } catch (reason) {
+      // open() rejects only on a real dialog/IPC failure; cancellation resolves
+      // to null (already handled by the Array.isArray guard above).
+      useJobStore.setState({ error: messageFromReason(reason) });
     }
   }
 
@@ -75,8 +82,10 @@ export function FileDropZone() {
       if (Array.isArray(result) && result.length > 0) {
         useJobStore.getState().addItems(result as string[]);
       }
-    } catch {
-      // Swallow errors gracefully.
+    } catch (reason) {
+      // open() rejects only on a real dialog/IPC failure; cancellation resolves
+      // to null (already handled by the Array.isArray guard above).
+      useJobStore.setState({ error: messageFromReason(reason) });
     }
   }
 

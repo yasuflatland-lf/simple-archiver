@@ -155,10 +155,24 @@ describe("App", () => {
     // TaskList should display the basename of the queued item.
     expect(screen.getByText("a.rar")).toBeDefined();
 
-    // Run button should be enabled (items + outputDir are set).
+    // Run button must be enabled BEFORE clicking (items + outputDir are set).
     const runButton = screen.getByRole("button", { name: /^run$/i });
+    expect((runButton as HTMLButtonElement).disabled).toBe(false);
+
     await user.click(runButton);
 
     expect(runJobSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // 5. Error banner: store.error is rendered in a top-level role="alert"
+  // -------------------------------------------------------------------------
+  it("shows a role=alert banner containing the error string when store.error is set", () => {
+    useJobStore.setState({ error: "kaboom" });
+
+    render(<App />);
+
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("kaboom");
   });
 });

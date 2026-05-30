@@ -79,4 +79,21 @@ describe("OutputDirPicker", () => {
 
     expect(setOutputDir).not.toHaveBeenCalled();
   });
+
+  it("surfaces a real dialog error via the store without crashing or calling setOutputDir", async () => {
+    vi.mocked(open).mockRejectedValue("disk fail");
+    const setOutputDir = vi.fn().mockResolvedValue(undefined);
+    useJobStore.setState({ setOutputDir });
+    const user = userEvent.setup();
+
+    render(<OutputDirPicker />);
+
+    await user.click(screen.getByRole("button", { name: /choose/i }));
+
+    await waitFor(() => {
+      expect(useJobStore.getState().error).toBe("disk fail");
+    });
+
+    expect(setOutputDir).not.toHaveBeenCalled();
+  });
 });

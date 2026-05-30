@@ -148,4 +148,61 @@ describe("FileDropZone", () => {
     await act(async () => {});
     expect(addItems).not.toHaveBeenCalled();
   });
+
+  it("surfaces a dialog/IPC error to the store when Add files open() rejects", async () => {
+    vi.mocked(open).mockRejectedValue("boom");
+    const addItems = vi.fn().mockResolvedValue(undefined);
+    useJobStore.setState({ addItems });
+
+    render(<FileDropZone />);
+    await waitFor(() => expect(onDragDropEvent).toHaveBeenCalled());
+
+    const user = userEvent.setup();
+    // Component must not crash.
+    await user.click(screen.getByRole("button", { name: /add files/i }));
+
+    await act(async () => {});
+    // addItems must NOT be called on a dialog failure.
+    expect(addItems).not.toHaveBeenCalled();
+    // The real error message must appear in the store.
+    expect(useJobStore.getState().error).toBe("boom");
+  });
+
+  it("surfaces a dialog/IPC error to the store when Add folder open() rejects", async () => {
+    vi.mocked(open).mockRejectedValue(new Error("permission denied"));
+    const addItems = vi.fn().mockResolvedValue(undefined);
+    useJobStore.setState({ addItems });
+
+    render(<FileDropZone />);
+    await waitFor(() => expect(onDragDropEvent).toHaveBeenCalled());
+
+    const user = userEvent.setup();
+    // Component must not crash.
+    await user.click(screen.getByRole("button", { name: /add folder/i }));
+
+    await act(async () => {});
+    // addItems must NOT be called on a dialog failure.
+    expect(addItems).not.toHaveBeenCalled();
+    // The real error message must appear in the store.
+    expect(useJobStore.getState().error).toBe("permission denied");
+  });
+
+  it("does not call addItems when a drop event delivers an empty paths array", async () => {
+    const addItems = vi.fn().mockResolvedValue(undefined);
+    useJobStore.setState({ addItems });
+
+    render(<FileDropZone />);
+    await waitFor(() => expect(onDragDropEvent).toHaveBeenCalled());
+
+    await act(async () => {
+      captured?.({ payload: { type: "drop", paths: [] } });
+    });
+
+    await act(async () => {});
+    // Empty drop must be ignored; isDragging should still be cleared.
+    expect(addItems).not.toHaveBeenCalled();
+    // The drop zone should no longer be highlighted (isDragging reset to false).
+    const zone = screen.getByTestId("drop-zone");
+    expect(zone.className).not.toContain("border-primary");
+  });
 });

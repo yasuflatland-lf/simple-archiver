@@ -122,20 +122,6 @@ describe("RunControls – Cancel button", () => {
   });
 });
 
-describe("RunControls – error display", () => {
-  it("renders a non-null error string inside a role=alert element", () => {
-    useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: null },
-      running: false,
-      error: "Something went wrong",
-      summary: null,
-    });
-    render(<RunControls />);
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Something went wrong");
-  });
-});
-
 describe("RunControls – summary display", () => {
   it("renders a one-line summary of succeeded/failed/cancelled counts", () => {
     useJobStore.setState({

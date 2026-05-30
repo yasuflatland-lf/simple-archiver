@@ -10,6 +10,9 @@ import { subscribeProgress } from "@/lib/archive";
 import { useJobStore } from "@/store/jobStore";
 
 function App() {
+  // Surface the latest store error in a single top-level banner.
+  const error = useJobStore((s) => s.error);
+
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     // Track liveness so we can immediately release if the component unmounts
@@ -25,8 +28,10 @@ function App() {
           fn();
         }
       })
-      .catch(() => {
-        // Subscription failure is non-fatal for the UI shell.
+      .catch((reason) => {
+        // Progress is a non-fatal enhancement; the job still runs and returns a
+        // final summary. Log so a misconfigured event channel is debuggable.
+        console.error("progress subscription failed", reason);
       });
 
     return () => {
@@ -48,6 +53,15 @@ function App() {
         <p className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
           Batch archive · RAR → ZIP
         </p>
+
+        {error !== null && (
+          <p
+            role="alert"
+            className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {error}
+          </p>
+        )}
 
         <FileDropZone />
         <NamingRuleForm />

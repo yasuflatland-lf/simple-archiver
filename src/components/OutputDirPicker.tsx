@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
+import { messageFromReason } from "@/lib/errors";
 import { useJobStore } from "@/store/jobStore";
 
 /**
@@ -19,8 +20,9 @@ export function OutputDirPicker() {
         await setOutputDir(picked);
       }
       // null means the user cancelled — do nothing.
-    } catch {
-      // Ignore dialog errors gracefully; the store already surfaces backend errors.
+    } catch (reason) {
+      // open() rejects only on a real dialog/IPC failure; cancellation resolves to null.
+      useJobStore.setState({ error: messageFromReason(reason) });
     }
   }
 

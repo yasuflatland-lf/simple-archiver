@@ -2,14 +2,14 @@ import { Button } from "@/components/ui/button";
 import { useJobStore } from "@/store/jobStore";
 
 /**
- * RunControls renders the primary job actions (Run / Cancel) and displays
- * any error message or job-summary counts below the buttons.
+ * RunControls renders the primary job actions (Run / Cancel) and a
+ * job-summary line once a run completes. Error display is handled by the
+ * top-level App banner — there is no duplication here.
  */
 export function RunControls() {
   const items = useJobStore((s) => s.draft.items);
   const outputDir = useJobStore((s) => s.draft.outputDir);
   const running = useJobStore((s) => s.running);
-  const error = useJobStore((s) => s.error);
   const summary = useJobStore((s) => s.summary);
 
   // Run is only enabled when there is at least one item, an output directory
@@ -34,12 +34,6 @@ export function RunControls() {
           Cancel
         </Button>
       </div>
-
-      {error !== null && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
 
       {summary !== null && (
         <p className="text-sm text-muted-foreground">
