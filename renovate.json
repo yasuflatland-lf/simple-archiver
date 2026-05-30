@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "timezone": "Asia/Tokyo",
+  "schedule": ["before 9am on monday"],
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "prConcurrentLimit": 10,
+  "labels": ["dependencies"],
+  "packageRules": [
+    { "matchManagers": ["npm"], "groupName": "frontend (npm)", "addLabels": ["frontend"] },
+    { "matchManagers": ["cargo"], "groupName": "backend (cargo)", "addLabels": ["backend"] },
+    { "matchManagers": ["github-actions"], "groupName": "github-actions", "addLabels": ["ci"] },
+    { "matchManagers": ["mise"], "groupName": "mise", "addLabels": ["tooling"] },
+    {
+      "matchPackageNames": [
+        "tauri", "tauri-build", "tauri-plugin-opener", "tauri-plugin-dialog",
+        "@tauri-apps/**"
+      ],
+      "matchUpdateTypes": ["major"],
+      "groupName": "fixed-libs major (review required)",
+      "addLabels": ["review-required"],
+      "automerge": false
+    },
+    {
+      "matchPackageNames": ["async_zip", "unrar", "mockall", "loom"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "groupName": "fixed-libs major (review required)",
+      "addLabels": ["review-required"],
+      "automerge": false
+    },
+    {
+      "matchPackageNames": ["bitflags"],
+      "groupName": "fixed-libs major (review required)",
+      "addLabels": ["review-required"],
+      "automerge": false
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["digest", "pin", "pinDigest"],
+      "automerge": true
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "schedule": ["before 9am on monday"]
+  }
+}
