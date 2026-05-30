@@ -27,6 +27,7 @@ This repository requires **all in-code comments to be written in English**.
 
 - Rust: `rustfmt`-compliant. Types `UpperCamelCase`, functions/variables `snake_case`, constants `SCREAMING_SNAKE_CASE`.
 - TypeScript / JS / JSON: formatted and linted by **Biome** (`biome.json`). Run `pnpm check` (format + lint, with autofix) before committing; CI enforces it via `pnpm biome:ci`. Biome owns style (2-space indent, double quotes, semicolons) and import organization; `tsc` still owns type-checking and `knip` owns unused-code detection.
+  - **`lint/a11y/useButtonType` is enforced.** Every raw `<button>` element — including in tests — must carry an explicit `type` attribute (e.g. `type="button"`). Run `pnpm exec biome check --write <touched files>` before staging to catch this automatically.
 - Match the surrounding code's comment density, naming, and idioms. Do not introduce a new style.
 
 ## Layer boundary discipline (implementation level)
@@ -64,3 +65,9 @@ self.status = self.status.clone().apply(event)?;
 - **Native dialog calls (`open`/`save`) can reject, not only resolve to `null` on cancel.** A plugin/permission/OS failure rejects the promise; wrap dialog calls in try/catch, surface the real error to the user (status text), and treat only a falsy/`null` resolve as a silent user-cancel.
 - **`thiserror` `source` field:** a field literally named `source` is auto-treated as the error source (implicit `#[source]`). Add a brief comment at the definition to flag this non-obvious framework behavior so it is not renamed inadvertently.
 - **Defensive guards:** when a check is structurally unreachable via the public API but kept for future-proofing (e.g. `check_unique` inside `ArchiveJob`), add a comment explaining why it exists so a future "cleanup" does not silently remove a safety net.
+
+## TypeScript / frontend conventions
+
+- **Validate before using persisted/deserialized external values.** Do not blind-cast `localStorage.getItem(key) as T`; use a type guard and fall back to a safe default on an unrecognized value. (`isTheme` in `theme-provider.tsx` is the canonical shape.)
+- **Share string-literal union types; don't re-declare them.** When two modules need the same union, export the type from one and import it in the other. Use `Record<Union, …>` for exhaustive mappings to avoid unsound `as` casts that silently hide drift.
+- **shadcn/ui primitives (`src/components/ui/`) are kept faithful to upstream templates.** Do not deviate from the shadcn contract. The `cn` helper is `clsx` + `tailwind-merge`; later utility classes win conflicts (e.g. a variant's `rounded-full` overrides the base `rounded-md`).

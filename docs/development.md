@@ -7,13 +7,13 @@
 | Area | Choice |
 |---|---|
 | Framework | Tauri 2 (single native app for Mac/Windows) |
-| Frontend | Vite + React + TypeScript + shadcn/ui (shadcn-admin layout / asics design tokens), state via zustand |
+| Frontend | Vite + React 19 + TypeScript + Tailwind v4 (`@tailwindcss/vite`) + shadcn/ui (new-york, ASICS design tokens) + Radix |
 | Backend | Rust, DDD layered (Cargo workspace: pure `simple-archiver-core` crate + `src-tauri` presentation crate) |
 | zip creation | `async_zip` |
 | rar extraction | `unrar` (extract-only; bundled C++ source for both Mac/Win) |
 | Rust tests | cargo-nextest (runner) / mockall (port mocks) / loom (concurrency verification) |
 | Parser / lexer | LALRPOP 0.20.x (parser codegen from `.lalrpop` grammar) + logos (lexer); both are build-time tooling inside `simple-archiver-core` |
-| Frontend tests | Vitest |
+| Frontend tests | Vitest + Testing Library (jsdom; native DOM assertions — jest-dom is intentionally not installed) |
 | Frontend format / lint | Biome (`biome.json`; single formatter + linter, fills the ESLint/Prettier role) |
 
 Technology choices are fixed. **Do not swap in alternative libraries on your own.** If a change is needed, propose it together with an update to the design (the source of truth).
@@ -35,8 +35,10 @@ RUSTFLAGS="--cfg loom" cargo nextest run -p simple-archiver-core --features loom
 # Frontend
 pnpm check                 # Biome: format + lint with autofix (run before committing)
 pnpm biome:ci              # Biome: CI gate — format + lint, no writes (mirrors CI)
-pnpm test                  # Vitest
+pnpm test                  # Vitest one-shot (= vitest run)
+pnpm test:watch            # Vitest watch mode
 pnpm run test:coverage     # Vitest coverage -> coverage/lcov.info
+pnpm knip                  # unused files / deps / exports gate
 pnpm build                 # tsc + vite build
 
 # App run / build
@@ -57,6 +59,9 @@ This project is designed around TDD. **Write tests before implementation.**
   - **A test asserting absence must first prove presence (no vacuous side-effect tests).** A cleanup/cancel test that fires its trigger at the *first* checkpoint runs **before** the side-effect happens (e.g. the output file is not yet created), so an "artifact was removed" assertion passes vacuously and never exercises the real cleanup path. Fire the trigger *after* the side-effect and prove it occurred first — e.g. assert the progress reporter was called ≥2 times ⇒ ≥1 entry was written ⇒ the dest file genuinely existed — *then* assert it was cleaned up (`ZipArchiver`'s `cancels_after_a_write_removes_the_partial_output` is the canonical shape).
 - **Presentation (Tauri commands)**: a `#[tauri::command] pub fn` is an ordinary Rust function; its `Result<_, String>` mapping can be asserted in a plain `#[cfg(test)]` unit test **without** constructing an `App` or `Window`. Integration-level coverage (command seam: argument names `src`/`out`, `ArchiveError`→`String` IPC mapping) can be added via `src-tauri/tests/*.rs` — the macro does not consume the original fn. Requires: the `presentation` module is `pub`, the lib crate is `simple_archiver_lib` with `[lib] crate-type` including `"rlib"`, and dev-deps `tokio` (macros, rt-multi-thread) + `zip` + `tempfile`.
 - **Frontend**: Vitest on jsdom + Testing Library for preview computation, reordering, and progress rendering, including event-payload contract tests. Mock `@tauri-apps/api/core` (`invoke`) and `@tauri-apps/plugin-dialog` (`open`/`save`).
+  - **Native DOM assertions only** — jest-dom is intentionally not installed. Use `el.className`, `classList.contains(…)`, `.textContent`, `.disabled`, etc. Never `toBeInTheDocument` / `toHaveClass`.
+  - **CSS variables are not resolvable in jsdom.** Do not assert computed token values (colors, radii) in unit tests — those can only be verified visually or in a browser. Confirm token wiring compiles correctly via `pnpm build`.
+  - Shared test helpers and stubs live in `src/test/` (e.g. `setup.ts` for cleanup, `stub-match-media.ts`). The knip entry point covers `src/components/ui/**` so shadcn primitives are not flagged unused.
   - `@testing-library/user-event` treats `{` as a special key sequence — type a literal brace as `{{` (e.g. `img_{{n:03}` produces `img_{n:03}`).
   - Combining `vi.useFakeTimers()` with `userEvent` can deadlock in jsdom. For debounce-timing tests, drive input with `fireEvent.change` + `vi.advanceTimersByTimeAsync`, and confirm the test fails when the debounce is removed as a correctness check.
 - **E2E**: a folder → zip walking-skeleton smoke test.
