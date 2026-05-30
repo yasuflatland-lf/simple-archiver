@@ -24,6 +24,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 simple-archiver-core = { path = "../crates/core" }
 tauri-plugin-dialog = "2"
+# Generates the TypeScript wire contract from the DTOs via `#[derive(TS)]`.
+ts-rs = "10"
+# Promoted from dev-dependencies: Wave 3's async `run_job` command needs the
+# Tokio runtime in the library itself, not only in tests.
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# Wave 2 needs `CancellationToken`; declared now so later waves do not edit Cargo.toml.
+tokio-util = "0.7"
 # Pin bitflags < 2.9: bitflags 2.9+ introduced a recursive `__bitflags_flag_name!`
 # macro that munches doc-comment attributes one-at-a-time. dispatch2 0.3.1
 # (transitive via tao/tauri-runtime-wry) generates a `bitflags!` block with many
@@ -42,10 +49,10 @@ bitflags = "=2.8.0"
 # - serde/serde_json: part of the Tauri scaffold for command (de)serialization. The current
 #   commands use only primitive types, so there is no direct reference yet; they are kept for
 #   forthcoming custom command payloads. Remove from Cargo.toml and this list together if dropped.
-ignored = ["bitflags", "serde", "serde_json"]
+# - tokio-util: declared ahead of use; consumed by RunState in a later wave of PR6.
+ignored = ["bitflags", "serde", "serde_json", "tokio-util"]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 zip = "2"
 tempfile = "3"
 
