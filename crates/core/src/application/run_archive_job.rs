@@ -11,8 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::application::compress_context::{CompressContext, TaskProgressReport};
 use crate::application::format_registry::FormatRegistry;
-use crate::application::ports::Extractor;
-use crate::application::ports::{ArchiveError, Archiver, Clock};
+use crate::application::ports::{ArchiveError, Archiver, Clock, Extractor};
 use crate::application::progress::ProgressSink;
 use crate::application::progress_aggregator::{Aggregator, JobSummary, WorkerMsg};
 use crate::domain::archive_job::ArchiveJob;
@@ -215,8 +214,7 @@ async fn run_one<A: Archiver, E: Extractor>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::ports::ArchiveError;
-    use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
+    use crate::application::ports::{ArchiveError, ExtractError, ExtractedTree, Extractor};
     use crate::application::progress::{JobProgress, ProgressSink};
     use crate::domain::naming_rule::NamingRule;
     use crate::domain::output_directory::OutputDirectory;
