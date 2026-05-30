@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import "./App.css";
+import { ModeToggle } from "@/components/mode-toggle";
 import { NamingRuleForm } from "@/components/NamingRuleForm";
 import { Button } from "@/components/ui/button";
 
@@ -50,21 +51,41 @@ function App() {
   }
 
   return (
-    <main className="container">
-      <h1>simple-archiver</h1>
+    <main className="min-h-screen bg-background text-foreground">
+      <div className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-10">
+        <header className="flex items-center justify-between">
+          <h1 className="text-[28px] leading-8 font-bold tracking-[-0.56px] text-[var(--heading)]">
+            simple-archiver
+          </h1>
+          <ModeToggle />
+        </header>
 
-      <div className="row">
-        <Button onClick={selectFolder}>Select folder</Button>
-        <Button onClick={chooseOutput}>Choose output</Button>
-        <Button onClick={compress} disabled={!src || !out}>
-          Compress
-        </Button>
+        <p className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
+          Batch archive · RAR → ZIP
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={selectFolder}>Select folder</Button>
+          <Button variant="secondary" onClick={chooseOutput}>
+            Choose output
+          </Button>
+          <Button variant="brand" onClick={compress} disabled={!src || !out}>
+            Compress
+          </Button>
+        </div>
+
+        <div className="text-sm text-muted-foreground">
+          <p>
+            Source: <span className="text-foreground">{src ?? "(none)"}</span>
+          </p>
+          <p>
+            Output: <span className="text-foreground">{out ?? "(none)"}</span>
+          </p>
+          <p>{status}</p>
+        </div>
+
+        <NamingRuleForm />
       </div>
-
-      <p>Source: {src ?? "(none)"}</p>
-      <p>Output: {out ?? "(none)"}</p>
-      <p>{status}</p>
-      <NamingRuleForm />
     </main>
   );
 }
