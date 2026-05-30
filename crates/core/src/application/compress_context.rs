@@ -42,7 +42,9 @@ impl CompressContext {
     }
 
     /// Build a context not tied to any job; all progress reports are dropped.
-    /// Used by the single-folder Tauri command and integration tests.
+    /// Used by the single-folder Tauri command and integration tests. The token
+    /// is freshly created and never cancelled, so `is_cancelled()` is always
+    /// `false` for a detached context.
     pub fn detached() -> Self {
         Self::new(
             TaskId::new(0),
@@ -51,9 +53,12 @@ impl CompressContext {
         )
     }
 
-    /// Access the cancellation token associated with this compression.
-    pub fn cancellation_token(&self) -> &CancellationToken {
-        &self.cancellation_token
+    /// Observe whether this compression has been cancelled. Archivers may only
+    /// OBSERVE cancellation — exposing the token itself would let an archiver
+    /// call `.cancel()` and tear down the whole job, so only this read-only
+    /// predicate is exposed.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation_token.is_cancelled()
     }
 
     /// Report cumulative byte progress for this task.
@@ -88,14 +93,14 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_token_is_shared_with_the_context() {
+    fn is_cancelled_observes_the_shared_token() {
         let capture = Arc::new(Capture(Mutex::new(Vec::new())));
         let token = CancellationToken::new();
         let ctx = CompressContext::new(TaskId::new(7), capture, token.clone());
 
-        assert!(!ctx.cancellation_token().is_cancelled());
+        assert!(!ctx.is_cancelled());
         token.cancel();
-        assert!(ctx.cancellation_token().is_cancelled());
+        assert!(ctx.is_cancelled());
     }
 
     #[test]
