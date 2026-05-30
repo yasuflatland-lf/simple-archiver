@@ -40,6 +40,18 @@ export function setOutputDir(dir: string): Promise<DraftSnapshot> {
 }
 
 /**
+ * Resolve the preview output filename for a 1-based sequence number using the
+ * given naming template. The backend is the single source of truth for naming.
+ * Rejects if the template or sequence is invalid.
+ */
+export function previewOutputName(
+  template: string,
+  seq: number,
+): Promise<string> {
+  return invoke<string>("preview_output_name", { template, seq });
+}
+
+/**
  * Start the archive job for the current draft.
  * Resolves with a summary once the job finishes (succeeded, cancelled, or failed tasks).
  */

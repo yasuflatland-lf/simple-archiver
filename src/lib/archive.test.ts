@@ -12,6 +12,7 @@ import {
   addItems,
   cancelJob,
   PROGRESS_EVENT,
+  previewOutputName,
   reorder,
   runJob,
   setNamingRule,
@@ -116,6 +117,23 @@ describe("archive client", () => {
     });
   });
 
+  describe("previewOutputName", () => {
+    it("invokes preview_output_name with template and seq", async () => {
+      vi.mocked(invoke).mockResolvedValue("img_001.zip");
+      await previewOutputName("img_{n:03}", 1);
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("preview_output_name", {
+        template: "img_{n:03}",
+        seq: 1,
+      });
+    });
+
+    it("returns the resolved filename string from the backend", async () => {
+      vi.mocked(invoke).mockResolvedValue("img_001.zip");
+      const result = await previewOutputName("img_{n:03}", 1);
+      expect(result).toBe("img_001.zip");
+    });
+  });
+
   describe("subscribeProgress", () => {
     it("calls listen with the correct channel name", async () => {
       const fakeListen = vi.fn().mockResolvedValue(() => {});
@@ -159,7 +177,10 @@ describe("archive client", () => {
       };
 
       expect(capturedHandler).not.toBeNull();
-      capturedHandler!({ payload });
+      const handler = capturedHandler as unknown as (e: {
+        payload: ProgressEvent;
+      }) => void;
+      handler({ payload });
 
       expect(received).toHaveLength(1);
       expect(received[0]).toEqual(payload);

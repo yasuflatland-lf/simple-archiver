@@ -17,7 +17,7 @@
 
 **Presentation layer wired (PR6).** The execution engine is connected end-to-end: Tauri commands mutate a backend-held session draft, drive the application engine, and stream progress events to the frontend. Domain / application / infrastructure and the presentation adapter are all implemented. Treat this document as the live architecture description.
 
-**Frontend**: the design-system foundation is in place (ASICS tokens, light/dark theme, Inter typography, Button/Input/Label primitives, ThemeProvider). The main screen, card layout, draft list, per-file progress, job summary, and failed-task list are deferred to a later cycle, now that the backend DTOs have landed.
+**Frontend**: the design-system foundation is in place (ASICS tokens, light/dark theme, Inter typography, Button/Input/Label primitives, ThemeProvider). **The main screen is wired end-to-end (PR7)**: drag-drop / dialog file intake, draft list with reorder, naming-rule preview, output-dir picker, run/cancel controls, per-file progress, and the failed-task summary — all driven through a zustand store that mirrors the backend draft.
 
 ## Layered / hexagonal structure
 
@@ -100,3 +100,19 @@ Wire-contract types (`ProgressEvent`, `ProgressCounts`, `TaskProgressDto`, `Draf
 ### Testability seam at the IPC boundary
 
 `ProgressEmitter` (in `events.rs`) is a `trait` over `emit_progress`. Production code uses `TauriEmitter` (wrapping `AppHandle`); integration tests use a `RecordingEmitter` double. The engine entry point is extracted into `run_job_inner(emitter: &dyn ProgressEmitter, …)` in `commands.rs`, which can be called in tests without a live Tauri application. Path classification (directory → `Folder`, `.rar` extension → `RarFile`) is a free function in `commands.rs` because it is IO, keeping `JobDraft` pure and independently unit-testable.
+
+## Frontend — typed client and store-as-mirror (PR7)
+
+The React layer keeps Rust as the single source of truth, so it owns no job logic of its own.
+
+### Single typed Tauri client (`src/lib/archive.ts`)
+
+The whole IPC surface lives in **one** module of thin `invoke` / `listen` wrappers — `addItems` / `reorder` / `setNamingRule` / `setOutputDir` / `runJob` / `cancelJob` / `previewOutputName` / `subscribeProgress`, plus the `PROGRESS_EVENT = "archive://progress"` constant (mirroring `dto.rs`). New Tauri commands/events are added here, not scattered across components. (An earlier plan proposed separate `commands.ts` / `events.ts`; the implemented reality is the single `archive.ts`.)
+
+### Store is a thin mirror of the backend (`src/store/jobStore.ts`)
+
+A zustand store holds the UI state. Each mutating action calls the corresponding command and **replaces `draft` with the returned `DraftSnapshot`** — there are **no optimistic updates and no client-side recomputation** of output names or sequence numbers. Output names come from the backend `preview_output_name`; the sequence number is just the 1-based item index (`i + 1`). Progress is wired once on mount via `subscribeProgress(applyProgress)` and unlistened on unmount (the async unlisten is guarded against unmount-before-resolve).
+
+### Positional alignment is the row→task contract
+
+`previewNames` and `taskIdByIndex` are parallel arrays index-aligned with `draft.items`, and `progress.perTask` / the summary arrays are in job order — so a row maps to its `TaskId` purely by position. Because `TaskId` is a stable identity assigned at plan time while row position changes under reorder (see [domain-model.md](../.claude/domain-model.md) "TaskId vs SequenceNumber"), the store **clears `summary` / `progress` / `taskIdByIndex` on every draft edit** (addItems/reorder); otherwise a post-run reorder would mislabel the status column. Async preview recomputation uses a module-level generation counter and discards stale results, so a slower batch can never overwrite a newer one.
