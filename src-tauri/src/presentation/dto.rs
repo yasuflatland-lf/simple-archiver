@@ -23,7 +23,7 @@ pub const PROGRESS_EVENT: &str = "archive://progress";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// An aggregated progress snapshot, adapted from [`JobProgress`] for the wire.
-#[derive(Serialize, TS, Clone, Debug, PartialEq)]
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct ProgressEvent {
@@ -32,34 +32,39 @@ pub struct ProgressEvent {
     /// Per-task progress in the job's task order.
     pub per_task: Vec<TaskProgressDto>,
     /// Time elapsed since the job started, in milliseconds.
+    // ts-rs would emit bigint for u64; Tauri IPC delivers JSON number, so override (values < 2^53).
     #[ts(type = "number")]
     pub elapsed_ms: u64,
 }
 
 /// A pair of byte counters (done / total).
-#[derive(Serialize, TS, Clone, Debug, PartialEq)]
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct ProgressCounts {
     /// Bytes processed so far.
+    // ts-rs would emit bigint for u64; Tauri IPC delivers JSON number, so override (values < 2^53).
     #[ts(type = "number")]
     pub bytes_done: u64,
     /// Total bytes to process.
+    // ts-rs would emit bigint for u64; Tauri IPC delivers JSON number, so override (values < 2^53).
     #[ts(type = "number")]
     pub bytes_total: u64,
 }
 
 /// Byte progress for a single task, keyed by its raw task id.
-#[derive(Serialize, TS, Clone, Debug, PartialEq)]
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct TaskProgressDto {
     /// The raw task id.
     pub task_id: u32,
     /// Bytes processed so far.
+    // ts-rs would emit bigint for u64; Tauri IPC delivers JSON number, so override (values < 2^53).
     #[ts(type = "number")]
     pub bytes_done: u64,
     /// Total bytes to process.
+    // ts-rs would emit bigint for u64; Tauri IPC delivers JSON number, so override (values < 2^53).
     #[ts(type = "number")]
     pub bytes_total: u64,
 }
@@ -69,7 +74,7 @@ pub struct TaskProgressDto {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The outcome of a finished job, adapted from [`JobSummary`] for the wire.
-#[derive(Serialize, TS, Clone, Debug, PartialEq)]
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct JobSummaryDto {
@@ -82,7 +87,7 @@ pub struct JobSummaryDto {
 }
 
 /// A failed task paired with its human-readable reason.
-#[derive(Serialize, TS, Clone, Debug, PartialEq)]
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct FailedTaskDto {
@@ -97,7 +102,7 @@ pub struct FailedTaskDto {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A snapshot of the current draft (pending plan) shown in the UI.
-#[derive(Serialize, TS, Clone, Debug, PartialEq)]
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct DraftSnapshot {
@@ -110,7 +115,7 @@ pub struct DraftSnapshot {
 }
 
 /// A single draft item: its path and what kind of source it is.
-#[derive(Serialize, TS, Clone, Debug, PartialEq)]
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct DraftItemDto {
@@ -121,7 +126,7 @@ pub struct DraftItemDto {
 }
 
 /// The kind of a draft source item.
-#[derive(Serialize, TS, Clone, Debug, PartialEq)]
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub enum SourceKind {
@@ -157,6 +162,7 @@ impl From<&JobProgress> for ProgressEvent {
                     bytes_total: p.bytes_total(),
                 })
                 .collect(),
+            // u128 -> u64: safe for any realistic session (2^64 ms ~ 585M years).
             elapsed_ms: job_progress.elapsed.as_millis() as u64,
         }
     }
@@ -183,7 +189,7 @@ impl From<JobSummary> for JobSummaryDto {
 ///
 /// Used by later waves when projecting the draft to the frontend; provided and
 /// tested here so the mapping lives next to the DTO it produces.
-pub fn draft_item_from_source(item: &SourceItem) -> DraftItemDto {
+pub(crate) fn draft_item_from_source(item: &SourceItem) -> DraftItemDto {
     let (path, kind) = match item {
         SourceItem::Folder(p) => (p, SourceKind::Folder),
         SourceItem::RarFile(p) => (p, SourceKind::Rar),
@@ -409,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn job_progress_elapsed_saturates_to_u64_millis() {
+    fn job_progress_elapsed_converts_to_u64_millis() {
         let job_progress = JobProgress {
             overall: TaskProgress::zero(),
             per_task: Vec::new(),
