@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useJobStore } from "@/store/jobStore";
 
 // Live preview always uses the first (1-based) sequence number.
 const PREVIEW_SEQ = 1;
@@ -29,6 +30,11 @@ export function NamingRuleForm() {
     // resolve after a newer one and leave a stale preview/error on screen.
     let active = true;
     const handle = setTimeout(() => {
+      // Push the template into the store so per-row previews stay in sync with
+      // the backend draft. Use getState() to avoid adding the store action to
+      // the dependency array and preserving the single-dep [template] debounce.
+      useJobStore.getState().setNamingRule(template);
+
       invoke<string>("preview_output_name", { template, seq: PREVIEW_SEQ })
         .then((name) => {
           if (!active) return;

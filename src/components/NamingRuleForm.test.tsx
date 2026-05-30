@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetJobStore, useJobStore } from "@/store/jobStore";
 import { DEBOUNCE_MS, NamingRuleForm } from "./NamingRuleForm";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -17,6 +18,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 describe("NamingRuleForm", () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
+    // Reset store to initial state, then replace setNamingRule with a spy so
+    // the real action never calls invoke("set_naming_rule") and pollutes the
+    // existing preview_output_name invoke assertions.
+    resetJobStore();
+    const setNamingRule = vi.fn();
+    useJobStore.setState({ setNamingRule });
   });
 
   it("shows the preview returned by the backend as the template changes", async () => {
@@ -116,5 +123,67 @@ describe("NamingRuleForm", () => {
     await user.type(input, "x");
     await screen.findByText(/ok_1\.zip/, {}, { timeout: 2000 });
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("calls setNamingRule once after the debounce delay elapses", async () => {
+    // Use fake timers to control the debounce window precisely, mirroring the
+    // existing debounce test technique.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(invoke).mockResolvedValue("new_1.zip");
+      render(<NamingRuleForm />);
+      const input = screen.getByLabelText(/naming template/i);
+
+      // Let the initial mount debounce settle so we can start from a clean spy.
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+      const setNamingRule = vi.mocked(
+        useJobStore.getState().setNamingRule as ReturnType<typeof vi.fn>,
+      );
+      setNamingRule.mockClear();
+
+      // Change the template value.
+      act(() => {
+        fireEvent.change(input, { target: { value: "new_template_{n}" } });
+      });
+
+      // Inside the debounce window — store action must NOT have fired yet.
+      expect(setNamingRule).toHaveBeenCalledTimes(0);
+
+      // Advance past the debounce window; the spy must be called exactly once
+      // with the new template string.
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
+      expect(setNamingRule).toHaveBeenCalledTimes(1);
+      expect(setNamingRule).toHaveBeenCalledWith("new_template_{n}");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not call setNamingRule before the debounce delay elapses", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(invoke).mockResolvedValue("x.zip");
+      render(<NamingRuleForm />);
+      const input = screen.getByLabelText(/naming template/i);
+
+      // Let the initial mount settle, then clear.
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+      const setNamingRule = vi.mocked(
+        useJobStore.getState().setNamingRule as ReturnType<typeof vi.fn>,
+      );
+      setNamingRule.mockClear();
+
+      // Rapid changes — each resets the debounce timer.
+      for (const val of ["a", "ab", "abc"]) {
+        act(() => {
+          fireEvent.change(input, { target: { value: val } });
+        });
+      }
+
+      // Still inside the window — no call yet.
+      expect(setNamingRule).toHaveBeenCalledTimes(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
