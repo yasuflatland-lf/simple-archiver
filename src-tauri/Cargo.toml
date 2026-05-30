@@ -49,8 +49,8 @@ bitflags = "=2.8.0"
 # - serde/serde_json: part of the Tauri scaffold for command (de)serialization. The current
 #   commands use only primitive types, so there is no direct reference yet; they are kept for
 #   forthcoming custom command payloads. Remove from Cargo.toml and this list together if dropped.
-# - tokio-util: declared ahead of use; consumed by RunState in a later wave of PR6.
-ignored = ["bitflags", "serde", "serde_json", "tokio-util"]
+# tokio-util is now used directly (CancellationToken in RunState).
+ignored = ["bitflags", "serde", "serde_json"]
 
 [dev-dependencies]
 zip = "2"
