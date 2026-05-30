@@ -1,6 +1,7 @@
 //! Infrastructure layer — adapter implementations.
 //! `ZipArchiver` (PR2) compresses folders via `async_zip`.
-//! `UnrarExtractor` (rar support) is added in PR8.
+//! `UnrarExtractor` (unrar) extracts rar into a `TempWorkspace`; `FormatRegistry`
+//! (application) routes rar -> temp extraction -> zip.
 
 // The zip adapter uses `tokio::fs`, which is unavailable under `--cfg loom`
 // (tokio disables fs for loom model-checking). PR2 has no concurrency code to
