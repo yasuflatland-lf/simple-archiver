@@ -26,12 +26,14 @@ Toolchain is pinned via `mise.toml` (rust / node / pnpm / cargo-nextest). The pa
 cargo nextest run -p simple-archiver-core   # run tests (use nextest, not `cargo test`)
 cargo clippy -p simple-archiver-core --all-targets -- -D warnings  # lint, zero warnings
 cargo fmt                                    # format (whole workspace)
+cargo llvm-cov nextest -p simple-archiver-core --lcov --output-path lcov.info  # coverage (CI uploads to Codecov)
 
 # loom concurrency verification (target tests only; kept separate from normal runs)
 RUSTFLAGS="--cfg loom" cargo nextest run -p simple-archiver-core --features loom
 
 # Frontend
 pnpm test                  # Vitest
+pnpm run test:coverage     # Vitest coverage -> coverage/lcov.info
 pnpm build                 # tsc + vite build
 
 # App run / build
@@ -54,6 +56,15 @@ This project is designed around TDD. **Write tests before implementation.**
   - `@testing-library/user-event` treats `{` as a special key sequence — type a literal brace as `{{` (e.g. `img_{{n:03}` produces `img_{n:03}`).
   - Combining `vi.useFakeTimers()` with `userEvent` can deadlock in jsdom. For debounce-timing tests, drive input with `fireEvent.change` + `vi.advanceTimersByTimeAsync`, and confirm the test fails when the debounce is removed as a correctness check.
 - **E2E**: a folder → zip walking-skeleton smoke test.
+
+## Coverage (Codecov)
+
+Coverage is reported to Codecov **informationally** — it never blocks a PR. The
+ubuntu `core` and `frontend` CI jobs upload lcov to Codecov under flags `rust`
+and `frontend` (auth via the `CODECOV_TOKEN` repository secret). The
+mac/windows `app` job is build-only and is not measured. The repository must be
+activated on codecov.io for reports to appear. Coverage config lives in
+`codecov.yml`; local lcov artifacts (`lcov.info`, `coverage/`) are git-ignored.
 
 ## Commit / PR rules
 

@@ -1,0 +1,27 @@
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+flags:
+  rust:
+    paths:
+      - crates/core
+  frontend:
+    paths:
+      - src
+
+ignore:
+  - "src-tauri"
+  - "crates/core/build.rs"
+  - "**/tests/**"
+  - "src/test/**"
+  - "**/*.d.ts"
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: false
