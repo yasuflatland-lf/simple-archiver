@@ -65,16 +65,20 @@ export function ConfirmDialog({
         aria-hidden="true"
       />
       {/* Dialog panel — positioned above the backdrop; stop propagation so panel clicks do not reach the backdrop. */}
-      <div
-        role="dialog"
+      <dialog
+        open
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
-        className="fixed inset-0 z-[51] flex items-center justify-center"
-        // biome-ignore lint/a11y/useKeyWithClickEvents: click here is on the centering wrapper, not a focusable element
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-[51] flex items-center justify-center border-0 bg-transparent p-0"
       >
-        <div className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg">
+        {/* Stop click propagation on the content card so clicks here do not bubble to the backdrop. */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+        <div
+          className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg"
+          onClick={(e) => e.stopPropagation()}
+          role="none"
+        >
           <h2
             id={titleId}
             className="mb-2 text-base font-semibold leading-none tracking-tight"
@@ -103,7 +107,7 @@ export function ConfirmDialog({
             </Button>
           </div>
         </div>
-      </div>
+      </dialog>
     </>
   );
 }
