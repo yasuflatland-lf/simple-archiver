@@ -3,10 +3,11 @@
  * from draft state (queued item count + chosen output directory). The backend
  * still owns the real validation; this is only the UI's pre-run readiness gate.
  *
- * Owning the state machine here keeps OutputSettings' readiness chip and
- * RunControls' disabled-Run reason from drifting apart: both read the same
- * `Readiness` value and map it to their own presentation. The ordered checks
- * (items first, then destination) are encoded once, in `readinessFor`.
+ * Owning the state machine here keeps the readiness chip and the
+ * disabled-Run reason — both rendered by RunControls — from drifting apart:
+ * both read the same `Readiness` value and map it to their own presentation.
+ * The ordered checks (items first, then destination) are encoded once, in
+ * `readinessFor`.
  */
 
 /**
