@@ -7,6 +7,8 @@
 // (tokio disables fs for loom model-checking). The IO adapter has no concurrency
 // code to model-check, so the IO adapter is excluded from loom builds.
 // Loom-tested concurrency code lives in application/loom_nucleus.rs (PR-5b).
+#[cfg(not(loom))]
+pub mod archive_extractor;
 pub mod system_clock;
 #[cfg(not(loom))]
 pub mod temp_workspace;
@@ -14,3 +16,5 @@ pub mod temp_workspace;
 pub mod unrar_extractor;
 #[cfg(not(loom))]
 pub mod zip_archiver;
+#[cfg(not(loom))]
+pub mod zip_extractor;
