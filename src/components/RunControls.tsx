@@ -14,6 +14,16 @@ export function RunControls() {
   // has been set, and no job is currently in flight.
   const runDisabled = items.length === 0 || !outputDir || running;
 
+  // Human-readable reason Run is unavailable, shown on hover (empty when ready).
+  const runReason =
+    items.length === 0
+      ? "Add at least one item"
+      : !outputDir
+        ? "Choose an output directory"
+        : running
+          ? "A job is already running"
+          : "";
+
   function handleRun() {
     useJobStore.getState().runJob();
   }
@@ -25,9 +35,11 @@ export function RunControls() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2">
-        <Button variant="brand" disabled={runDisabled} onClick={handleRun}>
-          Run
-        </Button>
+        <span title={runReason || undefined}>
+          <Button variant="brand" disabled={runDisabled} onClick={handleRun}>
+            Run
+          </Button>
+        </span>
         <Button variant="outline" disabled={!running} onClick={handleCancel}>
           Cancel
         </Button>

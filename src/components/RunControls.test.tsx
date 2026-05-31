@@ -26,6 +26,19 @@ beforeEach(() => {
 const ITEM = { path: "/a.rar", kind: "rar" as const };
 
 describe("RunControls – Run button disabled states", () => {
+  it("explains why Run is disabled via a title on its wrapper", () => {
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: null },
+      running: false,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    const run = screen.getByRole("button", { name: /run/i });
+    const wrapper = run.parentElement as HTMLElement;
+    expect(wrapper.getAttribute("title")).toMatch(/add at least one item/i);
+  });
+
   it("disables Run when items is empty (outputDir is set)", () => {
     useJobStore.setState({
       draft: { items: [], namingTemplate: null, outputDir: "/out" },
