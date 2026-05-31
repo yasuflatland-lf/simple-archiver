@@ -130,7 +130,7 @@ pub struct DraftSnapshot {
 pub struct DraftItemDto {
     /// The item's filesystem path (lossy UTF-8).
     pub path: String,
-    /// Whether the item is a folder or a rar file.
+    /// Whether the item is a folder, a rar, or a zip.
     pub kind: SourceKind,
 }
 
@@ -143,6 +143,8 @@ pub enum SourceKind {
     Folder,
     /// A rar file to be extracted and re-archived.
     Rar,
+    /// A zip file to be extracted and re-archived.
+    Zip,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,6 +211,7 @@ pub(crate) fn draft_item_from_source(item: &SourceItem) -> DraftItemDto {
     let (path, kind) = match item {
         SourceItem::Folder(p) => (p, SourceKind::Folder),
         SourceItem::RarFile(p) => (p, SourceKind::Rar),
+        SourceItem::ZipFile(p) => (p, SourceKind::Zip),
     };
     DraftItemDto {
         path: path.to_string_lossy().into_owned(),
@@ -423,6 +426,7 @@ mod tests {
             json!("folder")
         );
         assert_eq!(serde_json::to_value(SourceKind::Rar).unwrap(), json!("rar"));
+        assert_eq!(serde_json::to_value(SourceKind::Zip).unwrap(), json!("zip"));
     }
 
     // ── Mapping helpers ───────────────────────────────────────────────────────
@@ -519,6 +523,19 @@ mod tests {
             DraftItemDto {
                 path: "/some/file.rar".to_string(),
                 kind: SourceKind::Rar,
+            }
+        );
+    }
+
+    #[test]
+    fn draft_item_from_zip_source() {
+        let item = SourceItem::ZipFile(PathBuf::from("/some/file.zip"));
+        let dto = draft_item_from_source(&item);
+        assert_eq!(
+            dto,
+            DraftItemDto {
+                path: "/some/file.zip".to_string(),
+                kind: SourceKind::Zip,
             }
         );
     }

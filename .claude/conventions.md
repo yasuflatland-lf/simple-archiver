@@ -189,3 +189,39 @@ PR6 examples: `run_job_inner` + `ProgressEmitter` trait + `RecordingEmitter` in 
 - **Deduplicate derived readiness logic into a shared helper.** When multiple components derive the same ordered check from the same state — e.g. "no items → add files / no output destination → choose destination / else → ready" — extract it to **`src/lib/readiness.ts`** and have both consumers import it, following the single-mapping-point discipline of `src/lib/status.ts`. Re-implementing the check locally in each component causes divergence. This is a UI pre-gate only; the authoritative validation is the backend's single source of truth. Canonical: `src/lib/readiness.ts`. The same `Readiness` value drives both `RunControls`' `aria-disabled` reason and its `ReadinessChip` label — compute it once per render, never call `readinessFor` twice.
 - **Async work inside a React effect: liveness flag + re-check store state AFTER the await.** StrictMode double-mount, unmount-mid-resolution, and a concurrent user action can all let a stale async result clobber newer state. Rule: track an `active` liveness flag and clear it in the effect cleanup (so a resolved promise is discarded after unmount); AND re-read store state via `getState()` AFTER the await before committing — do NOT trust the pre-await snapshot, since a user action may have landed in the meantime. Do **not** extract a shared wrapper: per-effect cleanup semantics differ (one releases a subscription, one only gates a `setState`). Canonical: `App.tsx`'s default-output-dir effect (re-checks `draft.outputDir === null` post-await) and its progress subscription; `OutputSettings`' debounced preview.
 - **Fragment-of-grid-cells layout contract (cross-row alignment).** When a parent needs cross-row column alignment (a shared label column), a child component returns a React **fragment of grid cells** that flatten into the parent's `display:grid`. The child's emitted cell count MUST match the parent grid template — this is a CSS-only contract, NOT type-enforced. Canonical: `OutputSettings`' grid is `[max-content_minmax(0,1fr)_auto]`; `OutputDirPicker` emits 3 cells (label / path / Choose) and `NamingRuleForm` emits 2 (label + `col-span-2` input). Keep them in sync and note the cell count at the call site so a later edit to either side does not silently break alignment.
+
+## async_zip 0.0.18 read API (CRITICAL harness rule)
+
+This project pins `async_zip = "0.0.18"` with features `["tokio", "deflate"]` (`tokio-fs` is NOT enabled). When reading a zip archive, follow every rule below — violating any one can produce silent data corruption or a compile failure.
+
+**How to open the reader.** Use the seek reader:
+
+```rust
+async_zip::tokio::read::seek::ZipFileReader::with_tokio(BufReader<tokio::fs::File>)
+```
+
+The `tokio::io::BufReader` wrapper is REQUIRED: `with_tokio` needs `AsyncBufRead + AsyncSeek`, and `tokio::fs::File` implements `AsyncSeek` but NOT `AsyncBufRead`. Without `BufReader` the code does not compile.
+
+**MUST use the checked entry reader — never the unchecked one.** Read entry bytes with `reader_with_entry(i)` + `entry_reader.read_to_end_checked(&mut bytes)`. Do NOT use `reader_without_entry` + plain `read_to_end` — that path performs no CRC32 validation and does not reject encrypted entries, so an encrypted-Stored, truncated, or bit-rotted zip is silently written as garbage and reported as success (a real data-corruption bug this project hit and fixed). `read_to_end_checked` returns `CRC32CheckError` on CRC mismatch → map to `ExtractError::Backend` → per-task `Failed`.
+
+**Borrow ordering.** async_zip's `reader_with_entry(i)` takes `&mut self`, which conflicts with any live immutable borrow of `reader.file()`. Read each entry's metadata (`entry.dir()`, `entry.filename().as_str()`) into OWNED values BEFORE calling `reader_with_entry(i)`, so the immutable borrow is released first. See `ZipExtractor::extract` for the canonical pattern.
+
+**Do NOT wrap zip extraction in `spawn_blocking`.** async_zip is already async; no blocking bridge is needed. (`UnrarExtractor` is different — unrar is a synchronous C library and DOES need `spawn_blocking`.)
+
+**Compression features.** Only `deflate` is enabled in Cargo.toml. Entries compressed with bzip2/lzma/zstd/xz fail at central-directory parse → `ExtractError::Backend`. Do not add compression features without a deliberate decision.
+
+## Zip-slip / path-traversal guard (security harness)
+
+async_zip performs NO validation of entry names. Every extracted entry MUST be filtered through `std::path::Component`:
+
+- Allow `Component::Normal` (file/directory name segment).
+- Silently skip `Component::CurDir` (`.`).
+- REJECT `Component::ParentDir` (`..`), `Component::RootDir`, or `Component::Prefix` (Windows drive/UNC) by failing the WHOLE extraction with `ExtractError::Backend("unsafe entry path: …")`. Do NOT silently skip just the offending entry — abort everything, because partial extraction into the workspace is still a taint.
+
+The canonical implementation is `safe_relative_path` in `crates/core/src/infrastructure/zip_extractor.rs`.
+
+**Known POSIX limitation worth noting.** On POSIX a backslash is not a path separator; an entry literally named `..\evil` is parsed as a single `Component::Normal("..\evil")` — not a traversal escape, but a surprising literal filename inside the temp tree. This is an accepted limitation; do not add special backslash handling for POSIX builds.
+
+## Dependency-feature hygiene
+
+Do NOT import a module that is only enabled transitively (e.g. `tokio_util::compat`, whose `compat` feature this crate obtains only via async_zip's `tokio` feature). Prefer the library's own native API — here, async_zip's `read_to_end_checked` made the `tokio_util` compat bridge unnecessary. If you must rely on a feature-gated module of a direct dependency, declare that feature explicitly in `Cargo.toml`. See also `docs/architecture.md` for the `ArchiveExtractor` format-addition checklist and `domain-model.md` for `SourceItem`/`classify` invariants.

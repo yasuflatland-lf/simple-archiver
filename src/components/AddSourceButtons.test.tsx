@@ -15,7 +15,7 @@ describe("AddSourceButtons", () => {
     vi.mocked(open).mockReset();
   });
 
-  it("opens the rar file dialog and adds the picked files", async () => {
+  it("opens the archive file dialog (rar/zip) and adds the picked files", async () => {
     vi.mocked(open).mockResolvedValue(["/x.rar"]);
     const addItems = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({ addItems });
@@ -27,7 +27,7 @@ describe("AddSourceButtons", () => {
     expect(vi.mocked(open)).toHaveBeenCalledWith({
       multiple: true,
       directory: false,
-      filters: [{ name: "rar", extensions: ["rar"] }],
+      filters: [{ name: "Archives", extensions: ["rar", "zip"] }],
     });
     await waitFor(() => expect(addItems).toHaveBeenCalledWith(["/x.rar"]));
   });

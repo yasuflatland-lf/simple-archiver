@@ -54,8 +54,9 @@ pub trait Clock: Send + Sync {
 
 /// Error returned by an [`Extractor`].
 ///
-/// `Backend` carries a stringified message from the `unrar` library so the port
-/// stays decoupled from any specific extraction backend. There is no `Cancelled`
+/// `Backend` carries a stringified message from the underlying extraction library
+/// (e.g. `unrar` or `async_zip`) so the port stays decoupled from any specific
+/// extraction backend. There is no `Cancelled`
 /// variant: extraction is not interrupted mid-stream in the MVP — cancellation is
 /// observed *before* extraction starts (in the engine) and the temp directory is
 /// always reclaimed by [`ExtractedTree`]'s drop.
@@ -64,8 +65,9 @@ pub enum ExtractError {
     /// Filesystem I/O failed while creating the temp dir or writing entries.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-    /// The extraction backend reported a failure (corrupt/encrypted/multi-volume rar, etc.).
-    #[error("unrar error: {0}")]
+    /// The extraction backend reported a failure (corrupt/encrypted/unsupported-compression
+    /// rar or zip, etc.).
+    #[error("extract error: {0}")]
     Backend(String),
 }
 
@@ -79,17 +81,18 @@ pub trait ExtractedTree: Send {
     fn path(&self) -> &Path;
 }
 
-/// Extracts a rar archive into a freshly-created temporary directory.
+/// Extracts an archive (rar or zip) into a freshly-created temporary directory.
 ///
 /// Mirrors [`Archiver`]: the future is `Send` (and the trait `Send + Sync`) so the
 /// engine can run implementations across `tokio::spawn`. The adapter owns temp
 /// creation **and** cleanup — it returns a boxed [`ExtractedTree`] guard.
 pub trait Extractor: Send + Sync {
-    /// Extract every entry of `src_rar` into a new temp directory and return a
-    /// guard whose `path()` holds the extracted tree; dropping it removes the dir.
+    /// Extract every entry of `src_archive` (a rar or zip archive) into a new temp
+    /// directory and return a guard whose `path()` holds the extracted tree;
+    /// dropping it removes the dir.
     fn extract(
         &self,
-        src_rar: &Path,
+        src_archive: &Path,
     ) -> impl Future<Output = Result<Box<dyn ExtractedTree>, ExtractError>> + Send;
 }
 
@@ -109,7 +112,7 @@ mod tests {
     #[test]
     fn extract_error_display_strings_are_stable() {
         let backend = ExtractError::Backend("bad header".to_string());
-        assert_eq!(backend.to_string(), "unrar error: bad header");
+        assert_eq!(backend.to_string(), "extract error: bad header");
 
         let io = ExtractError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"));
         assert_eq!(io.to_string(), "I/O error: missing");

@@ -4,7 +4,7 @@
 [![backend coverage](https://img.shields.io/codecov/c/github/yasuflatland-lf/simple-archiver?flag=rust&label=backend%20coverage&logo=codecov)](https://codecov.io/gh/yasuflatland-lf/simple-archiver)
 [![frontend coverage](https://img.shields.io/codecov/c/github/yasuflatland-lf/simple-archiver?flag=frontend&label=frontend%20coverage&logo=codecov)](https://codecov.io/gh/yasuflatland-lf/simple-archiver)
 
-A native desktop app (Mac / Windows) that takes drag-and-dropped **rar files** and **folders** and batch re-archives them into **zip** files following a single naming rule. rar files are extracted and re-compressed to zip; folders are zipped as-is.
+A native desktop app (Mac / Windows) that takes drag-and-dropped **rar files**, **zip files**, and **folders** and batch re-archives them into **zip** files following a single naming rule. rar and zip files are extracted and re-compressed to standard Deflate zip; folders are zipped as-is.
 
 ## Architecture
 
@@ -12,17 +12,18 @@ A native desktop app (Mac / Windows) that takes drag-and-dropped **rar files** a
 
 ## Overview
 
-Drop a mix of rar files and folders, reorder them, give the batch a single naming rule with an auto-incrementing sequence number, and hit run. Each item is compressed to a zip in list order, with a per-row progress bar and ETA plus an overall progress bar and ETA for the whole job.
+Drop a mix of rar files, zip files, and folders, reorder them, give the batch a single naming rule with an auto-incrementing sequence number, and hit run. Each item is compressed to a zip in list order, with a per-row progress bar and ETA plus an overall progress bar and ETA for the whole job.
 
 It ships as a single self-contained native application built with **Tauri 2** — a Rust engine for the archiving work and a Vite + React frontend for the UI.
 
 ## Features
 
-- **Drag & drop intake** — add multiple rar files and/or folders at once (drag-drop or a file dialog).
+- **Drag & drop intake** — add multiple rar files, zip files, and/or folders at once (drag-drop or a file dialog).
 - **Reorderable list** — move items up and down; the run order follows the list top to bottom.
 - **Batch naming rule** — specify a single prefix string and number every item sequentially from `1`, top to bottom. A placeholder inside the prefix marks where the sequence number goes: `{n}` inserts the bare number, and `{n:0W}` zero-pads it to width `W` (1–9), e.g. `photo_{n:03}` → `photo_001`, `photo_002`, … A **live preview** shows the resulting `seq=1` filename as you type, and every queue row previews its own output name. The sequence number is fixed at job-creation time in list order (independent of completion order). Output names are de-duplicated case-insensitively and validated to be Windows-safe.
 - **One-click run** — compresses every item per the naming rule, from the top of the list:
-  - **rar file** → extracted to a temporary workspace, then re-compressed into a zip.
+  - **rar file** → extracted to a temporary workspace, then re-compressed into a standard Deflate zip.
+  - **zip file** → extracted to a temporary workspace, then re-compressed into a standard Deflate zip.
   - **folder** → compressed into a zip directly.
 - **Live per-item progress** — each row shows a progress bar and an estimated-time-remaining string, updated asynchronously while the job runs.
 - **Overall progress** — a job-wide progress bar and ETA for all items combined.
@@ -81,7 +82,7 @@ Technology choices are fixed. The compression libraries are deliberately kept be
 The spec calls for the compression libraries to be treated as plugins, behind a common interface, with the per-format differences isolated in one place. This is realized with:
 
 - **Common ports** — `Extractor` (rar → directory) and `Archiver` (directory → zip), so the engine drives any format through the same async interface.
-- **`FormatRegistry`** — resolves each `SourceItem` to a compressible directory: a `Folder` is compressed directly, while a `RarFile` is first extracted (via `UnrarExtractor`) into a `TempWorkspace` RAII guard and then compressed. The guard's `Drop` guarantees temp cleanup even on error.
+- **`FormatRegistry`** — resolves each `SourceItem` to a compressible directory: a `Folder` is compressed directly, while a `RarFile` or `ZipFile` is first extracted (via `UnrarExtractor` or `ZipExtractor` respectively) into a `TempWorkspace` RAII guard and then re-compressed to standard Deflate zip. The guard's `Drop` guarantees temp cleanup even on error.
 
 Adding another archive format means adding an adapter behind these ports and a branch in the registry — the engine, domain, and UI stay untouched.
 
@@ -102,9 +103,9 @@ sequenceDiagram
     participant Zip as ZipArchiver
 
     Note over User,Cmd: 1 — Build the draft
-    User->>UI: drag & drop rar files / folders
+    User->>UI: drag & drop rar/zip files / folders
     UI->>Cmd: add_items(paths)
-    Cmd->>Cmd: classify_path → Folder | RarFile
+    Cmd->>Cmd: classify_path → Folder | RarFile | ZipFile
     Cmd-->>UI: DraftSnapshot
     User->>UI: set naming rule + output dir
     UI->>Cmd: set_naming_rule / set_output_dir
@@ -123,6 +124,10 @@ sequenceDiagram
             Worker->>Reg: prepare(RarFile)
             Reg->>Unrar: extract(path) → temp workspace
             Unrar-->>Worker: ExtractedTree (RAII temp guard)
+        else ZipFile
+            Worker->>Reg: prepare(ZipFile)
+            Reg->>Zip: extract(path) → temp workspace
+            Zip-->>Worker: ExtractedTree (RAII temp guard)
         else Folder
             Worker->>Reg: prepare(Folder) → dir as-is
         end

@@ -149,8 +149,9 @@ impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
     }
 }
 
-/// Execute a single work item: resolve its source to a directory (extracting rar
-/// into a temp guard), then compress that directory. Sends status + progress over `tx`.
+/// Execute a single work item: resolve its source to a directory (extracting a
+/// rar/zip into a temp guard), then compress that directory. Sends status +
+/// progress over `tx`.
 async fn run_one<A: Archiver, E: Extractor>(
     archiver: &A,
     registry: &FormatRegistry<E>,
@@ -172,10 +173,10 @@ async fn run_one<A: Archiver, E: Extractor>(
         return;
     }
 
-    // rar files extract first; folders compress directly. Emit the extraction
+    // rar/zip files extract first; folders compress directly. Emit the extraction
     // status only for sources that actually extract, so the task walks the legal
     // Pending -> Extracting -> Compressing path (folders take the fast-path).
-    let needs_extract = matches!(item.source, SourceItem::RarFile(_));
+    let needs_extract = matches!(item.source, SourceItem::RarFile(_) | SourceItem::ZipFile(_));
     if needs_extract {
         let _ = tx.send(WorkerMsg::Status {
             task: item.task,
@@ -213,7 +214,7 @@ async fn run_one<A: Archiver, E: Extractor>(
         task: item.task,
         event,
     });
-    // `prepared` drops here — an extracted rar's temp directory is removed.
+    // `prepared` drops here — an extracted rar/zip's temp directory is removed.
 }
 
 #[cfg(test)]
@@ -297,7 +298,8 @@ mod tests {
         }
     }
 
-    /// A fake extractor: records calls, optionally fails for given rar file names.
+    /// A fake extractor: records calls, optionally fails for entries whose
+    /// filename is in `fail_names`.
     struct FakeExtractor {
         fail_names: HashSet<String>,
         calls: Arc<AtomicUsize>,
@@ -587,6 +589,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn zip_item_extracts_then_compresses_and_succeeds() {
+        let items = vec![
+            SourceItem::Folder(PathBuf::from("dir0")),
+            SourceItem::ZipFile(PathBuf::from("a.zip")),
+        ];
+        let job = ArchiveJob::plan(
+            items,
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        let extractor = Arc::new(FakeExtractor::new());
+        let calls = extractor.calls.clone();
+        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, nz(2));
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        // Both tasks succeed; reaching Completed proves the zip task walked the
+        // legal Pending -> Extracting -> Compressing -> Completed sequence (an
+        // out-of-order event would trip the engine's debug_assert).
+        let mut succeeded = summary.succeeded.clone();
+        succeeded.sort_by_key(|i| i.get());
+        let mut expected = ids.clone();
+        expected.sort_by_key(|i| i.get());
+        assert_eq!(succeeded, expected);
+        assert!(summary.failed.is_empty());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "exactly the zip task extracts"
+        );
+    }
+
+    #[tokio::test]
     async fn rar_extract_failure_fails_only_its_task() {
         let items = vec![
             SourceItem::Folder(PathBuf::from("dir0")),
@@ -615,7 +655,39 @@ mod tests {
         assert_eq!(summary.succeeded, vec![ids[0]]);
         assert_eq!(summary.failed.len(), 1);
         assert_eq!(summary.failed[0].0, ids[1]);
-        assert_eq!(summary.failed[0].1, "unrar error: extract boom");
+        assert_eq!(summary.failed[0].1, "extract error: extract boom");
+    }
+
+    #[tokio::test]
+    async fn zip_extract_failure_fails_only_its_task() {
+        let items = vec![
+            SourceItem::Folder(PathBuf::from("dir0")),
+            SourceItem::ZipFile(PathBuf::from("bad.zip")),
+        ];
+        let job = ArchiveJob::plan(
+            items,
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        let mut fake_extractor = FakeExtractor::new();
+        fake_extractor.fail_names.insert("bad.zip".to_string());
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(fake_extractor),
+            nz(2),
+        );
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        assert_eq!(summary.succeeded, vec![ids[0]]);
+        assert_eq!(summary.failed.len(), 1);
+        assert_eq!(summary.failed[0].0, ids[1]);
+        assert_eq!(summary.failed[0].1, "extract error: extract boom");
     }
 
     #[tokio::test]
