@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { render, screen, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { previewOutputName } from "@/lib/archive";
@@ -80,6 +81,39 @@ describe("OutputSettings", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent ?? "").toMatch(/invalid naming template/i);
+  });
+
+  it("clears the alert and restores the preview after a previously failing template becomes valid", async () => {
+    // Start with a bad template so the alert fires.
+    vi.mocked(previewOutputName).mockRejectedValue(
+      "invalid naming template: stray or malformed brace",
+    );
+    useJobStore.setState({
+      draft: {
+        items: [],
+        namingTemplate: "photo_{n",
+        outputDir: "~/Archives",
+      },
+    });
+    render(<OutputSettings />);
+
+    // Wait for the initial error alert to appear.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent ?? "").toMatch(/invalid naming template/i);
+
+    // Switch to a good template: the mock now resolves successfully.
+    vi.mocked(previewOutputName).mockResolvedValue("photo_001.zip");
+    act(() => {
+      useJobStore.setState((s) => ({
+        draft: { ...s.draft, namingTemplate: "photo_{n:03}" },
+      }));
+    });
+
+    // The alert must disappear and the resolved full path must appear.
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+    await screen.findByText("~/Archives/photo_001.zip");
   });
 
   it("shows an Add files chip when the queue is empty", () => {

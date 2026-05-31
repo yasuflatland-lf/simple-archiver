@@ -60,14 +60,22 @@ function ReadinessChip({ readiness }: { readiness: Readiness }) {
  * single previewOutputName(template, 1) call, then joins the result with the
  * output directory for display. The sub-controls keep their own concerns
  * (input + store push, directory picking); OutputSettings only joins them for
- * display, so there is no duplicated preview state.
+ * display.
+ *
+ * Note on preview state: this component holds one local previewName string
+ * (the single filename resolved from the store template). This is distinct from
+ * the store's per-item previewNames array consumed by TaskList/RunSummary; the
+ * two never overlap.
  */
 export function OutputSettings() {
   const template = useJobStore((s) => s.draft.namingTemplate);
   const outputDir = useJobStore((s) => s.draft.outputDir);
   const itemCount = useJobStore((s) => s.draft.items.length);
 
-  const [previewName, setPreviewName] = useState("");
+  // null = still loading (debounce pending or first async call in flight).
+  // "" = resolved to empty due to an error.
+  // non-empty string = resolved filename ready for display.
+  const [previewName, setPreviewName] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   // The effective template: the store value once NamingRuleForm has pushed it,
@@ -75,6 +83,11 @@ export function OutputSettings() {
   const effectiveTemplate = template ?? DEFAULT_TEMPLATE;
 
   useEffect(() => {
+    // Mark preview as loading so the UI shows nothing while the debounce window
+    // is open and the async call is in flight. This prevents the directory path
+    // alone from briefly appearing when the template has not yet resolved.
+    setPreviewName(null);
+
     // Guard against out-of-order async results: only the latest effect run may
     // commit state, so a slow call for an older template cannot overwrite a
     // newer preview/error.
@@ -103,9 +116,12 @@ export function OutputSettings() {
     };
   }, [effectiveTemplate]);
 
-  // The full landing path: just the filename when no destination is chosen,
-  // otherwise dir + filename joined without double slashes.
-  const fullPath = joinOutputPath(outputDir, previewName);
+  // The full landing path is only computed once the preview filename has
+  // resolved. While previewName is null (debounce window or first call in
+  // flight) we render nothing, avoiding a momentary directory-only display
+  // that could mislead users about the output location.
+  const fullPath =
+    previewName !== null ? joinOutputPath(outputDir, previewName) : null;
   const readiness = readinessFor(itemCount, outputDir);
 
   return (
@@ -121,15 +137,19 @@ export function OutputSettings() {
         <NamingRuleForm />
       </div>
 
-      {/* The full-path preview is the focal point of the group. */}
+      {/* The full-path preview is the focal point of the group. It is only
+          shown once the preview filename has resolved, so the user never sees
+          the destination directory in isolation (which would be misleading). */}
       <div className="flex flex-col gap-1">
-        <p className="flex items-center gap-2 text-sm">
-          <ArrowRight
-            aria-hidden="true"
-            className="size-4 shrink-0 text-muted-foreground"
-          />
-          <span className="font-mono text-foreground">{fullPath}</span>
-        </p>
+        {fullPath !== null ? (
+          <p className="flex items-center gap-2 text-sm">
+            <ArrowRight
+              aria-hidden="true"
+              className="size-4 shrink-0 text-muted-foreground"
+            />
+            <span className="font-mono text-foreground">{fullPath}</span>
+          </p>
+        ) : null}
         {outputDir === null ? (
           <p className="text-xs text-muted-foreground">
             Select a destination to preview the full path.
