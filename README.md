@@ -168,7 +168,7 @@ This project is built with **TDD**: write tests before implementation. For the f
 
 ## Status
 
-Under active development. The archiving engine is wired end-to-end for both folders and rar files, and the main screen (drag-drop intake, reorder, naming-rule preview, run / cancel, per-item progress, failure summary) is in place. The moving-average ETA estimator is the next piece of work.
+Under active development. The archiving engine is wired end-to-end for both folders and rar files; the production app-shell UI (three-zone layout: header / setup toolbar / scrollable queue / status footer) is in place, with drag-drop intake, reorder, naming-rule preview, run / cancel, live per-item and overall progress bars with ETA, cancellation with cleanup, and a success/failure summary.
 
 ## Documentation
 
