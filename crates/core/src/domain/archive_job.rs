@@ -279,7 +279,6 @@ mod tests {
     use super::*;
     use crate::domain::file_name::{FileStem, OutputFileName};
     use crate::domain::source_item::SourceItem;
-    use crate::domain::task_progress::TaskProgress;
     use crate::domain::task_status::TaskStatus;
     use std::path::PathBuf;
 
@@ -336,11 +335,10 @@ mod tests {
     }
 
     #[test]
-    fn plan_starts_every_task_pending_with_zero_progress() {
+    fn plan_starts_every_task_pending() {
         let job = ArchiveJob::plan(sources(3), rule("file{n}"), out_dir()).unwrap();
         for task in job.tasks() {
             assert_eq!(task.status(), &TaskStatus::Pending);
-            assert_eq!(task.progress(), &TaskProgress::zero());
         }
     }
 
@@ -452,10 +450,9 @@ mod tests {
             ]
         );
 
-        // The moved task's status/progress are preserved.
+        // The moved task's status is preserved.
         let moved = job.tasks().iter().find(|t| t.id().get() == 3).unwrap();
         assert_eq!(moved.status(), &TaskStatus::Pending);
-        assert_eq!(moved.progress(), &TaskProgress::zero());
     }
 
     #[test]
@@ -634,7 +631,7 @@ mod tests {
         }
     }
 
-    // ── swap_and_rebind preserves status/progress, rebinds name to position ──
+    // ── swap_and_rebind preserves status, rebinds name to position ──
 
     #[test]
     fn status_survives_reorder_and_output_name_rebinds_to_new_position() {
@@ -650,9 +647,8 @@ mod tests {
         job.move_up(id2).unwrap();
 
         let moved = job.tasks().iter().find(|t| t.id().get() == 2).unwrap();
-        // Status and progress travel with the task object.
+        // Status travels with the task object.
         assert_eq!(moved.status(), &TaskStatus::Extracting);
-        assert_eq!(moved.progress(), &TaskProgress::zero());
         // The name is rebound to the new position (index 0 → "file1.zip").
         assert_eq!(moved.output_name().as_str(), "file1.zip");
 

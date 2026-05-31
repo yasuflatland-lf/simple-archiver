@@ -16,10 +16,10 @@
 
 ### `ArchiveTask` (entity)
 
-- Fields: `TaskId` / `SourceItem` / resolved `OutputFileName` / `TaskStatus` / `TaskProgress`.
+- Fields: `TaskId` / `SourceItem` / resolved `OutputFileName` / `TaskStatus`. (Live byte progress is **not** an entity field — it is owned by the application-layer aggregator's `HashMap<TaskId, TaskProgress>` as the single source of truth; see `architecture.md` "Execution engine".)
 - **`TaskStatus` state machine:** source-agnostic, forward-only; terminal states (`Completed` / `Failed` / `Cancelled`) are irreversible. Normal path: `Pending → Extracting → Compressing → Completed`. Folder fast-path: `Pending → Compressing → Completed` (no extraction needed; the engine picks the first event, the machine doesn't inspect the source type). Error/cancel transitions: any non-terminal state → `Failed` or `Cancelled`. Modelled as `apply(self, Event) -> Result<Self, IllegalTransition>` — see conventions.md "State-machine convention" (the `&mut self` driver `apply_event` uses the `std::mem::replace` hot-path variant to skip the happy-path clone).
 - `TaskStatus` variants: `Pending` / `Extracting` / `Compressing` / `Completed` / `Failed { reason }` / `Cancelled`.
-- **`TaskId(u32)` vs `SequenceNumber` (identity vs position):** `TaskId` is a stable task identity assigned once at plan time (`TaskId(i + 1)` for item at index `i`) and is never re-derived or changed by reordering. `SequenceNumber` is the 1-based position in the job's ordering (`position + 1`), is **derived and never stored**, and changes when tasks are reordered via `move_up` / `move_down`. Output names are bound to the sequence/position (not to the `TaskId`), so reordering rebinds names while preserving `TaskId`, `TaskStatus`, and `TaskProgress`.
+- **`TaskId(u32)` vs `SequenceNumber` (identity vs position):** `TaskId` is a stable task identity assigned once at plan time (`TaskId(i + 1)` for item at index `i`) and is never re-derived or changed by reordering. `SequenceNumber` is the 1-based position in the job's ordering (`position + 1`), is **derived and never stored**, and changes when tasks are reordered via `move_up` / `move_down`. Output names are bound to the sequence/position (not to the `TaskId`), so reordering rebinds names while preserving `TaskId` and `TaskStatus`.
 
 ### `ArchiveJob` (aggregate root)
 
