@@ -29,14 +29,14 @@ function withItems() {
 }
 
 describe("SetupToolbar", () => {
-  it("renders the naming template control", () => {
+  it("renders the Name control", () => {
     render(<SetupToolbar />);
-    expect(screen.getByText(/naming template/i)).toBeTruthy();
+    expect(screen.getByText("Name")).toBeTruthy();
   });
 
-  it("renders the output directory control", () => {
+  it("renders the Destination control", () => {
     render(<SetupToolbar />);
-    expect(screen.getByText(/output directory/i)).toBeTruthy();
+    expect(screen.getByText("Destination")).toBeTruthy();
   });
 
   it("renders the Run control", () => {

@@ -28,9 +28,9 @@ export function OutputDirPicker() {
   }
 
   return (
-    <section className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5">
       <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
-        Output directory
+        Destination
       </span>
       <div className="flex items-center gap-3">
         <span className="flex-1 truncate text-sm">
@@ -44,6 +44,6 @@ export function OutputDirPicker() {
           Choose…
         </Button>
       </div>
-    </section>
+    </div>
   );
 }
