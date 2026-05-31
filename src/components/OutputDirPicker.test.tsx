@@ -2,7 +2,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { resetJobStore, useJobStore } from "@/store/jobStore";
+
 import { OutputDirPicker } from "./OutputDirPicker";
 
 // Mock the Tauri dialog plugin so tests run without a native Tauri runtime.

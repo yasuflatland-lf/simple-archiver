@@ -1,8 +1,10 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
+
 import App from "./App";
 
 // ---------------------------------------------------------------------------
