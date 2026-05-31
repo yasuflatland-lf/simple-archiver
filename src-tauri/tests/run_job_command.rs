@@ -174,8 +174,10 @@ struct CancelOnFirstByteEmitter {
 
 impl ProgressEmitter for CancelOnFirstByteEmitter {
     fn emit_progress(&self, ev: &ProgressEvent) {
-        if ev.overall.bytes_done > 0 {
-            *self.fired.lock().unwrap() = true;
+        // Fire exactly once, on the first event proving a real write happened.
+        let mut fired = self.fired.lock().unwrap();
+        if !*fired && ev.overall.bytes_done > 0 {
+            *fired = true;
             self.token.cancel();
         }
     }
