@@ -1,6 +1,5 @@
-import * as React from "react";
-
 import { RotateCcw } from "lucide-react";
+import * as React from "react";
 
 import { OverallProgress } from "@/components/OverallProgress";
 import { RunSummary } from "@/components/RunSummary";

@@ -65,13 +65,17 @@ describe("StatusBar Reset slot – visibility", () => {
   it("does not show Reset when items is empty (not running)", () => {
     // default state: no items, not running
     render(<StatusBar />);
-    expect(screen.queryByRole("button", { name: /clear|new batch/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /clear|new batch/i }),
+    ).toBeNull();
   });
 
   it("does not show Reset when items is empty and running", () => {
     useJobStore.setState({ running: true });
     render(<StatusBar />);
-    expect(screen.queryByRole("button", { name: /clear|new batch/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /clear|new batch/i }),
+    ).toBeNull();
   });
 
   it("shows Reset when hasItems and not running (no summary)", () => {
@@ -99,7 +103,9 @@ describe("StatusBar Reset slot – visibility", () => {
       summary: null,
     });
     render(<StatusBar />);
-    expect(screen.queryByRole("button", { name: /clear|new batch/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /clear|new batch/i }),
+    ).toBeNull();
   });
 
   it("shows Reset after job finishes (summary set, hasItems, not running)", () => {
@@ -138,7 +144,11 @@ describe("StatusBar Reset slot – label", () => {
     useJobStore.setState({
       draft: { items: [ITEM], namingTemplate: null, outputDir: null },
       running: false,
-      summary: { succeeded: [], cancelled: [], failed: [1] },
+      summary: {
+        succeeded: [],
+        cancelled: [],
+        failed: [{ taskId: 1, reason: "error" }],
+      },
     });
     render(<StatusBar />);
     expect(screen.getByRole("button", { name: /^new batch$/i })).toBeTruthy();
@@ -193,7 +203,11 @@ describe("StatusBar Reset slot – confirm dialog", () => {
     const user = userEvent.setup();
     render(<StatusBar />);
     await user.click(screen.getByRole("button", { name: /^clear$/i }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^cancel$/i }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /^cancel$/i,
+      }),
+    );
     expect(reset).not.toHaveBeenCalled();
   });
 
@@ -210,7 +224,9 @@ describe("StatusBar Reset slot – confirm dialog", () => {
     await user.click(screen.getByRole("button", { name: /^new batch$/i }));
     // Scope to the dialog to avoid ambiguity with the footer Reset button.
     const dialog = screen.getByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: /^new batch$/i }));
+    await user.click(
+      within(dialog).getByRole("button", { name: /^new batch$/i }),
+    );
     expect(reset).toHaveBeenCalledTimes(1);
   });
 
@@ -225,7 +241,11 @@ describe("StatusBar Reset slot – confirm dialog", () => {
     const user = userEvent.setup();
     render(<StatusBar />);
     await user.click(screen.getByRole("button", { name: /^new batch$/i }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^cancel$/i }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /^cancel$/i,
+      }),
+    );
     expect(reset).not.toHaveBeenCalled();
   });
 
@@ -241,7 +261,11 @@ describe("StatusBar Reset slot – confirm dialog", () => {
     render(<StatusBar />);
     await user.click(screen.getByRole("button", { name: /^clear$/i }));
     expect(screen.getByRole("dialog")).toBeTruthy();
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^clear$/i }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /^clear$/i,
+      }),
+    );
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -257,7 +281,11 @@ describe("StatusBar Reset slot – confirm dialog", () => {
     render(<StatusBar />);
     await user.click(screen.getByRole("button", { name: /^clear$/i }));
     expect(screen.getByRole("dialog")).toBeTruthy();
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^cancel$/i }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /^cancel$/i,
+      }),
+    );
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
