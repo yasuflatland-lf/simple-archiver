@@ -1,7 +1,7 @@
 # CLAUDE.md — simple-archiver
 
 Mac/Windows native desktop app (Tauri 2) that takes drag-and-dropped rar files/folders and batch-renames them into zip archives.
-State: **PR11 production app-shell UI landed** (three-zone `AppShell` — header / setup toolbar / scrollable queue / status footer — composed from design-system tokens, replacing the minimal validation screen), built on PR10's cancellation + status/category tokens + `RunSummary`.
+State: **PR11 app-shell + setup-zone follow-up landed** (three-zone `AppShell` — header / setup toolbar / scrollable queue / status footer — from design-system tokens; the setup zone is a two-row settings-grid + action-bar, icons come from `lucide-react`, and Run exposes its disabled reason to assistive tech via `aria-disabled`/`aria-describedby`), built on PR10's cancellation + status/category tokens + `RunSummary`.
 
 ## Mandatory rules (harness)
 

@@ -29,7 +29,7 @@ It ships as a single self-contained native application built with **Tauri 2** â€
 | Area | Choice |
 |---|---|
 | Framework | [Tauri 2](https://v2.tauri.app/) â€” single native app for Mac / Windows |
-| Frontend | [Vite](https://vite.dev/) + [React 19](https://react.dev/) + TypeScript + [Tailwind CSS v4](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) (new-york) + [Radix](https://www.radix-ui.com/) + [zustand](https://zustand-demo.pmnd.rs/) |
+| Frontend | [Vite](https://vite.dev/) + [React 19](https://react.dev/) + TypeScript + [Tailwind CSS v4](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) (new-york) + [Radix](https://www.radix-ui.com/) + [lucide-react](https://lucide.dev/) (icons) + [zustand](https://zustand-demo.pmnd.rs/) |
 | Design | Base layout after [shadcn-admin](https://shadcn-admin.netlify.app/); design system after the [shadcn.io ASICS design](https://www.shadcn.io/design/asics) (ASICS color tokens, light/dark theme, Inter typography) |
 | Backend / engine | Rust, DDD layered / hexagonal (Cargo workspace: pure `simple-archiver-core` crate + `src-tauri` presentation crate) |
 | zip creation | [`async_zip`](https://crates.io/crates/async_zip) |
