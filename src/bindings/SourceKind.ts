@@ -3,4 +3,4 @@
 /**
  * The kind of a draft source item.
  */
-export type SourceKind = "folder" | "rar";
+export type SourceKind = "folder" | "rar" | "zip";

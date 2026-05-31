@@ -10,7 +10,7 @@ export type DraftItemDto = {
    */
   path: string;
   /**
-   * Whether the item is a folder or a rar file.
+   * Whether the item is a folder, a rar, or a zip.
    */
   kind: SourceKind;
 };
