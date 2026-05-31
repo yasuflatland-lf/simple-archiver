@@ -10,21 +10,20 @@ import { OutputDirPicker } from "@/components/OutputDirPicker";
 import { previewOutputName } from "@/lib/archive";
 import { messageFromReason } from "@/lib/errors";
 import { joinOutputPath } from "@/lib/path";
+import { type Readiness, readinessFor } from "@/lib/readiness";
 import { useJobStore } from "@/store/jobStore";
 
 // The live preview always uses the first (1-based) sequence number, matching the
 // backend's naming contract.
 const PREVIEW_SEQ = 1;
 
-// What the user still needs to do before a run is possible, surfaced as a single
-// readiness chip. "ready" is the only state where Run would be enabled.
-type Readiness = "add-files" | "choose-destination" | "ready";
-
-function readinessFor(itemCount: number, outputDir: string | null): Readiness {
-  if (itemCount === 0) return "add-files";
-  if (!outputDir) return "choose-destination";
-  return "ready";
-}
+// Chip label for each pending readiness state. "ready" gets its own confirming
+// branch in ReadinessChip, so it maps to an empty label here.
+const READINESS_CHIP_LABEL: Record<Readiness, string> = {
+  "add-files": "Add files",
+  "choose-destination": "Choose a destination",
+  ready: "",
+};
 
 // The readiness chip: the visual mirror of Run's disabled reason. Each pending
 // state nudges the user toward the next required action; "ready" confirms a run
@@ -39,12 +38,10 @@ function ReadinessChip({ readiness }: { readiness: Readiness }) {
     );
   }
 
-  const label =
-    readiness === "add-files" ? "Add files" : "Choose a destination";
   return (
     <span className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-muted-foreground">
       <CircleDot aria-hidden="true" className="size-3.5" />
-      {label}
+      {READINESS_CHIP_LABEL[readiness]}
     </span>
   );
 }

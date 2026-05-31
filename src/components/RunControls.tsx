@@ -1,18 +1,9 @@
 import { Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { readinessFor, runUnavailableReason } from "@/lib/readiness";
 import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
-
-// Human-readable reason Run is unavailable, shown on hover and to assistive technology (AT); empty string when ready.
-function runUnavailableReason(
-  itemCount: number,
-  outputDir: string | null,
-): string {
-  if (itemCount === 0) return "Add at least one item";
-  if (!outputDir) return "Choose an output directory";
-  return "";
-}
 
 // Stable id linking the disabled Run button to its reason via aria-describedby.
 const RUN_REASON_ID = "run-disabled-reason";
@@ -33,7 +24,7 @@ export function RunControls() {
 
   // Run disabled reason is computed only from items/outputDir; the running
   // branch is never shown while running (Cancel replaces Run entirely).
-  const runReason = runUnavailableReason(itemCount, outputDir);
+  const runReason = runUnavailableReason(readinessFor(itemCount, outputDir));
   const runDisabled = runReason !== "";
 
   function handleRun() {
