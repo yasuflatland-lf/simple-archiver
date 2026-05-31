@@ -20,13 +20,14 @@ It ships as a single self-contained native application built with **Tauri 2** �
 
 - **Drag & drop intake** — add multiple rar files and/or folders at once (drag-drop or a file dialog).
 - **Reorderable list** — move items up and down; the run order follows the list top to bottom.
-- **Batch naming rule** — specify a single prefix string and number every item sequentially from `1`, top to bottom. A placeholder inside the prefix marks where the sequence number goes, e.g. `photo_{n:03}` → `photo_001`, `photo_002`, … The sequence number is fixed at job-creation time in list order (independent of completion order).
+- **Batch naming rule** — specify a single prefix string and number every item sequentially from `1`, top to bottom. A placeholder inside the prefix marks where the sequence number goes: `{n}` inserts the bare number, and `{n:0W}` zero-pads it to width `W` (1–9), e.g. `photo_{n:03}` → `photo_001`, `photo_002`, … A **live preview** shows the resulting `seq=1` filename as you type, and every queue row previews its own output name. The sequence number is fixed at job-creation time in list order (independent of completion order). Output names are de-duplicated case-insensitively and validated to be Windows-safe.
 - **One-click run** — compresses every item per the naming rule, from the top of the list:
   - **rar file** → extracted to a temporary workspace, then re-compressed into a zip.
   - **folder** → compressed into a zip directly.
 - **Live per-item progress** — each row shows a progress bar and an estimated-time-remaining string, updated asynchronously while the job runs.
 - **Overall progress** — a job-wide progress bar and ETA for all items combined.
-- **Resilient by design** — output goes to one user-chosen folder; existing names are **not overwritten** (that item fails instead), a failed item never stops the others, and a run can be cancelled (in-flight work is interrupted and partial output / temp files are cleaned up). A success/failure summary is shown at the end.
+- **Output directory** — pick one destination folder through the native OS picker; all archives are written there.
+- **Resilient by design** — existing names are **not overwritten** (that item fails instead), a failed item never stops the others, and a run can be cancelled (in-flight work is interrupted and partial output / temp files are cleaned up). A run summary tallying **succeeded / cancelled / failed** items is shown at the end.
 
 ## Getting started
 
@@ -59,7 +60,7 @@ pnpm build            # tsc + vite build (the load-bearing type gate)
 | Area | Choice |
 |---|---|
 | Framework | [Tauri 2](https://v2.tauri.app/) — single native app for Mac / Windows |
-| Frontend | [Vite](https://vite.dev/) + [React 19](https://react.dev/) + TypeScript + [Tailwind CSS v4](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) (new-york) + [Radix](https://www.radix-ui.com/) + [lucide-react](https://lucide.dev/) (icons) + [zustand](https://zustand-demo.pmnd.rs/) |
+| Frontend | [Vite](https://vite.dev/) + [React 19](https://react.dev/) + TypeScript (strict) + [Tailwind CSS v4](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) (new-york) on [Radix](https://www.radix-ui.com/) primitives ([class-variance-authority](https://cva.style/) + [clsx](https://github.com/lukeed/clsx) + [tailwind-merge](https://github.com/dcastil/tailwind-merge)) + [lucide-react](https://lucide.dev/) (icons) + [zustand](https://zustand-demo.pmnd.rs/) (state) + [Inter](https://github.com/fontsource/fontsource) (variable font) |
 | Design | Base layout after [shadcn-admin](https://shadcn-admin.netlify.app/); design system after the [shadcn.io ASICS design](https://www.shadcn.io/design/asics) (ASICS color tokens, light/dark theme, Inter typography) |
 | Backend / engine | Rust, DDD layered / hexagonal (Cargo workspace: pure `simple-archiver-core` crate + `src-tauri` presentation crate) |
 | zip creation | [`async_zip`](https://crates.io/crates/async_zip) |
@@ -70,6 +71,7 @@ pnpm build            # tsc + vite build (the load-bearing type gate)
 | Rust tests | [cargo-nextest](https://nexte.st/) (runner) + [mockall](https://crates.io/crates/mockall) (port mocks) + [loom](https://crates.io/crates/loom) (concurrency verification) |
 | Frontend tests | [Vitest](https://vitest.dev/) + Testing Library (jsdom) |
 | Format / lint | [oxlint](https://oxc.rs/docs/guide/usage/linter) + [oxfmt](https://oxc.rs/docs/guide/usage/formatter) (frontend) + `cargo fmt` / `clippy` (Rust) |
+| Dead-code | [knip](https://knip.dev/) (frontend, `pnpm knip`) |
 | Tooling | [pnpm](https://pnpm.io/) (package manager) + [mise](https://mise.jdx.dev/) (pinned toolchain) |
 
 Technology choices are fixed. The compression libraries are deliberately kept behind a common interface so they can be treated as plugins (see below), but the libraries themselves are not swapped without a corresponding design change.
