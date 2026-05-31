@@ -21,7 +21,7 @@ const PREVIEW_SEQ = 1;
  * (OutputDirPicker) and Name (NamingRuleForm) controls under one heading and
  * makes the full landing-path preview the hero of the group.
  *
- * Information hierarchy (design "B′"):
+ * Information hierarchy (from the agreed design iteration; see the Notion spec):
  *   1. OUTPUT heading      — tier 1: smallest, uppercase, muted.
  *   2. Hero full path      — biggest, monospace, foreground; the focal point.
  *   3. Aligned edit rows   — Destination / Name share one label column and one
@@ -116,6 +116,7 @@ export function OutputSettings() {
             {outputDir !== null ? (
               <ArrowRight
                 aria-hidden="true"
+                data-testid="hero-path-arrow"
                 className="size-4 shrink-0 text-muted-foreground"
               />
             ) : null}

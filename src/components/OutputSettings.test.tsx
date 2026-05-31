@@ -198,6 +198,12 @@ describe("OutputSettings", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent ?? "").toMatch(/invalid naming template/i);
 
+    // The hint renders independently of the alert: both must appear together
+    // when outputDir is null and the preview has errored.
+    expect(
+      screen.getByText("Select a destination to preview the full path."),
+    ).toBeDefined();
+
     expect(screen.queryByText("photo_001.zip")).toBeNull();
   });
 
@@ -211,12 +217,33 @@ describe("OutputSettings", () => {
         outputDir: "~/Archives",
       },
     });
-    const { container } = render(<OutputSettings />);
+    render(<OutputSettings />);
 
     await screen.findByText("~/Archives/photo_001.zip");
-    // The lucide ArrowRight renders as an <svg>; with a destination it is the
-    // hero's leading affordance.
-    expect(container.querySelector("svg")).not.toBeNull();
+    // The ArrowRight icon carries data-testid="hero-path-arrow"; this assertion
+    // is specific to the arrow icon (not any arbitrary SVG in the tree).
+    expect(screen.getByTestId("hero-path-arrow")).toBeDefined();
+  });
+
+  // Complementary negative: no destination → filename-only state → arrow absent.
+  // If the conditional rendering of ArrowRight were accidentally removed this
+  // test would still pass, but if the condition were inverted (always rendered)
+  // this test would fail. It pairs with the positive test above to guard both
+  // directions of the conditional.
+  it("does not render the hero arrow when no destination is selected", async () => {
+    useJobStore.setState({
+      draft: {
+        items: [],
+        namingTemplate: "photo_{n:03}",
+        outputDir: null,
+      },
+    });
+    render(<OutputSettings />);
+
+    // Wait for the preview to resolve so we know the hero has rendered.
+    await screen.findByText("photo_001.zip");
+    // The arrow must be absent in the filename-only state.
+    expect(screen.queryByTestId("hero-path-arrow")).toBeNull();
   });
 
   // When the store has not pushed a namingTemplate yet (null), OutputSettings

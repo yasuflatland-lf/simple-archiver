@@ -46,17 +46,16 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // Only seed a default when no destination is set yet; never override a
+    // value the user (or persistence via setOutputDir) has already chosen.
+    // Bail with no cleanup: no async work started, so there is nothing to guard.
+    if (useJobStore.getState().draft.outputDir !== null) {
+      return;
+    }
+
     // Track liveness so a StrictMode remount / unmount mid-resolution does not
     // apply a stale value to a store that may have moved on.
     let active = true;
-
-    // Only seed a default when no destination is set yet; never override a
-    // value the user (or persistence via setOutputDir) has already chosen.
-    if (useJobStore.getState().draft.outputDir !== null) {
-      return () => {
-        active = false;
-      };
-    }
 
     resolveInitialOutputDir()
       .then((dir) => {
