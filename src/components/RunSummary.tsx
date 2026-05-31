@@ -30,8 +30,7 @@ export function RunSummary() {
   }
 
   return (
-    <section
-      role="status"
+    <output
       aria-live="polite"
       aria-label="Run summary"
       className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 text-sm"
@@ -59,13 +58,16 @@ export function RunSummary() {
           </summary>
           <ul className="mt-1 flex flex-col gap-1">
             {summary.failed.map((f) => (
-              <li key={f.taskId} className="font-mono text-status-danger-foreground">
+              <li
+                key={f.taskId}
+                className="font-mono text-status-danger-foreground"
+              >
                 {outputNameForTask(f.taskId)} — {f.reason}
               </li>
             ))}
           </ul>
         </details>
       )}
-    </section>
+    </output>
   );
 }

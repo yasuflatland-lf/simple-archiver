@@ -135,4 +135,3 @@ describe("RunControls – Cancel button", () => {
     expect(cancelJob).toHaveBeenCalledTimes(1);
   });
 });
-
