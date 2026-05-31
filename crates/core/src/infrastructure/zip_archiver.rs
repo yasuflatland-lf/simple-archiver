@@ -59,13 +59,14 @@ impl Archiver for ZipArchiver {
         let mut bytes_done: u64 = 0;
         for path in &files {
             if ctx.is_cancelled() {
-                // Cleanup asymmetry with the success path: the success path drains
-                // the writer with `shutdown().await + sync_all().await` before drop,
-                // whereas here we do a plain `drop(writer)` then `remove_file`. On a
-                // contended host the dropped writer's queued blocking writes may not
-                // be observed before `remove_file`, so the partial zip can transiently
-                // survive on disk.
-                drop(writer);
+                // Symmetric with the success path: close the writer and drain the
+                // recovered file (shutdown + sync_all) BEFORE removing it, so the
+                // delete cannot race queued blocking writes and a partial zip can
+                // never transiently survive on a contended host. Best-effort: a
+                // close/drain error still falls through to the removal below.
+                if let Ok(mut file) = writer.close().await.map(|w| w.into_inner()) {
+                    let _ = drain_to_disk(&mut file).await;
+                }
                 remove_partial_output(dest_zip).await;
                 return Err(ArchiveError::Cancelled);
             }
@@ -81,10 +82,14 @@ impl Archiver for ZipArchiver {
             ctx.report(bytes_done, bytes_total);
 
             if ctx.is_cancelled() {
-                // Same cleanup asymmetry as the pre-write checkpoint above: plain
-                // `drop(writer)` + `remove_file` (no `shutdown`/`sync_all`), so on a
-                // contended host the partial zip may transiently survive on disk.
-                drop(writer);
+                // Symmetric with the success path: close the writer and drain the
+                // recovered file (shutdown + sync_all) BEFORE removing it, so the
+                // delete cannot race queued blocking writes and a partial zip can
+                // never transiently survive on a contended host. Best-effort: a
+                // close/drain error still falls through to the removal below.
+                if let Ok(mut file) = writer.close().await.map(|w| w.into_inner()) {
+                    let _ = drain_to_disk(&mut file).await;
+                }
                 remove_partial_output(dest_zip).await;
                 return Err(ArchiveError::Cancelled);
             }
@@ -109,11 +114,22 @@ impl Archiver for ZipArchiver {
             .await
             .map_err(|e| ArchiveError::Backend(e.to_string()))?
             .into_inner();
-        use tokio::io::AsyncWriteExt as _;
-        file.shutdown().await?;
-        file.sync_all().await?;
+        drain_to_disk(&mut file).await?;
         Ok(())
     }
+}
+
+/// Flush and fsync a recovered zip file so all queued blocking writes complete
+/// and reach durable storage before the caller proceeds. `tokio::fs::File`
+/// performs writes on the blocking pool and its `Drop` does NOT wait for them,
+/// so without this drain a freshly written file can be read back incomplete
+/// (success path) or race a removal (cancel path). Shared by both paths so the
+/// writer is always drained identically.
+async fn drain_to_disk(file: &mut tokio::fs::File) -> std::io::Result<()> {
+    use tokio::io::AsyncWriteExt as _;
+    file.shutdown().await?;
+    file.sync_all().await?;
+    Ok(())
 }
 
 /// Best-effort cleanup for a cancelled compression.
