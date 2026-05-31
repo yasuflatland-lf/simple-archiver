@@ -102,6 +102,22 @@ fn rar_fixture() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/core/tests/fixtures/sample.rar")
 }
 
+/// Build a single-folder [`ArchiveJob`] through the public draft API, writing
+/// the output zip into `out_dir`.
+fn build_single_folder_job(src: &Path, out_dir: &Path) -> ArchiveJob {
+    let state = AppState::default();
+    {
+        let mut draft = state.draft.lock().unwrap();
+        draft.add_items(vec![SourceItem::Folder(src.to_path_buf())]);
+        draft
+            .set_template("out_{n}".to_string())
+            .expect("valid template");
+        draft.set_out_dir(out_dir.to_path_buf());
+    }
+    let draft = state.draft.lock().unwrap();
+    draft.build().expect("draft should build into a job")
+}
+
 /// Build a two-item job (folder at position 0, rar at position 1) through the
 /// public draft API, writing the output zips into `out_dir`.
 fn build_mixed_job(src_folder: &Path, rar: &Path, out_dir: &Path) -> ArchiveJob {
@@ -191,17 +207,7 @@ async fn run_job_inner_mid_run_cancel_leaves_no_partial_zip() {
     // drained-then-removed.
     let src = source_folder_with_many_files(256);
     let out_dir = tempfile::tempdir().expect("create out tempdir");
-
-    let state = AppState::default();
-    {
-        let mut draft = state.draft.lock().unwrap();
-        draft.add_items(vec![SourceItem::Folder(src.path().to_path_buf())]);
-        draft
-            .set_template("out_{n}".to_string())
-            .expect("valid template");
-        draft.set_out_dir(out_dir.path().to_path_buf());
-    }
-    let job = state.draft.lock().unwrap().build().expect("build job");
+    let job = build_single_folder_job(src.path(), out_dir.path());
 
     let token = CancellationToken::new();
     let emitter = CancelOnFirstByteEmitter {
