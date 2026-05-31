@@ -34,6 +34,24 @@ describe("TaskRow", () => {
     expect(screen.getByText("out_001.zip")).toBeTruthy();
   });
 
+  it("renders the kind badge with text 'zip' for a zip item", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.zip", kind: "zip" as const }],
+        namingTemplate: null,
+        outputDir: null,
+      },
+      previewNames: ["out_001.zip"],
+    });
+    renderRow(0);
+    // Badge text must be present and the badge element must exist (no crash).
+    const badge = screen.getByText("zip");
+    expect(badge).toBeTruthy();
+    // The badge span must carry the archive category token classes — not "undefined".
+    expect(badge.className).toContain("bg-category-archive-subtle");
+    expect(badge.className).toContain("text-category-archive-foreground");
+  });
+
   it("shows a live progress bar while running", () => {
     useJobStore.setState({
       draft: {
