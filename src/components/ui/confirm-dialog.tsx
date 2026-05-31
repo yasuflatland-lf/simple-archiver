@@ -58,7 +58,6 @@ export function ConfirmDialog({
   return (
     <>
       {/* Backdrop — clicking it calls onCancel. Hidden from AT since the dialog panel handles semantics. */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard dismiss is handled by the document Escape listener */}
       <div
         className="fixed inset-0 z-50 bg-black/50"
         onClick={onCancel}
@@ -73,7 +72,6 @@ export function ConfirmDialog({
         className="fixed inset-0 z-[51] flex items-center justify-center border-0 bg-transparent p-0"
       >
         {/* Stop click propagation on the content card so clicks here do not bubble to the backdrop. */}
-        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
         <div
           className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg"
           onClick={(e) => e.stopPropagation()}

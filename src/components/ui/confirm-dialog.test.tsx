@@ -75,4 +75,26 @@ describe("ConfirmDialog – interactions", () => {
     await user.keyboard("{Escape}");
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it("calls onCancel once when the backdrop is clicked", async () => {
+    const onCancel = vi.fn();
+    const user = userEvent.setup();
+    const { container } = render(
+      <ConfirmDialog {...baseProps} open={true} onCancel={onCancel} />,
+    );
+    // The backdrop is the aria-hidden div rendered before the dialog panel.
+    const backdrop = container.querySelector("[aria-hidden='true']");
+    expect(backdrop).not.toBeNull();
+    await user.click(backdrop!);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onCancel when clicking inside the dialog panel", async () => {
+    const onCancel = vi.fn();
+    const user = userEvent.setup();
+    render(<ConfirmDialog {...baseProps} open={true} onCancel={onCancel} />);
+    // Click the title text, which lives inside the content card (stopPropagation boundary).
+    await user.click(screen.getByText("Clear Queue"));
+    expect(onCancel).not.toHaveBeenCalled();
+  });
 });
