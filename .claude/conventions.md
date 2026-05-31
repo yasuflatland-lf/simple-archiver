@@ -184,3 +184,39 @@ PR6 examples: `run_job_inner` + `ProgressEmitter` trait + `RecordingEmitter` in 
 - **Lint-suppression comments must use oxlint form.** Only `// oxlint-disable-next-line <rule>` (or `{/* oxlint-disable-next-line <rule> */}` inside JSX) is effective. Comments in biome format (`biome-ignore`) or eslint format (`eslint-disable-next-line`) are **inert** — biome has been removed and eslint is not in use — so they suppress nothing and mislead readers. The `react/no-array-index-key` suppression pattern (see above) is the canonical form for the correct oxlint syntax.
 - **Render derived display values only after all contributing parts are resolved.** A value derived from multiple async/debounce sources (e.g. a full output path = a user-chosen directory + a backend-resolved filename) must not be displayed while any contributing part is `null` (loading) or `""` (error/empty). Showing only the directory makes it look like a real, reachable destination. Gate on **truthy** rather than `!== null`: `previewName ? join(dir, previewName) : null` — the strict `!== null` form lets an empty-string error state leak through. Canonical: `src/components/OutputSettings.tsx`.
 - **Deduplicate derived readiness logic into a shared helper.** When multiple components derive the same ordered check from the same state — e.g. "no items → add files / no output destination → choose destination / else → ready" — extract it to **`src/lib/readiness.ts`** and have both consumers import it, following the single-mapping-point discipline of `src/lib/status.ts`. Re-implementing the check locally in each component causes divergence. This is a UI pre-gate only; the authoritative validation is the backend's single source of truth. Canonical: `src/lib/readiness.ts`.
+
+## async_zip 0.0.18 read API (CRITICAL harness rule)
+
+This project pins `async_zip = "0.0.18"` with features `["tokio", "deflate"]` (`tokio-fs` is NOT enabled). When reading a zip archive, follow every rule below — violating any one can produce silent data corruption or a compile failure.
+
+**How to open the reader.** Use the seek reader:
+
+```rust
+async_zip::tokio::read::seek::ZipFileReader::with_tokio(BufReader<tokio::fs::File>)
+```
+
+The `tokio::io::BufReader` wrapper is REQUIRED: `with_tokio` needs `AsyncBufRead + AsyncSeek`, and `tokio::fs::File` implements `AsyncSeek` but NOT `AsyncBufRead`. Without `BufReader` the code does not compile.
+
+**MUST use the checked entry reader — never the unchecked one.** Read entry bytes with `reader_with_entry(i)` + `entry_reader.read_to_end_checked(&mut bytes)`. Do NOT use `reader_without_entry` + plain `read_to_end` — that path performs no CRC32 validation and does not reject encrypted entries, so an encrypted-Stored, truncated, or bit-rotted zip is silently written as garbage and reported as success (a real data-corruption bug this project hit and fixed). `read_to_end_checked` returns `CRC32CheckError` on CRC mismatch → map to `ExtractError::Backend` → per-task `Failed`.
+
+**Borrow ordering.** async_zip's `reader_with_entry(i)` takes `&mut self`, which conflicts with any live immutable borrow of `reader.file()`. Read each entry's metadata (`entry.dir()`, `entry.filename().as_str()`) into OWNED values BEFORE calling `reader_with_entry(i)`, so the immutable borrow is released first. See `ZipExtractor::extract` for the canonical pattern.
+
+**Do NOT wrap zip extraction in `spawn_blocking`.** async_zip is already async; no blocking bridge is needed. (`UnrarExtractor` is different — unrar is a synchronous C library and DOES need `spawn_blocking`.)
+
+**Compression features.** Only `deflate` is enabled in Cargo.toml. Entries compressed with bzip2/lzma/zstd/xz fail at central-directory parse → `ExtractError::Backend`. Do not add compression features without a deliberate decision.
+
+## Zip-slip / path-traversal guard (security harness)
+
+async_zip performs NO validation of entry names. Every extracted entry MUST be filtered through `std::path::Component`:
+
+- Allow `Component::Normal` (file/directory name segment).
+- Silently skip `Component::CurDir` (`.`).
+- REJECT `Component::ParentDir` (`..`), `Component::RootDir`, or `Component::Prefix` (Windows drive/UNC) by failing the WHOLE extraction with `ExtractError::Backend("unsafe entry path: …")`. Do NOT silently skip just the offending entry — abort everything, because partial extraction into the workspace is still a taint.
+
+The canonical implementation is `safe_relative_path` in `crates/core/src/infrastructure/zip_extractor.rs`.
+
+**Known POSIX limitation worth noting.** On POSIX a backslash is not a path separator; an entry literally named `..\evil` is parsed as a single `Component::Normal("..\evil")` — not a traversal escape, but a surprising literal filename inside the temp tree. This is an accepted limitation; do not add special backslash handling for POSIX builds.
+
+## Dependency-feature hygiene
+
+Do NOT import a module that is only enabled transitively (e.g. `tokio_util::compat`, whose `compat` feature this crate obtains only via async_zip's `tokio` feature). Prefer the library's own native API — here, async_zip's `read_to_end_checked` made the `tokio_util` compat bridge unnecessary. If you must rely on a feature-gated module of a direct dependency, declare that feature explicitly in `Cargo.toml`. See also `docs/architecture.md` for the `ArchiveExtractor` format-addition checklist and `domain-model.md` for `SourceItem`/`classify` invariants.
