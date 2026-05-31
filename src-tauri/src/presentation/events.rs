@@ -87,7 +87,6 @@ impl ProgressSink for EventSink<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simple_archiver_core::domain::task_progress::TaskProgress;
     use std::sync::Mutex;
     use std::time::Duration;
 
@@ -115,8 +114,9 @@ mod tests {
         let recorder = RecordingEmitter::default();
         let sink = EventSink::new(&recorder);
 
+        // `TaskId` is pub(crate) in core, so per_task must be empty here.
+        // With empty per_task, overall() returns {0, 0}.
         sink.report(JobProgress {
-            overall: TaskProgress::new(5, 10),
             overall_eta: None,
             per_task: vec![],
             elapsed: Duration::from_millis(42),
@@ -126,8 +126,9 @@ mod tests {
         assert_eq!(recorded.len(), 1, "exactly one event must be emitted");
 
         let ev = &recorded[0];
-        assert_eq!(ev.overall.bytes_done, 5);
-        assert_eq!(ev.overall.bytes_total, 10);
+        // overall() == {0, 0} since per_task is empty.
+        assert_eq!(ev.overall.bytes_done, 0);
+        assert_eq!(ev.overall.bytes_total, 0);
         assert_eq!(ev.elapsed_ms, 42);
         assert!(ev.per_task.is_empty(), "per_task must be empty");
         assert!(
