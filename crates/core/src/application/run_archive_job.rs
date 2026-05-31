@@ -653,7 +653,7 @@ mod tests {
         assert_eq!(summary.succeeded, vec![ids[0]]);
         assert_eq!(summary.failed.len(), 1);
         assert_eq!(summary.failed[0].0, ids[1]);
-        assert_eq!(summary.failed[0].1, "unrar error: extract boom");
+        assert_eq!(summary.failed[0].1, "extract error: extract boom");
     }
 
     #[tokio::test]
