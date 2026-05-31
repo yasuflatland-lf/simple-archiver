@@ -30,7 +30,16 @@ It ships as a single self-contained native application built with **Tauri 2** �
 - **Output directory** — pick one destination folder through the native OS picker; all archives are written there. The app remembers your last chosen directory and, on first run, defaults to the OS Downloads folder.
 - **Resilient by design** — existing names are **not overwritten** (that item fails instead), a failed item never stops the others, and a run can be cancelled (in-flight work is interrupted and partial output / temp files are cleaned up). A run summary tallying **succeeded / cancelled / failed** items is shown at the end.
 
-## Getting started
+## Install
+
+Download a prebuilt installer from the [latest release](https://github.com/yasuflatland-lf/simple-archiver/releases/latest):
+
+- **macOS** — `simple-archiver_<version>_universal.dmg` (universal: Apple Silicon + Intel)
+- **Windows** — `simple-archiver_<version>_x64-setup.exe` (NSIS installer) or `simple-archiver_<version>_x64_en-US.msi`
+
+Installers are currently **unsigned**, so macOS Gatekeeper / Windows SmartScreen will warn on first launch — open it from the right-click *Open* menu (macOS) or *More info → Run anyway* (Windows).
+
+## Getting started (from source)
 
 Prerequisites: a Rust toolchain, Node.js, and pnpm. The toolchain versions are pinned via [`mise.toml`](mise.toml) (run `mise install` to get them), and the Tauri prerequisites for your OS are listed in the [Tauri docs](https://v2.tauri.app/start/prerequisites/).
 
