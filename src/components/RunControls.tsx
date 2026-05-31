@@ -22,16 +22,16 @@ const RUN_REASON_ID = "run-disabled-reason";
 /**
  * RunControls renders the primary job actions (Cancel / Run). Run is the
  * right-edge primary; Cancel sits to its left and is recessive. The completion
- * summary is rendered separately by RunSummary; error display is handled by the top-level
- * App banner — no duplication here.
+ * summary is rendered separately by RunSummary; error display is handled by
+ * the top-level App banner — no duplication here.
  */
 export function RunControls() {
-  const items = useJobStore((s) => s.draft.items);
+  const itemCount = useJobStore((s) => s.draft.items.length);
   const outputDir = useJobStore((s) => s.draft.outputDir);
   const running = useJobStore((s) => s.running);
   // Run is only enabled with at least one item, an output directory set, and no
   // job in flight.
-  const runReason = runUnavailableReason(items.length, outputDir, running);
+  const runReason = runUnavailableReason(itemCount, outputDir, running);
   const runDisabled = runReason !== "";
 
   function handleRun() {
