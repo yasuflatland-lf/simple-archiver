@@ -8,6 +8,7 @@
 //! below are the Rust half of the contract and guard against silent drift.
 
 use serde::Serialize;
+use std::time::Duration;
 use ts_rs::TS;
 
 use simple_archiver_core::application::progress::JobProgress;
@@ -157,11 +158,17 @@ impl From<&TaskProgress> for ProgressCounts {
     }
 }
 
+/// Convert a `Duration` to whole milliseconds, saturating at `u64::MAX`
+/// (~585 million years) instead of silently truncating the upper bits.
+fn duration_to_millis_u64(d: Duration) -> u64 {
+    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
+}
+
 impl From<&JobProgress> for ProgressEvent {
     fn from(job_progress: &JobProgress) -> Self {
         Self {
             overall: ProgressCounts::from(&job_progress.overall()),
-            overall_eta_ms: job_progress.overall_eta.map(|d| d.as_millis() as u64),
+            overall_eta_ms: job_progress.overall_eta.map(duration_to_millis_u64),
             per_task: job_progress
                 .per_task
                 .iter()
@@ -169,11 +176,10 @@ impl From<&JobProgress> for ProgressEvent {
                     task_id: e.id.get(),
                     bytes_done: e.progress.bytes_done(),
                     bytes_total: e.progress.bytes_total(),
-                    eta_ms: e.eta.map(|d| d.as_millis() as u64),
+                    eta_ms: e.eta.map(duration_to_millis_u64),
                 })
                 .collect(),
-            // u128 -> u64: safe for any realistic session (2^64 ms ~ 585M years).
-            elapsed_ms: job_progress.elapsed.as_millis() as u64,
+            elapsed_ms: duration_to_millis_u64(job_progress.elapsed),
         }
     }
 }
@@ -514,6 +520,21 @@ mod tests {
                 path: "/some/file.rar".to_string(),
                 kind: SourceKind::Rar,
             }
+        );
+    }
+
+    #[test]
+    fn duration_to_millis_u64_converts_exactly() {
+        assert_eq!(duration_to_millis_u64(Duration::from_millis(1234)), 1234);
+    }
+
+    #[test]
+    fn duration_to_millis_u64_saturates_instead_of_truncating() {
+        // as_millis() here exceeds u64::MAX, so the conversion saturates rather
+        // than silently returning the low bits.
+        assert_eq!(
+            duration_to_millis_u64(Duration::from_secs(u64::MAX)),
+            u64::MAX
         );
     }
 }
