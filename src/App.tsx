@@ -7,6 +7,7 @@ import { NamingRuleForm } from "@/components/NamingRuleForm";
 import { OutputDirPicker } from "@/components/OutputDirPicker";
 import { OverallProgress } from "@/components/OverallProgress";
 import { RunControls } from "@/components/RunControls";
+import { RunSummary } from "@/components/RunSummary";
 import { TaskList } from "@/components/TaskList";
 import { subscribeProgress } from "@/lib/archive";
 import { useJobStore } from "@/store/jobStore";
@@ -71,6 +72,7 @@ function App() {
         <OutputDirPicker />
         <RunControls />
         <OverallProgress />
+        <RunSummary />
       </div>
     </main>
   );

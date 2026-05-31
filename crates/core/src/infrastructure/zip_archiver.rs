@@ -59,13 +59,15 @@ impl Archiver for ZipArchiver {
         let mut bytes_done: u64 = 0;
         for path in &files {
             if ctx.is_cancelled() {
-                // Cleanup asymmetry with the success path: the success path drains
-                // the writer with `shutdown().await + sync_all().await` before drop,
-                // whereas here we do a plain `drop(writer)` then `remove_file`. On a
-                // contended host the dropped writer's queued blocking writes may not
-                // be observed before `remove_file`, so the partial zip can transiently
-                // survive on disk.
-                drop(writer);
+                // Cancel cleanup: finalize and drain the writer via `drain_to_disk`
+                // (close -> recover the file -> shutdown + sync_all) BEFORE removing
+                // it, so the common cancel path does not leave a partial zip racing
+                // the delete. Best-effort: if `close()` errors the file is dropped
+                // without an explicit drain and we still fall through to the removal
+                // (a rare, platform-dependent window; see `drain_to_disk`).
+                if let Ok(mut file) = writer.close().await.map(|w| w.into_inner()) {
+                    let _ = drain_to_disk(&mut file).await;
+                }
                 remove_partial_output(dest_zip).await;
                 return Err(ArchiveError::Cancelled);
             }
@@ -81,10 +83,15 @@ impl Archiver for ZipArchiver {
             ctx.report(bytes_done, bytes_total);
 
             if ctx.is_cancelled() {
-                // Same cleanup asymmetry as the pre-write checkpoint above: plain
-                // `drop(writer)` + `remove_file` (no `shutdown`/`sync_all`), so on a
-                // contended host the partial zip may transiently survive on disk.
-                drop(writer);
+                // Cancel cleanup: finalize and drain the writer via `drain_to_disk`
+                // (close -> recover the file -> shutdown + sync_all) BEFORE removing
+                // it, so the common cancel path does not leave a partial zip racing
+                // the delete. Best-effort: if `close()` errors the file is dropped
+                // without an explicit drain and we still fall through to the removal
+                // (a rare, platform-dependent window; see `drain_to_disk`).
+                if let Ok(mut file) = writer.close().await.map(|w| w.into_inner()) {
+                    let _ = drain_to_disk(&mut file).await;
+                }
                 remove_partial_output(dest_zip).await;
                 return Err(ArchiveError::Cancelled);
             }
@@ -109,19 +116,37 @@ impl Archiver for ZipArchiver {
             .await
             .map_err(|e| ArchiveError::Backend(e.to_string()))?
             .into_inner();
-        use tokio::io::AsyncWriteExt as _;
-        file.shutdown().await?;
-        file.sync_all().await?;
+        drain_to_disk(&mut file).await?;
         Ok(())
     }
+}
+
+/// Flush and fsync a recovered zip file so all queued blocking writes complete
+/// and reach durable storage before the caller proceeds. `tokio::fs::File`
+/// performs writes on the blocking pool and its `Drop` does NOT wait for them,
+/// so without this drain a freshly written file can be read back incomplete
+/// (success path) or race a removal (cancel path).
+///
+/// Both paths share this drain but invoke it differently: the success path
+/// propagates a drain error (`?`), while each cancel checkpoint calls it
+/// best-effort and proceeds to delete regardless. The common cancel path is
+/// therefore fully drained; only a rare `close()` IO error leaves the file
+/// dropped without an explicit drain before removal — an accepted,
+/// platform-dependent limitation rather than an absolute guarantee.
+async fn drain_to_disk(file: &mut tokio::fs::File) -> std::io::Result<()> {
+    use tokio::io::AsyncWriteExt as _;
+    file.shutdown().await?;
+    file.sync_all().await?;
+    Ok(())
 }
 
 /// Best-effort cleanup for a cancelled compression.
 async fn remove_partial_output(dest_zip: &Path) {
     match tokio::fs::remove_file(dest_zip).await {
         Ok(()) => {}
-        // The output was never created (cancelled before the first entry was
-        // written), so there is nothing to clean up.
+        // Already gone — e.g. removed externally between the drain and this call.
+        // (Both callers create the output before the loop, so the "never created"
+        // case does not reach here.)
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         // Any other removal error leaves a partial zip on disk. We deliberately
         // swallow it here: surfacing/logging cleanup failures is deferred to a

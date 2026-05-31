@@ -135,23 +135,3 @@ describe("RunControls – Cancel button", () => {
     expect(cancelJob).toHaveBeenCalledTimes(1);
   });
 });
-
-describe("RunControls – summary display", () => {
-  it("renders a one-line summary of succeeded/failed/cancelled counts", () => {
-    useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: null },
-      running: false,
-      error: null,
-      summary: {
-        succeeded: [1, 2],
-        failed: [{ taskId: 3, reason: "x" }],
-        cancelled: [],
-      },
-    });
-    render(<RunControls />);
-    const text = screen.getByText(/succeeded 2/i);
-    expect(text.textContent).toMatch(/succeeded 2/i);
-    expect(text.textContent).toMatch(/failed 1/i);
-    expect(text.textContent).toMatch(/cancelled 0/i);
-  });
-});

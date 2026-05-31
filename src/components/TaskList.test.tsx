@@ -251,7 +251,7 @@ describe("TaskList status", () => {
     expect(screen.getAllByText("Processing").length).toBe(2);
   });
 
-  it("classifies Success / Cancelled / Failed via taskIdByIndex", () => {
+  it("classifies Succeeded / Cancelled / Failed via taskIdByIndex", () => {
     useJobStore.setState({
       draft: {
         items: makeItems(3),
@@ -271,7 +271,7 @@ describe("TaskList status", () => {
 
     render(<TaskList />);
 
-    expect(screen.getByText("Success")).toBeTruthy();
+    expect(screen.getByText("Succeeded")).toBeTruthy();
     expect(screen.getByText("Cancelled")).toBeTruthy();
     expect(screen.getByText("Failed: boom")).toBeTruthy();
   });
@@ -343,6 +343,6 @@ describe("TaskList progress", () => {
 
     render(<TaskList />);
 
-    expect(screen.getByText("Success")).toBeTruthy();
+    expect(screen.getByText("Succeeded")).toBeTruthy();
   });
 });

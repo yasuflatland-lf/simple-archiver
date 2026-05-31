@@ -25,6 +25,16 @@
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-hover: var(--brand-hover);
   --color-heading: var(--heading);
+  --color-status-success-foreground: var(--status-success-foreground);
+  --color-status-success-subtle: var(--status-success-subtle);
+  --color-status-warning-foreground: var(--status-warning-foreground);
+  --color-status-warning-subtle: var(--status-warning-subtle);
+  --color-status-danger-foreground: var(--status-danger-foreground);
+  --color-status-danger-subtle: var(--status-danger-subtle);
+  --color-category-folder-foreground: var(--category-folder-foreground);
+  --color-category-folder-subtle: var(--category-folder-subtle);
+  --color-category-archive-foreground: var(--category-archive-foreground);
+  --color-category-archive-subtle: var(--category-archive-subtle);
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 4px);
@@ -53,6 +63,17 @@
     --asics-charcoal-line: #2a2a2e;
     --asics-charcoal-input: #3a3a3f;
     --asics-navy-lift: #3d5a9e;
+    /* Functional status primitives — invented (ASICS has no green/amber spec) */
+    --asics-success: #1e7d32;
+    --asics-success-tint: #e7f4ec;
+    --asics-warning: #8a5300;
+    --asics-warning-tint: #fbeedd;
+    --asics-danger-tint: #fde7e9;
+    /* Category badge primitives */
+    --asics-category-folder: #1f4d8f;
+    --asics-category-folder-tint: #e8eefb;
+    --asics-category-archive: #8a5a00;
+    --asics-category-archive-tint: #fbf0db;
 
     /* Semantic layer — shadcn contract (light) */
     --radius: 0.25rem;
@@ -79,6 +100,18 @@
     --brand-foreground: var(--asics-canvas);
     --brand-hover: var(--asics-brand-red-dark);
     --heading: var(--asics-ink);
+    /* Functional status semantic layer (light) */
+    --status-success-foreground: var(--asics-success);
+    --status-success-subtle: var(--asics-success-tint);
+    --status-warning-foreground: var(--asics-warning);
+    --status-warning-subtle: var(--asics-warning-tint);
+    --status-danger-foreground: var(--asics-brand-red);
+    --status-danger-subtle: var(--asics-danger-tint);
+    /* Category semantic layer (light) */
+    --category-folder-foreground: var(--asics-category-folder);
+    --category-folder-subtle: var(--asics-category-folder-tint);
+    --category-archive-foreground: var(--asics-category-archive);
+    --category-archive-subtle: var(--asics-category-archive-tint);
   }
 
   .dark {
@@ -105,6 +138,18 @@
     --brand-foreground: #ffffff;
     --brand-hover: var(--asics-brand-red-dark);
     --heading: #fafafa;
+    /* Functional status semantic layer (dark) */
+    --status-success-foreground: #5fd08a;
+    --status-success-subtle: #16331f;
+    --status-warning-foreground: #e0a24a;
+    --status-warning-subtle: #3a2a12;
+    --status-danger-foreground: #ff6b74;
+    --status-danger-subtle: #3a1416;
+    /* Category semantic layer (dark) */
+    --category-folder-foreground: #8fb3f0;
+    --category-folder-subtle: #18233a;
+    --category-archive-foreground: #d6a85a;
+    --category-archive-subtle: #332612;
   }
 
   * {
