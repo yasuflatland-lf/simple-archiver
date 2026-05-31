@@ -518,6 +518,52 @@ describe("reset", () => {
     expect(state.previewNames).toEqual([]);
   });
 
+  it("sets running to false even when it was true before reset", async () => {
+    // Seed running: true alongside items and transient state to verify the
+    // defensive running: false patch in the success branch.
+    const summary: JobSummaryDto = {
+      succeeded: [10],
+      cancelled: [],
+      failed: [],
+    };
+    const progress: ProgressEvent = {
+      overall: { bytesDone: 100, bytesTotal: 100 },
+      perTask: [{ taskId: 10, bytesDone: 100, bytesTotal: 100, etaMs: null }],
+      elapsedMs: 5,
+      overallEtaMs: null,
+    };
+    useJobStore.setState({
+      draft: makeDraft(2, "photo_{n}", "/out"),
+      running: true,
+      summary,
+      progress,
+      taskIdByIndex: [10],
+      previewNames: ["photo_001.zip", "photo_002.zip"],
+    });
+
+    const clearedDraft: DraftSnapshot = {
+      items: [],
+      namingTemplate: "photo_{n}",
+      outputDir: "/out",
+    };
+    mockArchive.clearItems.mockResolvedValue(clearedDraft);
+
+    await useJobStore.getState().reset();
+
+    const state = useJobStore.getState();
+    // running must be false regardless of its seeded value.
+    expect(state.running).toBe(false);
+    // Items must be cleared; template and outputDir retained from snapshot.
+    expect(state.draft.items).toEqual([]);
+    expect(state.draft.namingTemplate).toBe("photo_{n}");
+    expect(state.draft.outputDir).toBe("/out");
+    // Transient state must be wiped.
+    expect(state.summary).toBeNull();
+    expect(state.progress).toBeNull();
+    expect(state.taskIdByIndex).toEqual([]);
+    expect(state.previewNames).toEqual([]);
+  });
+
   it("sets error on failure and leaves the draft unchanged", async () => {
     const originalDraft = makeDraft(2, "photo_{n}", "/out");
     useJobStore.setState({ draft: originalDraft });
