@@ -58,6 +58,12 @@ This repository requires **all in-code comments to be written in English**.
 
 Entity fields are private; only the aggregate root constructs/mutates entities via `pub(crate)` constructors and mutators (e.g. `ArchiveTask::new` / `set_output_name` / `apply_event`, `TaskId::new` are `pub(crate)`; external code obtains a `TaskId` only via `id()`). **Why:** the "names bound to position, `TaskId` stable" invariant is then structurally enforceable — external code cannot fabricate ids, build entities out of band, or reorder the private `Vec`.
 
+### No zero-information field — let the real owner be the single source of truth
+
+**Why:** a domain entity must not carry a field that is structurally constant across every instance and has no write path. Such a field carries zero information, is a **false ownership claim** (it looks like the entity owns the data but never updates it), and sets up a **dual source of truth** with whatever actually maintains the live value. Delete it (YAGNI) and let the real owner be the single source of truth.
+
+**What:** PR-12b removed `ArchiveTask::progress` — a `TaskProgress` field initialized to `TaskProgress::zero()` at plan time with no mutator, so it was always `zero()` and read only by tests. Live progress is owned by the application-layer `Aggregator` (a `HashMap<TaskId, TaskProgress>`); the presentation `ProgressEvent` is built from that snapshot, never from the entity. After removal the split is clean: `ArchiveTask` is pure **identity/lifecycle** (`TaskId` / `SourceItem` / `OutputFileName` / `TaskStatus`) while the aggregator owns **live progress**. This is the data analogue of "re-derive, never store a second copy" (architecture.md aggregate-root rule): if a value already has a live owner, an entity field that merely shadows it as a constant is the thing to remove — don't add a speculative field "in case the entity needs it later."
+
 ## Value-object equality
 
 Derive **both `PartialEq` and `Eq`** on value objects whenever all fields are `Eq`-capable (not just `PartialEq`). **Why:** it's an honest value-equality contract, enables use as map/set keys, and avoids artificially blocking `Eq` up the whole aggregate. (PR3's `NamingRule` / `Segment` derived only `PartialEq` despite `Eq`-capable fields, which cascaded into blocking `Eq` on `ArchiveJob` until fixed in PR4.)

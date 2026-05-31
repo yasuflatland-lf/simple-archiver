@@ -27,11 +27,13 @@ Toolchain is pinned via `mise.toml` (rust / node / pnpm / cargo-nextest). The pa
 ```bash
 # Rust — pure core (the TDD battleground; -p keeps Tauri out)
 cargo nextest run -p simple-archiver-core   # run tests (use nextest, not `cargo test`)
+cargo nextest run -p simple-archiver-core --release  # release-only tests for #[cfg(not(debug_assertions))] paths (debug run skips them; see testing policy)
 cargo clippy -p simple-archiver-core --all-targets -- -D warnings  # lint, zero warnings
 cargo fmt                                    # format (whole workspace)
 cargo llvm-cov nextest -p simple-archiver-core --lcov --output-path lcov.info  # coverage (CI uploads to Codecov)
 
 # loom concurrency verification (target tests only; kept separate from normal runs)
+RUSTFLAGS="--cfg loom" cargo clippy -p simple-archiver-core --features loom -- -D warnings  # loom-clippy (CI's loom job runs this too)
 RUSTFLAGS="--cfg loom" cargo nextest run -p simple-archiver-core --features loom
 
 # Rust — presentation crate (Tauri commands, IPC layer; requires the Tauri toolchain)
@@ -61,6 +63,7 @@ pnpm tauri build
 
 This project is designed around TDD. **Write tests before implementation.**
 
+- **Removal / deletion refactors are also TDD — adjust tests first, then delete (HARNESS — PR-12b).** When deleting a field/accessor/concept, edit the tests to the new expected end-state *first* — while the symbol still exists — and confirm green; only then delete the field/accessor; then re-run and confirm the meaningful invariants stay green. This keeps the safety net live across the removal instead of deleting code and tests in one untested leap. **Sweep EVERY textual reference, not just code and tests:** grep the whole tree for the removed name and update PRODUCTION doc comments too, not only call sites. (PR-12b removed `ArchiveTask::progress` — a dead field always equal to `TaskProgress::zero()` with no write path; the plan's file-by-file enumeration missed 3 stale production doc comments in `archive_job.rs` that review caught. A reference list assembled by hand is not a substitute for a final `rg <name>` across `crates/ src-tauri/ docs/ .claude/`.)
 - **Domain**: pure unit tests. Cover `NamingRule` resolution, `ArchiveJob.plan`/`reorder` invariants, and name-uniqueness boundary cases. For any **state machine** (e.g. `TaskStatus`), test every `(state × event)` pair: legal transitions assert the resulting state, illegal ones assert the typed error, and terminal states reject all events.
   - **HARNESS — `debug_assert` + release-clamp invariants need cfg-split tests AND a `--release` gate.** A value object that asserts an invariant in debug and clamps it in release (e.g. `TaskProgress::new`; see conventions.md "debug_assert + release clamp for caller-bug invariants") needs two cfg-gated tests: `#[cfg(debug_assertions)] #[should_panic(expected = "…")]` for the loud debug path, and `#[cfg(not(debug_assertions))]` asserting the clamped value for the release path. **Critical:** the default `cargo nextest run` is a debug build and never executes the `#[cfg(not(debug_assertions))]` test, so the verification gate MUST also include a `cargo nextest run --release` pass to exercise release-only tests — otherwise the clamp path is silently never run.
 - **Application**: verify parallelism and error tallying **deterministically**. PR-5a uses **hand-written fakes** (`FakeArchiver` / `FixedClock` / `RecordingSink`), not `mockall`: the evolved `Archiver` returns `impl Future + Send` (RPITIT), which `mockall` cannot mock cleanly, and a purpose-built fake gives the control the timing assertions need — a `tokio::sync::Barrier(N)` + `timeout` proves N workers run concurrently, and the **cap** is proven by running *more* tasks than the limit and asserting peak liveness `== N` (sampled at the barrier rendezvous). `mockall` stays declared in dev-dependencies for a future PR that mocks the ports; PR-5b's cancel-path tests use the hand-written `FakeArchiver`, not mockall. `Clock` is faked with a fixed `Instant` so `elapsed` is deterministic.
