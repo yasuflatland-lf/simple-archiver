@@ -14,6 +14,7 @@ describe("statusVisual", () => {
   it("maps cancelled to 'Cancelled' and the warning tokens", () => {
     const v = statusVisual("cancelled");
     expect(v.label).toBe("Cancelled");
+    expect(v.icon).toBe("⚠");
     expect(v.className).toContain("bg-status-warning-subtle");
     expect(v.className).toContain("text-status-warning-foreground");
   });
@@ -21,6 +22,7 @@ describe("statusVisual", () => {
   it("maps failed to 'Failed' and the danger tokens", () => {
     const v = statusVisual("failed");
     expect(v.label).toBe("Failed");
+    expect(v.icon).toBe("✗");
     expect(v.className).toContain("bg-status-danger-subtle");
     expect(v.className).toContain("text-status-danger-foreground");
   });

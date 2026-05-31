@@ -1,6 +1,6 @@
 /**
  * The single bridge between a finished task's outcome (the projection of the
- * backend's terminal TaskStatus, surfaced as JobSummaryDto buckets) and its
+ * backend's terminal TaskStatus, surfaced as the JobSummaryDto arrays (`succeeded`/`cancelled`/`failed`)) and its
  * user-facing presentation: a unified label, the visual status-token classes,
  * and a text icon (so status is never communicated by color alone).
  *
@@ -8,6 +8,9 @@
  * panel and the per-row task list, and keeps the domain-state → visual-token
  * mapping in exactly one location.
  */
+// The three members MUST stay in sync with the keys of the backend `JobSummaryDto`
+// (`succeeded` | `cancelled` | `failed`). RunSummary/TaskList pass these as string
+// literals, so a renamed or added DTO bucket would silently leave this union stale.
 export type TaskOutcome = "succeeded" | "cancelled" | "failed";
 
 export interface StatusVisual {
@@ -16,7 +19,7 @@ export interface StatusVisual {
   label: string;
   /** Tailwind classes wiring the status color tokens (subtle bg + foreground). */
   className: string;
-  /** Text glyph paired with the label so meaning is not color-only. */
+  /** Text glyph paired with the label so meaning is not color-only; must be a non-empty string (accessibility guarantee: status is never communicated by color alone). */
   icon: string;
 }
 
