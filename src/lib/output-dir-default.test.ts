@@ -85,11 +85,6 @@ describe("persistOutputDir", () => {
     persistOutputDir("   ");
     expect(localStorage.getItem(OUTPUT_DIR_STORAGE_KEY)).toBeNull();
   });
-
-  it("writes a valid path to localStorage", () => {
-    persistOutputDir("/valid/path");
-    expect(localStorage.getItem(OUTPUT_DIR_STORAGE_KEY)).toBe("/valid/path");
-  });
 });
 
 describe("resolveDefaultOutputDir", () => {

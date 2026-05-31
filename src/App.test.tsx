@@ -197,142 +197,150 @@ describe("App", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 6. Smart-default output dir: applied at mount when none is set yet
+  // 6–10. Smart-default output dir
   // -------------------------------------------------------------------------
-  it("applies the resolved default output dir on mount when none is set", async () => {
-    mockResolveInitialOutputDir.mockResolvedValue("/Users/me/Downloads");
+  describe("smart-default output dir", () => {
+    // Shared spy — reset by outer beforeEach (resetJobStore) then re-applied
+    // here so all five cases can assert on the same action without repeating
+    // the two-line setup.
+    let setOutputDirSpy: ReturnType<typeof vi.fn>;
 
-    // Spy on the store action so we can assert it is invoked with the default.
-    const setOutputDirSpy = vi.fn(() => Promise.resolve());
-    useJobStore.setState({ setOutputDir: setOutputDirSpy });
-
-    render(<App />);
-
-    await waitFor(() =>
-      expect(setOutputDirSpy).toHaveBeenCalledWith("/Users/me/Downloads"),
-    );
-  });
-
-  // -------------------------------------------------------------------------
-  // 7. Smart-default output dir: never overrides an existing destination
-  // -------------------------------------------------------------------------
-  it("does not apply the default when a destination is already set", async () => {
-    mockResolveInitialOutputDir.mockResolvedValue("/Users/me/Downloads");
-
-    // Seed an existing destination so the mount effect must bail before
-    // resolving the default.
-    useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: "/already/set" },
-    });
-    const setOutputDirSpy = vi.fn(() => Promise.resolve());
-    useJobStore.setState({ setOutputDir: setOutputDirSpy });
-
-    render(<App />);
-
-    // Give any pending microtasks a chance to run, then assert no apply.
-    await waitFor(() =>
-      expect(archiveMock.subscribeProgress).toHaveBeenCalled(),
-    );
-    expect(mockResolveInitialOutputDir).not.toHaveBeenCalled();
-    expect(setOutputDirSpy).not.toHaveBeenCalled();
-    expect(useJobStore.getState().draft.outputDir).toBe("/already/set");
-  });
-
-  // -------------------------------------------------------------------------
-  // 8. Smart-default output dir: unmount before resolution → no apply
-  // -------------------------------------------------------------------------
-  it("does not apply the default when the component unmounts before resolution", async () => {
-    // A promise we resolve manually so we can unmount mid-resolution.
-    let resolveDir: (dir: string | null) => void = () => {};
-    mockResolveInitialOutputDir.mockReturnValue(
-      new Promise<string | null>((resolve) => {
-        resolveDir = resolve;
-      }),
-    );
-
-    const setOutputDirSpy = vi.fn(() => Promise.resolve());
-    useJobStore.setState({ setOutputDir: setOutputDirSpy });
-
-    const { unmount } = render(<App />);
-
-    // The resolver must have been invoked (no destination is set yet).
-    await waitFor(() => expect(mockResolveInitialOutputDir).toHaveBeenCalled());
-
-    // Unmount BEFORE the resolution lands; the effect's `active` flag must now
-    // suppress the apply when the promise finally resolves.
-    unmount();
-
-    await act(async () => {
-      resolveDir("/Users/me/Downloads");
+    beforeEach(() => {
+      setOutputDirSpy = vi.fn(() => Promise.resolve());
+      useJobStore.setState({ setOutputDir: setOutputDirSpy });
     });
 
-    expect(setOutputDirSpy).not.toHaveBeenCalled();
-    expect(useJobStore.getState().draft.outputDir).toBeNull();
-  });
-
-  // -------------------------------------------------------------------------
-  // 9. Smart-default output dir: a concurrent user choice is not clobbered
-  // -------------------------------------------------------------------------
-  it("does not clobber a destination chosen while resolution is in flight", async () => {
-    // A promise we resolve manually so we can inject a user choice mid-flight.
-    let resolveDir: (dir: string | null) => void = () => {};
-    mockResolveInitialOutputDir.mockReturnValue(
-      new Promise<string | null>((resolve) => {
-        resolveDir = resolve;
-      }),
-    );
-
-    const setOutputDirSpy = vi.fn(() => Promise.resolve());
-    useJobStore.setState({ setOutputDir: setOutputDirSpy });
-
-    render(<App />);
-
-    await waitFor(() => expect(mockResolveInitialOutputDir).toHaveBeenCalled());
-
-    // A user (or persistence) picks a destination while the resolver is still
-    // pending. The post-await store re-check must keep this value intact.
-    act(() => {
-      useJobStore.setState({
-        draft: { items: [], namingTemplate: null, outputDir: "/user/picked" },
+    // Helper: return a deferred promise whose resolve handle is exposed so a
+    // test can control exactly when the resolution lands (tests 8 and 9).
+    function makeDeferredDir(): {
+      promise: Promise<string | null>;
+      resolve: (dir: string | null) => void;
+    } {
+      let resolve: (dir: string | null) => void = () => {};
+      const promise = new Promise<string | null>((res) => {
+        resolve = res;
       });
+      return { promise, resolve };
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. Applied at mount when none is set yet
+    // -------------------------------------------------------------------------
+    it("applies the resolved default output dir on mount when none is set", async () => {
+      mockResolveInitialOutputDir.mockResolvedValue("/Users/me/Downloads");
+
+      render(<App />);
+
+      await waitFor(() =>
+        expect(setOutputDirSpy).toHaveBeenCalledWith("/Users/me/Downloads"),
+      );
     });
 
-    // The resolver finally yields a DIFFERENT directory; the guard must drop it.
-    await act(async () => {
-      resolveDir("/Users/me/Downloads");
+    // -------------------------------------------------------------------------
+    // 7. Never overrides an existing destination
+    // -------------------------------------------------------------------------
+    it("does not apply the default when a destination is already set", async () => {
+      mockResolveInitialOutputDir.mockResolvedValue("/Users/me/Downloads");
+
+      // Seed an existing destination so the mount effect bails before
+      // resolving the default. Merged into a single setState call.
+      useJobStore.setState({
+        draft: { items: [], namingTemplate: null, outputDir: "/already/set" },
+        setOutputDir: setOutputDirSpy,
+      });
+
+      render(<App />);
+
+      // Give any pending microtasks a chance to run, then assert no apply.
+      await waitFor(() =>
+        expect(archiveMock.subscribeProgress).toHaveBeenCalled(),
+      );
+      expect(mockResolveInitialOutputDir).not.toHaveBeenCalled();
+      expect(setOutputDirSpy).not.toHaveBeenCalled();
+      expect(useJobStore.getState().draft.outputDir).toBe("/already/set");
     });
 
-    expect(setOutputDirSpy).not.toHaveBeenCalled();
-    expect(useJobStore.getState().draft.outputDir).toBe("/user/picked");
-  });
+    // -------------------------------------------------------------------------
+    // 8. Unmount before resolution → no apply
+    // -------------------------------------------------------------------------
+    it("does not apply the default when the component unmounts before resolution", async () => {
+      const { promise, resolve: resolveDir } = makeDeferredDir();
+      mockResolveInitialOutputDir.mockReturnValue(promise);
 
-  // -------------------------------------------------------------------------
-  // 10. Smart-default output dir: a rejected resolution is non-fatal
-  // -------------------------------------------------------------------------
-  it("does not mutate the store or crash when resolution rejects", async () => {
-    mockResolveInitialOutputDir.mockRejectedValue(new Error("resolver boom"));
+      const { unmount } = render(<App />);
 
-    const setOutputDirSpy = vi.fn(() => Promise.resolve());
-    useJobStore.setState({ setOutputDir: setOutputDirSpy });
+      // The resolver must have been invoked (no destination is set yet).
+      await waitFor(() =>
+        expect(mockResolveInitialOutputDir).toHaveBeenCalled(),
+      );
 
-    // Silence the effect's non-fatal .catch log for a clean test run.
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      // Unmount BEFORE the resolution lands; the effect's `active` flag must now
+      // suppress the apply when the promise finally resolves.
+      unmount();
 
-    render(<App />);
+      await act(async () => {
+        resolveDir("/Users/me/Downloads");
+      });
 
-    // The rejection must have been observed by the effect's .catch handler.
-    await waitFor(() =>
-      expect(errorSpy).toHaveBeenCalledWith(
-        "default output dir resolution failed",
-        expect.any(Error),
-      ),
-    );
+      expect(setOutputDirSpy).not.toHaveBeenCalled();
+      expect(useJobStore.getState().draft.outputDir).toBeNull();
+    });
 
-    expect(setOutputDirSpy).not.toHaveBeenCalled();
-    expect(useJobStore.getState().draft.outputDir).toBeNull();
-    // The app stays mounted and rendered despite the rejection.
-    expect(screen.getByText("simple-archiver")).toBeDefined();
+    // -------------------------------------------------------------------------
+    // 9. A concurrent user choice is not clobbered
+    // -------------------------------------------------------------------------
+    it("does not clobber a destination chosen while resolution is in flight", async () => {
+      const { promise, resolve: resolveDir } = makeDeferredDir();
+      mockResolveInitialOutputDir.mockReturnValue(promise);
 
-    errorSpy.mockRestore();
+      render(<App />);
+
+      await waitFor(() =>
+        expect(mockResolveInitialOutputDir).toHaveBeenCalled(),
+      );
+
+      // A user (or persistence) picks a destination while the resolver is still
+      // pending. The post-await store re-check must keep this value intact.
+      act(() => {
+        useJobStore.setState({
+          draft: { items: [], namingTemplate: null, outputDir: "/user/picked" },
+        });
+      });
+
+      // The resolver finally yields a DIFFERENT directory; the guard must drop it.
+      await act(async () => {
+        resolveDir("/Users/me/Downloads");
+      });
+
+      expect(setOutputDirSpy).not.toHaveBeenCalled();
+      expect(useJobStore.getState().draft.outputDir).toBe("/user/picked");
+    });
+
+    // -------------------------------------------------------------------------
+    // 10. A rejected resolution is non-fatal
+    // -------------------------------------------------------------------------
+    it("does not mutate the store or crash when resolution rejects", async () => {
+      mockResolveInitialOutputDir.mockRejectedValue(new Error("resolver boom"));
+
+      // Silence the effect's non-fatal .catch log for a clean test run.
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      render(<App />);
+
+      // The rejection must have been observed by the effect's .catch handler.
+      await waitFor(() =>
+        expect(errorSpy).toHaveBeenCalledWith(
+          "default output dir resolution failed",
+          expect.any(Error),
+        ),
+      );
+
+      expect(setOutputDirSpy).not.toHaveBeenCalled();
+      expect(useJobStore.getState().draft.outputDir).toBeNull();
+      // The app stays mounted and rendered despite the rejection.
+      expect(screen.getByText("simple-archiver")).toBeDefined();
+
+      errorSpy.mockRestore();
+    });
   });
 });

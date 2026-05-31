@@ -55,9 +55,11 @@ export function RunControls() {
   const outputDir = useJobStore((s) => s.draft.outputDir);
   const running = useJobStore((s) => s.running);
 
-  // Run disabled reason is computed only from items/outputDir; the running
-  // branch is never shown while running (Cancel replaces Run entirely).
-  const runReason = runUnavailableReason(readinessFor(itemCount, outputDir));
+  // Compute readiness once; derive the reason string from it so both the
+  // Run button's accessible-disabled semantics and the ReadinessChip share
+  // the same Readiness value without calling readinessFor twice.
+  const readiness = readinessFor(itemCount, outputDir);
+  const runReason = runUnavailableReason(readiness);
   const runDisabled = runReason !== "";
 
   function handleRun() {
@@ -81,8 +83,6 @@ export function RunControls() {
       </div>
     );
   }
-
-  const readiness = readinessFor(itemCount, outputDir);
 
   return (
     <div className="flex items-center gap-2">
