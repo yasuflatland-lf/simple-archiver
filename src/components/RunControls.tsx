@@ -1,12 +1,45 @@
-import { Play } from "lucide-react";
+import { Check, CircleDot, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { readinessFor, runUnavailableReason } from "@/lib/readiness";
+import {
+  type Readiness,
+  readinessFor,
+  runUnavailableReason,
+} from "@/lib/readiness";
 import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
 
 // Stable id linking the disabled Run button to its reason via aria-describedby.
 const RUN_REASON_ID = "run-disabled-reason";
+
+// Chip label for each pending readiness state. "ready" gets its own confirming
+// branch in ReadinessChip, so it maps to an empty label here.
+const READINESS_CHIP_LABEL: Record<Readiness, string> = {
+  "add-files": "Add files",
+  "choose-destination": "Choose a destination",
+  ready: "",
+};
+
+// Visual mirror of Run's disabled reason, placed immediately to the left of the
+// Run button. Pending states nudge the user toward the next required action;
+// "ready" confirms a run is possible. Only rendered in the idle state.
+function ReadinessChip({ readiness }: { readiness: Readiness }) {
+  if (readiness === "ready") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-status-success-foreground">
+        <Check aria-hidden="true" className="size-3.5" />
+        Ready
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-muted-foreground">
+      <CircleDot aria-hidden="true" className="size-3.5" />
+      {READINESS_CHIP_LABEL[readiness]}
+    </span>
+  );
+}
 
 /**
  * RunControls renders the primary job action for the current state:
@@ -49,8 +82,11 @@ export function RunControls() {
     );
   }
 
+  const readiness = readinessFor(itemCount, outputDir);
+
   return (
     <div className="flex items-center gap-2">
+      <ReadinessChip readiness={readiness} />
       <Button
         type="button"
         variant="brand"

@@ -199,6 +199,59 @@ describe("RunControls – Run action guard", () => {
   });
 });
 
+describe("RunControls – ReadinessChip", () => {
+  it("shows 'Add files' chip when idle with no items", () => {
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: null },
+      running: false,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    expect(screen.getByText("Add files")).toBeTruthy();
+  });
+
+  it("shows 'Choose a destination' chip when idle with items but no outputDir", () => {
+    useJobStore.setState({
+      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      running: false,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    expect(screen.getByText("Choose a destination")).toBeTruthy();
+  });
+
+  it("shows 'Ready' chip with success styling when idle and ready", () => {
+    useJobStore.setState({
+      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      running: false,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    const chip = screen.getByText("Ready");
+    expect(chip).toBeTruthy();
+    // The chip's parent span carries the success color class.
+    expect(chip.closest("span")?.className).toMatch(
+      /text-status-success-foreground/,
+    );
+  });
+
+  it("does NOT render the readiness chip when running (Cancel state)", () => {
+    useJobStore.setState({
+      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      running: true,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    expect(screen.queryByText("Ready")).toBeNull();
+    expect(screen.queryByText("Add files")).toBeNull();
+    expect(screen.queryByText("Choose a destination")).toBeNull();
+  });
+});
+
 describe("RunControls – Cancel button", () => {
   it("does not render Cancel when not running", () => {
     useJobStore.setState({
