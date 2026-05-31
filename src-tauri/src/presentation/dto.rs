@@ -29,6 +29,11 @@ pub const PROGRESS_EVENT: &str = "archive://progress";
 pub struct ProgressEvent {
     /// Summed byte counters across every task.
     pub overall: ProgressCounts,
+    /// Estimated time remaining for the whole job, in milliseconds; null when unknown.
+    // ts-rs would emit `bigint | null` for Option<u64>; Tauri IPC delivers a JSON
+    // number-or-null, so override (values < 2^53).
+    #[ts(type = "number | null")]
+    pub overall_eta_ms: Option<u64>,
     /// Per-task progress in the job's task order.
     pub per_task: Vec<TaskProgressDto>,
     /// Time elapsed since the job started, in milliseconds.
@@ -67,6 +72,9 @@ pub struct TaskProgressDto {
     // ts-rs would emit bigint for u64; Tauri IPC delivers JSON number, so override (values < 2^53).
     #[ts(type = "number")]
     pub bytes_total: u64,
+    /// Estimated time remaining for this task, in milliseconds; null when unknown.
+    #[ts(type = "number | null")]
+    pub eta_ms: Option<u64>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,13 +161,15 @@ impl From<&JobProgress> for ProgressEvent {
     fn from(job_progress: &JobProgress) -> Self {
         Self {
             overall: ProgressCounts::from(&job_progress.overall),
+            overall_eta_ms: job_progress.overall_eta.map(|d| d.as_millis() as u64),
             per_task: job_progress
                 .per_task
                 .iter()
-                .map(|(id, p)| TaskProgressDto {
-                    task_id: id.get(),
-                    bytes_done: p.bytes_done(),
-                    bytes_total: p.bytes_total(),
+                .map(|e| TaskProgressDto {
+                    task_id: e.id.get(),
+                    bytes_done: e.progress.bytes_done(),
+                    bytes_total: e.progress.bytes_total(),
+                    eta_ms: e.eta.map(|d| d.as_millis() as u64),
                 })
                 .collect(),
             // u128 -> u64: safe for any realistic session (2^64 ms ~ 585M years).
@@ -256,7 +266,7 @@ mod tests {
             "ProgressCounts must not contain `bigint`, got: {counts_decl}"
         );
 
-        // TaskProgressDto: bytesDone and bytesTotal must be `number`.
+        // TaskProgressDto: bytesDone and bytesTotal must be `number`; etaMs must be `number | null`.
         let task_decl = TaskProgressDto::decl();
         assert!(
             task_decl.contains("bytesDone: number"),
@@ -267,15 +277,23 @@ mod tests {
             "TaskProgressDto.bytesTotal should be `number`, got: {task_decl}"
         );
         assert!(
+            task_decl.contains("etaMs: number | null"),
+            "TaskProgressDto.etaMs should be `number | null`, got: {task_decl}"
+        );
+        assert!(
             !task_decl.contains("bigint"),
             "TaskProgressDto must not contain `bigint`, got: {task_decl}"
         );
 
-        // ProgressEvent: elapsedMs must be `number`.
+        // ProgressEvent: elapsedMs must be `number`; overallEtaMs must be `number | null`.
         let event_decl = ProgressEvent::decl();
         assert!(
             event_decl.contains("elapsedMs: number"),
             "ProgressEvent.elapsedMs should be `number`, got: {event_decl}"
+        );
+        assert!(
+            event_decl.contains("overallEtaMs: number | null"),
+            "ProgressEvent.overallEtaMs should be `number | null`, got: {event_decl}"
         );
         assert!(
             !event_decl.contains("bigint"),
@@ -292,23 +310,49 @@ mod tests {
                 bytes_done: 5,
                 bytes_total: 15,
             },
+            overall_eta_ms: Some(2000),
             per_task: vec![TaskProgressDto {
                 task_id: 7,
                 bytes_done: 2,
                 bytes_total: 10,
+                eta_ms: Some(1500),
             }],
             elapsed_ms: 50,
         };
         let v = serde_json::to_value(&event).unwrap();
         assert_eq!(v["overall"]["bytesDone"], json!(5));
         assert_eq!(v["overall"]["bytesTotal"], json!(15));
+        assert_eq!(v["overallEtaMs"], json!(2000));
         assert_eq!(v["perTask"][0]["taskId"], json!(7));
         assert_eq!(v["perTask"][0]["bytesDone"], json!(2));
         assert_eq!(v["perTask"][0]["bytesTotal"], json!(10));
+        assert_eq!(v["perTask"][0]["etaMs"], json!(1500));
         assert_eq!(v["elapsedMs"], json!(50));
         // Confirm snake_case keys are absent.
         assert!(v.get("per_task").is_none());
         assert!(v.get("elapsed_ms").is_none());
+    }
+
+    /// Null-shape test: `None` ETA fields must serialise to JSON `null`.
+    #[test]
+    fn progress_event_null_eta_fields_serialize_to_null() {
+        let event = ProgressEvent {
+            overall: ProgressCounts {
+                bytes_done: 0,
+                bytes_total: 0,
+            },
+            overall_eta_ms: None,
+            per_task: vec![TaskProgressDto {
+                task_id: 1,
+                bytes_done: 0,
+                bytes_total: 0,
+                eta_ms: None,
+            }],
+            elapsed_ms: 0,
+        };
+        let v = serde_json::to_value(&event).unwrap();
+        assert_eq!(v["overallEtaMs"], json!(null));
+        assert_eq!(v["perTask"][0]["etaMs"], json!(null));
     }
 
     #[test]
@@ -399,6 +443,7 @@ mod tests {
         // here against a directly-constructed `JobProgress` (its fields are pub).
         let job_progress = JobProgress {
             overall: TaskProgress::new(5, 15),
+            overall_eta: Some(Duration::from_millis(2500)),
             per_task: Vec::new(),
             elapsed: Duration::from_millis(1234),
         };
@@ -412,12 +457,14 @@ mod tests {
         );
         assert!(event.per_task.is_empty());
         assert_eq!(event.elapsed_ms, 1234);
+        assert_eq!(event.overall_eta_ms, Some(2500));
     }
 
     #[test]
     fn job_progress_elapsed_converts_to_u64_millis() {
         let job_progress = JobProgress {
             overall: TaskProgress::zero(),
+            overall_eta: None,
             per_task: Vec::new(),
             elapsed: Duration::from_secs(2),
         };

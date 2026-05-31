@@ -36,10 +36,17 @@ describe("NamingRuleForm", () => {
     await user.type(input, "img_{{n:03}");
 
     await screen.findByText(/img_001\.zip/);
-    expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("preview_output_name", {
-      template: "img_{n:03}",
-      seq: 1,
-    });
+    // Assert the backend was eventually invoked with the fully-typed template,
+    // NOT that it was the *last* call. The mock returns the same preview for
+    // every input, so under a slow runner the post-clear empty-template debounce
+    // can fire last and make toHaveBeenLastCalledWith see template: "" — a
+    // timing-dependent failure. waitFor + toHaveBeenCalledWith is deterministic.
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("preview_output_name", {
+        template: "img_{n:03}",
+        seq: 1,
+      }),
+    );
   });
 
   it("shows an error when the backend rejects the template", async () => {
