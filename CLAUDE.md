@@ -1,7 +1,7 @@
 # CLAUDE.md — simple-archiver
 
 Mac/Windows native desktop app (Tauri 2) that takes drag-and-dropped rar files/folders and batch-renames them into zip archives.
-State: drag-and-drop `.rar` files/folders, batch-rename via a naming rule, compress with bounded parallelism, stream progress + ETA, cancel, and report a run summary. UI is a five-region `AppShell` (header / setup toolbar / optional alert banner / scrollable queue / status footer) from design-system tokens, with `lucide-react` icons and an `aria-disabled`/`aria-describedby` Run control. Latest landed: PR12a case-folds output-name uniqueness (ASCII) and PR12b removed the zero-information `ArchiveTask::progress` field, so live byte progress now lives only in the application-layer aggregator.
+State: drag-and-drop `.rar` files/folders, batch-rename via a naming rule, compress with bounded parallelism, stream progress + ETA, cancel, and report a run summary. UI is a five-region `AppShell` (header / setup toolbar / optional alert banner / scrollable queue / status footer) from design-system tokens, with `lucide-react` icons and an `aria-disabled`/`aria-describedby` Run control. Latest landed: the OUTPUT zone was restructured (full landing path promoted to a hero, aligned Destination/Name rows, a `(not set)`+`Required` empty state), the readiness chip moved from `OutputSettings` to `RunControls` (left of Run, idle-only), and a smart default output directory landed (`src/lib/output-dir-default.ts`: persist the last choice in `localStorage`, fall back to the OS Downloads dir via Tauri `downloadDir()`, applied on mount).
 
 ## Mandatory rules (harness)
 
