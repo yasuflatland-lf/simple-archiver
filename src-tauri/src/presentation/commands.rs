@@ -103,6 +103,17 @@ pub fn set_naming_rule(
     Ok(draft.snapshot())
 }
 
+/// Clear all queued items from the draft, returning the new snapshot.
+///
+/// The naming template and output directory are preserved so the user's
+/// settings survive a queue reset.
+#[tauri::command]
+pub fn clear_items(state: State<'_, AppState>) -> Result<DraftSnapshot, String> {
+    let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+    draft.clear_items();
+    Ok(draft.snapshot())
+}
+
 /// Set the draft's output directory, returning the new snapshot.
 #[tauri::command]
 pub fn set_output_dir(state: State<'_, AppState>, dir: String) -> Result<DraftSnapshot, String> {

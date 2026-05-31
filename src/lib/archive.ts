@@ -41,6 +41,15 @@ export function setOutputDir(dir: string): Promise<DraftSnapshot> {
 }
 
 /**
+ * Clear all queued items from the current draft while preserving the naming
+ * template and output directory.
+ * Returns the updated draft snapshot.
+ */
+export function clearItems(): Promise<DraftSnapshot> {
+  return invoke<DraftSnapshot>("clear_items");
+}
+
+/**
  * Resolve the preview output filename for a 1-based sequence number using the
  * given naming template. The backend is the single source of truth for naming.
  * Rejects if the template or sequence is invalid.

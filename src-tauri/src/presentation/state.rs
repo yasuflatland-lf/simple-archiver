@@ -81,6 +81,14 @@ impl JobDraft {
         Ok(())
     }
 
+    /// Remove all queued items from the draft.
+    ///
+    /// Invariant: the naming template and output directory are left unchanged so
+    /// the user's settings are preserved when they drop a fresh batch of files.
+    pub fn clear_items(&mut self) {
+        self.items.clear();
+    }
+
     /// Set the output directory.
     pub fn set_out_dir(&mut self, dir: PathBuf) {
         self.out_dir = Some(dir);
@@ -430,6 +438,38 @@ mod tests {
             .build()
             .expect("fully configured draft should plan OK");
         assert_eq!(job.tasks().len(), 2, "job should have one task per item");
+    }
+
+    // ── clear_items ───────────────────────────────────────────────────────────
+
+    /// `clear_items` empties the item list while preserving the naming template
+    /// and output directory that were already configured.
+    #[test]
+    fn clear_items_empties_items_and_preserves_template_and_out_dir() {
+        let mut draft = JobDraft::new();
+        draft.add_items(vec![
+            SourceItem::RarFile(PathBuf::from("/a.rar")),
+            SourceItem::Folder(PathBuf::from("/b")),
+        ]);
+        draft
+            .set_template("photo_{n:03}".to_string())
+            .expect("valid template should be accepted");
+        draft.set_out_dir(PathBuf::from("/output"));
+
+        draft.clear_items();
+
+        let snap = draft.snapshot();
+        assert_eq!(snap.items.len(), 0, "items must be empty after clear_items");
+        assert_eq!(
+            snap.naming_template,
+            Some("photo_{n:03}".to_string()),
+            "naming_template must be preserved"
+        );
+        assert_eq!(
+            snap.output_dir,
+            Some("/output".to_string()),
+            "output_dir must be preserved"
+        );
     }
 
     // ── RunState ──────────────────────────────────────────────────────────────

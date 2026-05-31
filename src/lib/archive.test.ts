@@ -12,6 +12,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 import {
   addItems,
   cancelJob,
+  clearItems,
   PROGRESS_EVENT,
   previewOutputName,
   reorder,
@@ -132,6 +133,29 @@ describe("archive client", () => {
       vi.mocked(invoke).mockResolvedValue("img_001.zip");
       const result = await previewOutputName("img_{n:03}", 1);
       expect(result).toBe("img_001.zip");
+    });
+  });
+
+  describe("clearItems", () => {
+    it("invokes clear_items with no arguments", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        items: [],
+        namingTemplate: "photo_{n:03}",
+        outputDir: "/out",
+      });
+      await clearItems();
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("clear_items");
+    });
+
+    it("returns the DraftSnapshot from the backend", async () => {
+      const snapshot = {
+        items: [],
+        namingTemplate: "photo_{n:03}",
+        outputDir: "/out",
+      };
+      vi.mocked(invoke).mockResolvedValue(snapshot);
+      const result = await clearItems();
+      expect(result).toEqual(snapshot);
     });
   });
 

@@ -18,6 +18,12 @@ describe("OutputDirPicker", () => {
     vi.mocked(open).mockReset();
   });
 
+  it("renders the Destination heading", () => {
+    render(<OutputDirPicker />);
+
+    expect(screen.getByText("Destination")).toBeDefined();
+  });
+
   it("renders the current outputDir when set", () => {
     useJobStore.setState({
       draft: { items: [], namingTemplate: null, outputDir: "/my/output" },

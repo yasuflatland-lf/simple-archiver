@@ -1,16 +1,20 @@
 import { AddSourceButtons } from "@/components/AddSourceButtons";
-import { NamingRuleForm } from "@/components/NamingRuleForm";
-import { OutputDirPicker } from "@/components/OutputDirPicker";
+import { OutputSettings } from "@/components/OutputSettings";
 import { RunControls } from "@/components/RunControls";
 import { useJobStore } from "@/store/jobStore";
 
 /**
- * The setup zone (AppShell's `toolbar` slot): a two-row layout — a settings
- * grid (naming template + output directory) above an action bar (browse
- * buttons + Cancel/Run). The grid aligns label/control rows instead of
- * bottom-floating mismatched-height controls, and collapses to a single column
- * on narrow windows. `max-h` caps the zone so it never crowds out the
- * scrollable queue on short windows.
+ * The setup zone (AppShell's `toolbar` slot): a two-row layout — the OUTPUT
+ * group (Destination + Name + full-path preview + readiness) above an action
+ * bar (browse buttons + Cancel/Run).
+ *
+ * The zone is content-sized and has no internal scroll. Its whole content (the
+ * OUTPUT group *and* the action bar) lives in one non-scrolling column, so
+ * nothing here is ever clipped when the window shrinks vertically: the queue
+ * region in AppShell is the only zone that scrolls to absorb vertical shrink,
+ * and AppShell's last-resort scroll keeps the setup reachable on extremely
+ * short viewports. This guarantees the readiness chip, the full-path preview,
+ * the browse buttons and Run/Cancel all stay fully visible together.
  */
 export function SetupToolbar() {
   // The browse buttons live here ONLY when the queue has items: while empty,
@@ -20,12 +24,12 @@ export function SetupToolbar() {
   const hasItems = useJobStore((s) => s.draft.items.length > 0);
 
   return (
-    <div className="flex max-h-[40vh] flex-col gap-3 overflow-y-auto">
-      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-2">
-        <NamingRuleForm />
-        <OutputDirPicker />
-      </div>
-      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+    <div className="flex flex-col gap-3">
+      <OutputSettings />
+      <div
+        data-testid="setup-action-bar"
+        className="flex flex-wrap items-center gap-2 border-t border-border pt-3"
+      >
         {hasItems ? <AddSourceButtons /> : null}
         <div className="ml-auto">
           <RunControls />

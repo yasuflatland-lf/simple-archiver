@@ -29,14 +29,14 @@ function withItems() {
 }
 
 describe("SetupToolbar", () => {
-  it("renders the naming template control", () => {
+  it("renders the Name control", () => {
     render(<SetupToolbar />);
-    expect(screen.getByText(/naming template/i)).toBeTruthy();
+    expect(screen.getByText("Name")).toBeTruthy();
   });
 
-  it("renders the output directory control", () => {
+  it("renders the Destination control", () => {
     render(<SetupToolbar />);
-    expect(screen.getByText(/output directory/i)).toBeTruthy();
+    expect(screen.getByText("Destination")).toBeTruthy();
   });
 
   it("renders the Run control", () => {
@@ -67,6 +67,26 @@ describe("SetupToolbar", () => {
   it("lets the action bar wrap so a narrow window does not clip it", () => {
     const { container } = render(<SetupToolbar />);
     expect(container.querySelector(".flex-wrap")).not.toBeNull();
+  });
+
+  it("keeps the OUTPUT content and action bar in one non-scrolling zone", () => {
+    // The whole setup zone must stay fully visible when the viewport shrinks
+    // vertically — nothing here may be hidden behind an internal scroll. So the
+    // zone itself owns no height-capped overflow region: the readiness chip and
+    // full-path preview (OUTPUT) and the Run/Cancel action bar all live in the
+    // same non-scrolling column. AppShell's queue absorbs vertical shrink.
+    const { container } = render(<SetupToolbar />);
+    expect(container.querySelector(".overflow-y-auto")).toBeNull();
+    expect(container.querySelector(".overflow-y-scroll")).toBeNull();
+    expect(container.querySelector('[class*="max-h-"]')).toBeNull();
+  });
+
+  it("renders OUTPUT readiness and the action bar together", () => {
+    // The OUTPUT readiness chip (a vertical-shrink casualty of the old internal
+    // scroll) and the Run control share the setup zone and are present at once.
+    render(<SetupToolbar />);
+    expect(screen.getByText("Add files")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^run$/i })).toBeTruthy();
   });
 
   it("hides the browse buttons again after all items are removed", () => {

@@ -76,8 +76,8 @@ describe("App", () => {
     expect(
       screen.getAllByRole("button", { name: /add files/i }).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText(/naming template/i)).toBeDefined();
-    expect(screen.getByText(/output directory/i)).toBeDefined();
+    expect(screen.getByText("Name")).toBeDefined();
+    expect(screen.getByText("Destination")).toBeDefined();
     expect(screen.getByRole("button", { name: /^run$/i })).toBeDefined();
     // Main — empty-state CTA (replaces the old "No items yet" text)
     expect(screen.getByText(/drag .* drop files or folders/i)).toBeDefined();

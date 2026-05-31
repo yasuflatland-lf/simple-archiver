@@ -70,6 +70,17 @@ export interface JobState {
   applyProgress: (event: ProgressEvent) => void;
   /** Recompute preview filenames from the current draft. */
   recomputePreviews: () => Promise<void>;
+  /**
+   * Clear all queued items while preserving the naming template and output dir.
+   * Resets transient job state (summary, progress, error, taskIdByIndex,
+   * previewNames) and sets running to false. The UI only reaches reset() when
+   * running is already false, but defensively forcing it prevents a stale
+   * spinner if the invariant is ever violated. The retained settings come from
+   * the backend snapshot so they remain in sync with the backend draft. This is
+   * a user-initiated queue clear — distinct from resetJobStore(), which is the
+   * test-only full reset.
+   */
+  reset: () => Promise<void>;
 }
 
 export const useJobStore = create<JobState>()((set, get) => ({
@@ -174,6 +185,26 @@ export const useJobStore = create<JobState>()((set, get) => ({
       // Same staleness check on the failure path.
       if (generation !== previewGeneration) return;
       set({ previewNames: [], error: messageFromReason(reason) });
+    }
+  },
+
+  reset: async () => {
+    try {
+      const draft = await archive.clearItems();
+      // Defensively set running to false even though the UI only reaches reset()
+      // when running is already false; this prevents a stuck spinner if the
+      // invariant is ever violated.
+      set({
+        draft,
+        running: false,
+        summary: null,
+        progress: null,
+        error: null,
+        taskIdByIndex: [],
+        previewNames: [],
+      });
+    } catch (reason) {
+      set({ error: messageFromReason(reason) });
     }
   },
 }));

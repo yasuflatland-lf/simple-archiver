@@ -10,6 +10,7 @@ vi.mock("@/lib/archive", () => ({
   reorder: vi.fn(),
   setNamingRule: vi.fn(),
   setOutputDir: vi.fn(),
+  clearItems: vi.fn(),
   runJob: vi.fn(),
   cancelJob: vi.fn(),
   previewOutputName: vi.fn(),
@@ -438,5 +439,140 @@ describe("cancelJob", () => {
 
     expect(useJobStore.getState().error).toBe("cancel failed");
     expect(useJobStore.getState().running).toBe(true);
+  });
+});
+
+describe("reset", () => {
+  it("calls archive.clearItems exactly once", async () => {
+    const clearedDraft: DraftSnapshot = {
+      items: [],
+      namingTemplate: "photo_{n}",
+      outputDir: "/out",
+    };
+    mockArchive.clearItems.mockResolvedValue(clearedDraft);
+
+    await useJobStore.getState().reset();
+
+    expect(mockArchive.clearItems).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears items while preserving namingTemplate and outputDir from the returned snapshot", async () => {
+    // Seed the store with items and non-null settings.
+    useJobStore.setState({
+      draft: makeDraft(3, "photo_{n}", "/out"),
+    });
+
+    const clearedDraft: DraftSnapshot = {
+      items: [],
+      namingTemplate: "photo_{n}",
+      outputDir: "/out",
+    };
+    mockArchive.clearItems.mockResolvedValue(clearedDraft);
+
+    await useJobStore.getState().reset();
+
+    const state = useJobStore.getState();
+    expect(state.draft.items).toEqual([]);
+    expect(state.draft.namingTemplate).toBe("photo_{n}");
+    expect(state.draft.outputDir).toBe("/out");
+  });
+
+  it("clears summary, progress, error, taskIdByIndex, and previewNames", async () => {
+    const summary: JobSummaryDto = {
+      succeeded: [10],
+      cancelled: [],
+      failed: [{ taskId: 11, reason: "boom" }],
+    };
+    const progress: ProgressEvent = {
+      overall: { bytesDone: 100, bytesTotal: 100 },
+      perTask: [
+        { taskId: 10, bytesDone: 50, bytesTotal: 50, etaMs: null },
+        { taskId: 11, bytesDone: 50, bytesTotal: 50, etaMs: null },
+      ],
+      elapsedMs: 5,
+      overallEtaMs: null,
+    };
+    // Seed non-empty transient state to verify it is wiped.
+    useJobStore.setState({
+      summary,
+      progress,
+      error: "stale error",
+      taskIdByIndex: [10, 11],
+      previewNames: ["photo_001.zip", "photo_002.zip"],
+    });
+
+    const clearedDraft: DraftSnapshot = {
+      items: [],
+      namingTemplate: "photo_{n}",
+      outputDir: "/out",
+    };
+    mockArchive.clearItems.mockResolvedValue(clearedDraft);
+
+    await useJobStore.getState().reset();
+
+    const state = useJobStore.getState();
+    expect(state.summary).toBeNull();
+    expect(state.progress).toBeNull();
+    expect(state.error).toBeNull();
+    expect(state.taskIdByIndex).toEqual([]);
+    expect(state.previewNames).toEqual([]);
+  });
+
+  it("sets running to false even when it was true before reset", async () => {
+    // Seed running: true alongside items and transient state to verify the
+    // defensive running: false patch in the success branch.
+    const summary: JobSummaryDto = {
+      succeeded: [10],
+      cancelled: [],
+      failed: [],
+    };
+    const progress: ProgressEvent = {
+      overall: { bytesDone: 100, bytesTotal: 100 },
+      perTask: [{ taskId: 10, bytesDone: 100, bytesTotal: 100, etaMs: null }],
+      elapsedMs: 5,
+      overallEtaMs: null,
+    };
+    useJobStore.setState({
+      draft: makeDraft(2, "photo_{n}", "/out"),
+      running: true,
+      summary,
+      progress,
+      taskIdByIndex: [10],
+      previewNames: ["photo_001.zip", "photo_002.zip"],
+    });
+
+    const clearedDraft: DraftSnapshot = {
+      items: [],
+      namingTemplate: "photo_{n}",
+      outputDir: "/out",
+    };
+    mockArchive.clearItems.mockResolvedValue(clearedDraft);
+
+    await useJobStore.getState().reset();
+
+    const state = useJobStore.getState();
+    // running must be false regardless of its seeded value.
+    expect(state.running).toBe(false);
+    // Items must be cleared; template and outputDir retained from snapshot.
+    expect(state.draft.items).toEqual([]);
+    expect(state.draft.namingTemplate).toBe("photo_{n}");
+    expect(state.draft.outputDir).toBe("/out");
+    // Transient state must be wiped.
+    expect(state.summary).toBeNull();
+    expect(state.progress).toBeNull();
+    expect(state.taskIdByIndex).toEqual([]);
+    expect(state.previewNames).toEqual([]);
+  });
+
+  it("sets error on failure and leaves the draft unchanged", async () => {
+    const originalDraft = makeDraft(2, "photo_{n}", "/out");
+    useJobStore.setState({ draft: originalDraft });
+    mockArchive.clearItems.mockRejectedValue("backend boom");
+
+    await useJobStore.getState().reset();
+
+    const state = useJobStore.getState();
+    expect(state.error).toBe("backend boom");
+    expect(state.draft).toEqual(originalDraft);
   });
 });
