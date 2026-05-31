@@ -69,6 +69,29 @@ describe("SetupToolbar", () => {
     expect(container.querySelector(".flex-wrap")).not.toBeNull();
   });
 
+  it("scrolls only the settings body, never the action bar", () => {
+    // The action bar (Run/Cancel) must stay fully visible when the viewport
+    // shrinks vertically. Only the settings body may live inside the
+    // overflow-y-auto scroll region; the action bar must be outside it.
+    const { container } = render(<SetupToolbar />);
+    const scrollRegion = container.querySelector(".overflow-y-auto");
+    expect(scrollRegion).not.toBeNull();
+    const actionBar = screen.getByTestId("setup-action-bar");
+    expect(scrollRegion?.contains(actionBar)).toBe(false);
+    // And the Run button (which the action bar owns) is likewise outside it.
+    const run = screen.getByRole("button", { name: /^run$/i });
+    expect(scrollRegion?.contains(run)).toBe(false);
+  });
+
+  it("keeps the action bar from collapsing on short windows (shrink-0)", () => {
+    // The action bar is the last row; a height cap on the zone must not squeeze
+    // it. It is marked shrink-0 so its height is always reserved even when the
+    // viewport is too short for the settings body above it.
+    render(<SetupToolbar />);
+    const actionBar = screen.getByTestId("setup-action-bar");
+    expect(actionBar.className).toContain("shrink-0");
+  });
+
   it("hides the browse buttons again after all items are removed", () => {
     withItems();
     const { rerender } = render(<SetupToolbar />);
