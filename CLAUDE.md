@@ -8,8 +8,8 @@ State: **PR8 rar extraction landed** (PR6 presentation wiring + PR7 frontend + P
 - **Write all code comments in English.** Name identifiers in English too. Details: `.claude/conventions.md`.
 - **TDD**: write tests before implementation (cargo-nextest / Vitest).
 - **Layer boundaries**: `domain` is pure (no IO/async); IO lives behind the Extractor/Archiver/Clock ports; deps flow presentation→application→domain and infrastructure→domain.
-- **Do not swap libraries** (Tauri 2 / async_zip / unrar / mockall / loom / Biome are fixed choices).
-- **One PR ≤ 1000 lines**, walking skeleton first; clippy/fmt/nextest/biome/vitest green before merge.
+- **Do not swap libraries** (Tauri 2 / async_zip / unrar / mockall / loom / oxlint / oxfmt are fixed choices).
+- **One PR ≤ 1000 lines**, walking skeleton first; clippy/fmt/nextest/oxlint/oxfmt/vitest green before merge.
 - Never `git commit` / `git push` until the user explicitly asks.
 
 ## Documentation layers (L1/L2/L3)

@@ -39,7 +39,7 @@ It ships as a single self-contained native application built with **Tauri 2** â€
 | Naming parser | [LALRPOP](https://crates.io/crates/lalrpop) (grammar codegen) + [logos](https://crates.io/crates/logos) (lexer) â€” build-time tooling inside `simple-archiver-core` |
 | Rust tests | [cargo-nextest](https://nexte.st/) (runner) + [mockall](https://crates.io/crates/mockall) (port mocks) + [loom](https://crates.io/crates/loom) (concurrency verification) |
 | Frontend tests | [Vitest](https://vitest.dev/) + Testing Library (jsdom) |
-| Format / lint | [Biome](https://biomejs.dev/) (frontend) + `cargo fmt` / `clippy` (Rust) |
+| Format / lint | [oxlint](https://oxc.rs/docs/guide/usage/linter) + [oxfmt](https://oxc.rs/docs/guide/usage/formatter) (frontend) + `cargo fmt` / `clippy` (Rust) |
 | Tooling | [pnpm](https://pnpm.io/) (package manager) + [mise](https://mise.jdx.dev/) (pinned toolchain) |
 
 Technology choices are fixed. The compression libraries are deliberately kept behind a common interface so they can be treated as plugins (see below), but the libraries themselves are not swapped without a corresponding design change.
@@ -160,7 +160,7 @@ cargo fmt
 
 # Frontend
 pnpm test             # Vitest one-shot
-pnpm check            # Biome: format + lint with autofix
+pnpm check            # oxlint + oxfmt: format + lint with autofix
 pnpm build            # tsc + vite build (the load-bearing type gate)
 ```
 

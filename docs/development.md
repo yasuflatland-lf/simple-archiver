@@ -15,7 +15,8 @@
 | TypeScript bindings | ts-rs 10 (`#[derive(TS)]` on DTOs generates `.ts` files committed to `src/bindings/`) |
 | Parser / lexer | LALRPOP 0.20.x (parser codegen from `.lalrpop` grammar) + logos (lexer); both are build-time tooling inside `simple-archiver-core` |
 | Frontend tests | Vitest + Testing Library (jsdom; native DOM assertions — jest-dom is intentionally not installed) |
-| Frontend format / lint | Biome (`biome.json`; single formatter + linter, fills the ESLint/Prettier role) |
+| Frontend linter | oxlint v1.67.0 (`.oxlintrc.json`) |
+| Frontend formatter | oxfmt v0.52.0 (`.oxfmtrc.json`) |
 
 Technology choices are fixed. **Do not swap in alternative libraries on your own.** If a change is needed, propose it together with an update to the design (the source of truth).
 
@@ -38,8 +39,11 @@ cargo clippy -p simple-archiver --all-targets -- -D warnings
 cargo nextest run -p simple-archiver          # also regenerates ts-rs bindings in src/bindings/
 
 # Frontend
-pnpm check                 # Biome: format + lint with autofix (run before committing)
-pnpm biome:ci              # Biome: CI gate — format + lint, no writes (mirrors CI)
+pnpm format                # oxfmt: format all frontend files (write mode)
+pnpm fmt:check             # oxfmt: check formatting, no writes (CI read-only gate)
+pnpm lint                  # oxlint: lint frontend files
+pnpm lint:ci               # oxlint: lint with --deny-warnings (CI gate)
+pnpm check                 # oxfmt write + oxlint --fix (run before committing)
 pnpm test                  # Vitest one-shot (= vitest run)
 pnpm test:watch            # Vitest watch mode
 pnpm run test:coverage     # Vitest coverage -> coverage/lcov.info
@@ -105,7 +109,7 @@ activated on codecov.io for reports to appear. Coverage config lives in
 - Target **one PR ≤ 1000 lines**, with the walking skeleton (folder → zip e2e) going first. The line count includes co-located tests; a TDD-heavy, cohesive pure-domain PR can legitimately exceed 1000 lines (PR4 ran to ~1.5k, largely tests). When that happens, surface it explicitly and get maintainer approval rather than silently splitting interdependent code across stacked PRs.
 - Stack PRs in order of high-impact × low-effort (follow the PR1–PR10 split and dependency graph in the design).
 - Each PR has acceptance criteria in the design; do not mix in out-of-scope items.
-- Before merge, `cargo clippy` / `cargo fmt` / `cargo nextest run` / `pnpm biome:ci` / `pnpm test` / `pnpm build` must all be green. `pnpm build` (= `tsc && vite build`) is the load-bearing type gate — `pnpm test` does not type-check (see Frontend testing policy). CI builds on both Mac and Windows.
+- Before merge, `cargo clippy` / `cargo fmt` / `cargo nextest run` / `pnpm fmt:check` / `pnpm lint:ci` / `pnpm test` / `pnpm build` must all be green. `pnpm build` (= `tsc && vite build`) is the load-bearing type gate — `pnpm test` does not type-check (see Frontend testing policy). CI builds on both Mac and Windows.
 - Never run `git commit` / `git push` until the user explicitly asks.
 
 ## Build / scaffold notes (learnings)
@@ -121,7 +125,7 @@ activated on codecov.io for reports to appear. Coverage config lives in
   - Use `!(1..=N).contains(&x)` instead of `x < 1 || x > N`; the latter triggers `clippy::manual_range_contains`.
   - A `pub` / `pub(crate)` item is exempt from `dead_code`, but a non-public fn that is only consumed by tests until a later task wires real callers may need a temporary `#[allow(dead_code)]`; remove it once production code calls it.
 
-- **ts-rs binding generation workflow.** Wire-contract DTOs live in `src-tauri/src/` and derive `TS` with `#[ts(export, export_to = "../../src/bindings/")]`. The `export_to` path is relative to the **source-file directory** (`src-tauri/src/`), so `"../../src/bindings/"` resolves to the repo's `src/bindings/`. Bindings are regenerated whenever the Rust tests run (`cargo nextest run -p simple-archiver`). The generated `.ts` files are **committed** — they are a derived artifact with a single authored source (the Rust DTO) and the frontend imports them directly. A CI "bindings freshness" check (`git diff --exit-code src/bindings`) is deferred to a follow-up PR because the `src-tauri` codegen step requires a pre-built `dist/`; within each PR the contract is locked instead by Rust-side serde-shape tests. **Regen produces unformatted output (harness):** the regenerated `.ts` output is raw/unformatted, whereas committed versions are Biome-formatted. Running any Rust test that builds the `src-tauri` crate (workspace nextest, `cargo nextest run -p simple-archiver`, or some `cargo check -p simple-archiver` flows) leaves `src/bindings/*.ts` showing as modified with formatting-only diffs (brace/indent, `,`-vs-`;`, trailing spaces). If no DTO actually changed, restore with `git checkout -- src/bindings/`; if a DTO did change, re-run `pnpm check` / `pnpm biome:ci` to reformat before committing — otherwise the working tree looks dirty and `pnpm biome:ci` fails on the unformatted regen.
+- **ts-rs binding generation workflow.** Wire-contract DTOs live in `src-tauri/src/` and derive `TS` with `#[ts(export, export_to = "../../src/bindings/")]`. The `export_to` path is relative to the **source-file directory** (`src-tauri/src/`), so `"../../src/bindings/"` resolves to the repo's `src/bindings/`. Bindings are regenerated whenever the Rust tests run (`cargo nextest run -p simple-archiver`). The generated `.ts` files are **committed** — they are a derived artifact with a single authored source (the Rust DTO) and the frontend imports them directly. A CI "bindings freshness" check (`git diff --exit-code src/bindings`) is deferred to a follow-up PR because the `src-tauri` codegen step requires a pre-built `dist/`; within each PR the contract is locked instead by Rust-side serde-shape tests. **Regen produces unformatted output (harness):** the regenerated `.ts` output is raw/unformatted, whereas committed versions are oxfmt-formatted. Running any Rust test that builds the `src-tauri` crate (workspace nextest, `cargo nextest run -p simple-archiver`, or some `cargo check -p simple-archiver` flows) leaves `src/bindings/*.ts` showing as modified with formatting-only diffs (brace/indent, `,`-vs-`;`, trailing spaces). If no DTO actually changed, restore with `git checkout -- src/bindings/`; if a DTO did change, re-run `pnpm format` to reformat before committing — otherwise the working tree looks dirty and `pnpm fmt:check` fails on the unformatted regen.
 - **HARNESS — ts-rs `u64` → always `#[ts(type = "number")]`.** ts-rs 10 maps Rust `u64` to TypeScript `bigint`, but Tauri IPC delivers JSON `number`. A `bigint`-typed binding mismatches the runtime payload. Annotate every `u64` DTO field with `#[ts(type = "number")]` (safe for values below 2^53; byte counters in practice). `u32` maps to `number` without an override. Pair this with a regression test asserting that the generated binding file emits `number` and not `bigint`.
 - **`unrar` on Windows MSVC needs `advapi32` linked.** `unrar_sys` bundles UnRAR C++ source that references advapi32 APIs (registry, process-token/SID, legacy CryptoAPI, `SetFileSecurityW`), but its build script never emits the link directive. Any artifact pulling in `unrar` — the core test binary and the Tauri app — fails MSVC link with `LNK1120: 13 unresolved externals` (`__imp_Reg*`, `OpenProcessToken`, `Crypt*`, …). Fix: `crates/core/build.rs` emits `cargo:rustc-link-lib=advapi32` gated on `CARGO_CFG_TARGET_OS == "windows"` (inert on macOS/Linux). This defect is invisible on local macOS development and surfaces only on the CI `app` Windows runner — making the Windows matrix job the load-bearing gate for this dependency's link correctness.
 
