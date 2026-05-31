@@ -12,6 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Belt and suspenders: mise.toml requests rustfmt/clippy/llvm-tools-preview
       # components, but ensure they exist on the active toolchain even if a cached
       # install lacks them. llvm-tools-preview is required by cargo-llvm-cov.
@@ -32,6 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Belt and suspenders: ensure clippy is available even if a cached install lacks it.
       - run: rustup component add clippy
       # Keep the loom-gated build warning-clean (normal clippy never sees #[cfg(loom)] code).
@@ -93,6 +99,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Belt and suspenders: mise.toml requests clippy components, but
       # ensure they exist on the active toolchain even if a cached install lacks them.
       - run: rustup component add clippy
