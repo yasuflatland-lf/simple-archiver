@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_TEMPLATE } from "@/components/NamingRuleForm";
 import { previewOutputName } from "@/lib/archive";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
@@ -168,6 +169,50 @@ describe("OutputSettings", () => {
     await waitFor(() => {
       expect(vi.mocked(previewOutputName)).toHaveBeenCalledWith(
         "img_{n:02}",
+        1,
+      );
+    });
+  });
+
+  // Regression: when the template preview rejects and outputDir is set, the
+  // component must not render the directory path alone (e.g. "~/Archives/")
+  // in the full-path preview area. The alert itself is still shown; only
+  // the isolated directory must be absent from the monospace preview span.
+  it("does not render directory-only path after a preview error with outputDir set", async () => {
+    vi.mocked(previewOutputName).mockRejectedValue(
+      "invalid naming template: stray or malformed brace",
+    );
+    useJobStore.setState({
+      draft: {
+        items: [],
+        namingTemplate: "photo_{n",
+        outputDir: "~/Archives",
+      },
+    });
+    render(<OutputSettings />);
+
+    // Wait for the alert to appear to confirm the error path was reached.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent ?? "").toMatch(/invalid naming template/i);
+
+    // The full-path preview span (font-mono) must not exist in the DOM.
+    // queryAllByText with the exact trailing-slash string checks the specific
+    // rendered output; the destination picker shows "~/Archives" without the
+    // slash so a queryByText for the slash-terminated form is unambiguous.
+    expect(screen.queryByText("~/Archives/")).toBeNull();
+  });
+
+  // When the store has not pushed a namingTemplate yet (null), OutputSettings
+  // must fall back to DEFAULT_TEMPLATE when calling previewOutputName.
+  it("falls back to DEFAULT_TEMPLATE when store namingTemplate is null", async () => {
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: "~/Archives" },
+    });
+    render(<OutputSettings />);
+
+    await waitFor(() => {
+      expect(vi.mocked(previewOutputName)).toHaveBeenCalledWith(
+        DEFAULT_TEMPLATE,
         1,
       );
     });

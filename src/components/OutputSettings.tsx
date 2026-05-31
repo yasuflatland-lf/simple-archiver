@@ -72,9 +72,11 @@ export function OutputSettings() {
   const outputDir = useJobStore((s) => s.draft.outputDir);
   const itemCount = useJobStore((s) => s.draft.items.length);
 
-  // null = still loading (debounce pending or first async call in flight).
-  // "" = resolved to empty due to an error.
-  // non-empty string = resolved filename ready for display.
+  // null  = still loading (debounce pending or first async call in flight).
+  // ""    = preview could not be resolved (error path); the full-path row is
+  //         suppressed the same way as for null, so the directory is never
+  //         shown in isolation.
+  // <str> = resolved filename ready for display.
   const [previewName, setPreviewName] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -116,12 +118,11 @@ export function OutputSettings() {
     };
   }, [effectiveTemplate]);
 
-  // The full landing path is only computed once the preview filename has
-  // resolved. While previewName is null (debounce window or first call in
-  // flight) we render nothing, avoiding a momentary directory-only display
-  // that could mislead users about the output location.
-  const fullPath =
-    previewName !== null ? joinOutputPath(outputDir, previewName) : null;
+  // The full landing path is only shown when previewName is a non-empty
+  // string. Both null (still loading) and "" (error path, set by .catch)
+  // suppress the row, so the output directory is never displayed in isolation,
+  // which would mislead the user about the actual destination.
+  const fullPath = previewName ? joinOutputPath(outputDir, previewName) : null;
   const readiness = readinessFor(itemCount, outputDir);
 
   return (
