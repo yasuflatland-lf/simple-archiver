@@ -27,7 +27,7 @@ pub const PROGRESS_EVENT: &str = "archive://progress";
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct ProgressEvent {
-    /// Summed byte counters across every task.
+    /// Byte counters summed across all per-task entries (derived from `JobProgress::overall`).
     pub overall: ProgressCounts,
     /// Estimated time remaining for the whole job, in milliseconds; null when unknown.
     // ts-rs would emit `bigint | null` for Option<u64>; Tauri IPC delivers a JSON
@@ -160,7 +160,7 @@ impl From<&TaskProgress> for ProgressCounts {
 impl From<&JobProgress> for ProgressEvent {
     fn from(job_progress: &JobProgress) -> Self {
         Self {
-            overall: ProgressCounts::from(&job_progress.overall),
+            overall: ProgressCounts::from(&job_progress.overall()),
             overall_eta_ms: job_progress.overall_eta.map(|d| d.as_millis() as u64),
             per_task: job_progress
                 .per_task
@@ -438,21 +438,20 @@ mod tests {
     fn job_progress_maps_overall_and_elapsed() {
         // `TaskId` cannot be constructed from outside the core crate (its
         // constructor is `pub(crate)`), so `per_task` is exercised here with an
-        // empty vec; the per-task field mapping is covered by the serde-shape
-        // test above. The overall counters and elapsed conversion are checked
-        // here against a directly-constructed `JobProgress` (its fields are pub).
+        // empty vec. With an empty `per_task`, `overall()` returns {0, 0}.
+        // The overall_eta and elapsed conversions are the primary checks here.
         let job_progress = JobProgress {
-            overall: TaskProgress::new(5, 15),
             overall_eta: Some(Duration::from_millis(2500)),
             per_task: Vec::new(),
             elapsed: Duration::from_millis(1234),
         };
         let event = ProgressEvent::from(&job_progress);
+        // overall() == {0, 0} when per_task is empty (TaskId is pub(crate)).
         assert_eq!(
             event.overall,
             ProgressCounts {
-                bytes_done: 5,
-                bytes_total: 15,
+                bytes_done: 0,
+                bytes_total: 0,
             }
         );
         assert!(event.per_task.is_empty());
@@ -463,7 +462,6 @@ mod tests {
     #[test]
     fn job_progress_elapsed_converts_to_u64_millis() {
         let job_progress = JobProgress {
-            overall: TaskProgress::zero(),
             overall_eta: None,
             per_task: Vec::new(),
             elapsed: Duration::from_secs(2),

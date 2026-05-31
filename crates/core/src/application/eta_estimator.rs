@@ -108,8 +108,9 @@ impl EtaTracker {
 
     /// Observe `progress` as of `now`, filling `overall_eta` and each entry's `eta`.
     pub fn enrich(&mut self, progress: &mut JobProgress, now: Instant) {
-        self.overall.observe(now, progress.overall.bytes_done());
-        progress.overall_eta = self.overall.eta(progress.overall.remaining());
+        let overall = progress.overall();
+        self.overall.observe(now, overall.bytes_done());
+        progress.overall_eta = self.overall.eta(overall.remaining());
         for entry in &mut progress.per_task {
             let est = self
                 .per_task
@@ -156,7 +157,6 @@ mod tracker_tests {
         done1: u64,
     ) -> JobProgress {
         JobProgress {
-            overall: TaskProgress::new(done0 + done1, 200),
             overall_eta: None,
             per_task: vec![
                 TaskProgressEntry {
@@ -229,22 +229,33 @@ mod tracker_tests {
 
     #[test]
     fn enrich_fills_overall_eta_from_advancing_observations() {
+        // The overall() method sums per_task bytes_done/bytes_total.
+        // Use a single per-task entry so overall() == that entry's progress.
+        let (_job, ids) = two_task_job();
         let base = Instant::now();
         let mut tracker = EtaTracker::new(Duration::from_secs(60));
 
+        // First snapshot: 0 bytes done out of 100 total (one task entry).
         let mut first = JobProgress {
-            overall: TaskProgress::new(0, 100),
             overall_eta: None,
-            per_task: Vec::new(),
+            per_task: vec![TaskProgressEntry {
+                id: ids[0],
+                progress: TaskProgress::new(0, 100),
+                eta: None,
+            }],
             elapsed: Duration::ZERO,
         };
         tracker.enrich(&mut first, base);
         assert_eq!(first.overall_eta, None, "one sample -> no ETA yet");
 
+        // Second snapshot: 10 bytes done out of 100 (same task, 1 second later).
         let mut second = JobProgress {
-            overall: TaskProgress::new(10, 100),
             overall_eta: None,
-            per_task: Vec::new(),
+            per_task: vec![TaskProgressEntry {
+                id: ids[0],
+                progress: TaskProgress::new(10, 100),
+                eta: None,
+            }],
             elapsed: Duration::from_secs(1),
         };
         tracker.enrich(&mut second, base + Duration::from_secs(1));

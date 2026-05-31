@@ -634,7 +634,7 @@ mod tests {
         assert!(!snaps.is_empty(), "expected progress snapshots");
         let last = snaps.last().unwrap();
         // Both tasks finish at 10/10 -> overall 20/20.
-        assert_eq!(last.overall, TaskProgress::new(20, 20));
+        assert_eq!(last.overall(), TaskProgress::new(20, 20));
         assert_eq!(last.per_task.len(), 2);
         let snap_ids: Vec<TaskId> = last.per_task.iter().map(|e| e.id).collect();
         assert_eq!(snap_ids, ids, "per_task must follow job task order");

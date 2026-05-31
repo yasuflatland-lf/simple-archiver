@@ -64,16 +64,12 @@ impl Aggregator {
 
     /// Build an aggregated snapshot as of `now`, in job task order.
     pub fn snapshot(&self, now: Instant) -> JobProgress {
-        let mut done = 0u64;
-        let mut total = 0u64;
         let per_task = self
             .job
             .tasks()
             .iter()
             .map(|t| {
                 let p = self.progress.get(&t.id()).copied().unwrap_or_default();
-                done += p.bytes_done();
-                total += p.bytes_total();
                 TaskProgressEntry {
                     id: t.id(),
                     progress: p,
@@ -82,7 +78,6 @@ impl Aggregator {
             })
             .collect();
         JobProgress {
-            overall: TaskProgress::new(done, total),
             overall_eta: None,
             per_task,
             elapsed: now.saturating_duration_since(self.started_at),
@@ -158,7 +153,7 @@ mod tests {
         })
         .unwrap();
         let snap = agg.snapshot(base + Duration::from_millis(50));
-        assert_eq!(snap.overall, TaskProgress::new(5, 15));
+        assert_eq!(snap.overall(), TaskProgress::new(5, 15));
         assert_eq!(
             snap.per_task,
             vec![
