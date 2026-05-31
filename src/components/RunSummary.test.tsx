@@ -58,4 +58,44 @@ describe("RunSummary", () => {
     render(<RunSummary />);
     expect(screen.getByRole("status")).toBeTruthy();
   });
+
+  it("falls back to a task-id label when the output name is unavailable", () => {
+    useJobStore.setState({
+      previewNames: [],
+      taskIdByIndex: [],
+      summary: {
+        succeeded: [],
+        cancelled: [],
+        failed: [{ taskId: 12, reason: "boom" }],
+      },
+    });
+    render(<RunSummary />);
+    expect(screen.getByText(/task 12/).textContent).toContain("boom");
+  });
+
+  it("renders every failed item with its output name and reason", () => {
+    useJobStore.setState({
+      previewNames: ["out_1.zip", "out_2.zip"],
+      taskIdByIndex: [10, 11],
+      summary: {
+        succeeded: [],
+        cancelled: [],
+        failed: [
+          { taskId: 10, reason: "err A" },
+          { taskId: 11, reason: "err B" },
+        ],
+      },
+    });
+    render(<RunSummary />);
+    expect(screen.getByText(/out_1\.zip/).textContent).toContain("err A");
+    expect(screen.getByText(/out_2\.zip/).textContent).toContain("err B");
+  });
+
+  it("omits the failed-items disclosure when there are no failures", () => {
+    useJobStore.setState({
+      summary: { succeeded: [1], cancelled: [], failed: [] },
+    });
+    render(<RunSummary />);
+    expect(screen.queryByText(/Errors/)).toBeNull();
+  });
 });

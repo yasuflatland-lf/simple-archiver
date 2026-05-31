@@ -29,6 +29,9 @@ export function RunSummary() {
     return name ?? `task ${taskId}`;
   }
 
+  // <output> carries an implicit ARIA role of "status" (and implicit aria-live),
+  // so the panel is announced to assistive tech and tests resolve it via
+  // getByRole("status"); keep this an <output> when refactoring.
   return (
     <output
       aria-live="polite"
