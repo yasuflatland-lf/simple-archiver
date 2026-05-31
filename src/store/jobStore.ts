@@ -70,6 +70,14 @@ export interface JobState {
   applyProgress: (event: ProgressEvent) => void;
   /** Recompute preview filenames from the current draft. */
   recomputePreviews: () => Promise<void>;
+  /**
+   * Clear all queued items while preserving the naming template and output dir.
+   * Resets transient job state (summary, progress, error, taskIdByIndex,
+   * previewNames). The retained settings come from the backend snapshot so
+   * they remain in sync with the backend draft. This is a user-initiated queue
+   * clear — distinct from resetJobStore(), which is the test-only full reset.
+   */
+  reset: () => Promise<void>;
 }
 
 export const useJobStore = create<JobState>()((set, get) => ({
@@ -174,6 +182,22 @@ export const useJobStore = create<JobState>()((set, get) => ({
       // Same staleness check on the failure path.
       if (generation !== previewGeneration) return;
       set({ previewNames: [], error: messageFromReason(reason) });
+    }
+  },
+
+  reset: async () => {
+    try {
+      const draft = await archive.clearItems();
+      set({
+        draft,
+        summary: null,
+        progress: null,
+        error: null,
+        taskIdByIndex: [],
+        previewNames: [],
+      });
+    } catch (reason) {
+      set({ error: messageFromReason(reason) });
     }
   },
 }));
