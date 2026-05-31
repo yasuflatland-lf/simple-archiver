@@ -16,7 +16,7 @@
     "fmt:check": "oxfmt --check src vite.config.ts vitest.config.ts",
     "lint": "oxlint src vite.config.ts vitest.config.ts",
     "lint:ci": "oxlint --deny-warnings src vite.config.ts vitest.config.ts",
-    "check": "oxfmt src vite.config.ts vitest.config.ts && oxlint --fix src"
+    "check": "oxfmt src vite.config.ts vitest.config.ts && oxlint --fix --deny-warnings src vite.config.ts vitest.config.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
