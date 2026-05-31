@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
 
-// Human-readable reason Run is unavailable, shown on hover and to AT (empty when ready).
+// Human-readable reason Run is unavailable, shown on hover and to assistive technology (AT); empty string when ready.
 function runUnavailableReason(
   itemCount: number,
   outputDir: string | null,
@@ -22,7 +22,7 @@ const RUN_REASON_ID = "run-disabled-reason";
 /**
  * RunControls renders the primary job actions (Cancel / Run). Run is the
  * right-edge primary; Cancel sits to its left and is recessive. The completion
- * summary is rendered separately by RunSummary; error display is the top-level
+ * summary is rendered separately by RunSummary; error display is handled by the top-level
  * App banner — no duplication here.
  */
 export function RunControls() {
@@ -36,12 +36,15 @@ export function RunControls() {
 
   function handleRun() {
     // Run uses aria-disabled (not the native disabled attribute) so it stays
-    // focusable and AT can announce why it is unavailable. Guard the action.
+    // focusable and assistive technology (AT) can announce why it is unavailable. Guard the action.
     if (runDisabled) return;
     useJobStore.getState().runJob();
   }
 
   function handleCancel() {
+    // Mirror the button's disabled={!running} prop; native disabled already
+    // suppresses clicks, this keeps the handler safe if that ever changes.
+    if (!running) return;
     useJobStore.getState().cancelJob();
   }
 

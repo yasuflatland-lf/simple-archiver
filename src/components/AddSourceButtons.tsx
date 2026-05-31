@@ -40,7 +40,7 @@ interface AddSourceButtonsProps {
 
 /**
  * The two browse fallbacks for adding sources: a rar-filtered file picker and a
- * folder picker. Reused by the toolbar and the empty-state CTA.
+ * folder picker. Rendered by EmptyQueue (always) and by the SetupToolbar action bar (only when the queue has items).
  */
 export function AddSourceButtons({ size = "sm" }: AddSourceButtonsProps) {
   return (
