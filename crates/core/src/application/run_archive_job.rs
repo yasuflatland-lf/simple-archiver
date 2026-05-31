@@ -172,10 +172,10 @@ async fn run_one<A: Archiver, E: Extractor>(
         return;
     }
 
-    // rar files extract first; folders compress directly. Emit the extraction
+    // rar/zip files extract first; folders compress directly. Emit the extraction
     // status only for sources that actually extract, so the task walks the legal
     // Pending -> Extracting -> Compressing path (folders take the fast-path).
-    let needs_extract = matches!(item.source, SourceItem::RarFile(_));
+    let needs_extract = matches!(item.source, SourceItem::RarFile(_) | SourceItem::ZipFile(_));
     if needs_extract {
         let _ = tx.send(WorkerMsg::Status {
             task: item.task,
@@ -583,6 +583,44 @@ mod tests {
             calls.load(Ordering::SeqCst),
             1,
             "exactly the rar task extracts"
+        );
+    }
+
+    #[tokio::test]
+    async fn zip_item_extracts_then_compresses_and_succeeds() {
+        let items = vec![
+            SourceItem::Folder(PathBuf::from("dir0")),
+            SourceItem::ZipFile(PathBuf::from("a.zip")),
+        ];
+        let job = ArchiveJob::plan(
+            items,
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        let extractor = Arc::new(FakeExtractor::new());
+        let calls = extractor.calls.clone();
+        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, nz(2));
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        // Both tasks succeed; reaching Completed proves the zip task walked the
+        // legal Pending -> Extracting -> Compressing -> Completed sequence (an
+        // out-of-order event would trip the engine's debug_assert).
+        let mut succeeded = summary.succeeded.clone();
+        succeeded.sort_by_key(|i| i.get());
+        let mut expected = ids.clone();
+        expected.sort_by_key(|i| i.get());
+        assert_eq!(succeeded, expected);
+        assert!(summary.failed.is_empty());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "exactly the zip task extracts"
         );
     }
 
