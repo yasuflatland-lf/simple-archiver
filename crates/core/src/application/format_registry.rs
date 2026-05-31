@@ -1,7 +1,8 @@
 //! `FormatRegistry`: resolves a `SourceItem` into a compressible directory.
 //!
-//! `Folder` is already a directory; `RarFile` is extracted into a temp guard via
-//! the `Extractor` port. The returned `Prepared` owns the extracted-tree guard, so
+//! `Folder` is already a directory; `RarFile` and `ZipFile` are each extracted
+//! into a temp guard via the `Extractor` port. The returned `Prepared` owns the
+//! extracted-tree guard, so
 //! the temp directory lives exactly as long as the value is held by the caller
 //! (the engine drops it after compression).
 
@@ -14,7 +15,7 @@ use std::sync::Arc;
 pub(crate) enum Prepared {
     /// A folder source — compressed in place, no temp directory.
     Folder(PathBuf),
-    /// A rar source extracted into a temp guard; dropping the guard removes the dir.
+    /// An extracted archive source (rar/zip) in a temp guard; dropping the guard removes the dir.
     Extracted(Box<dyn ExtractedTree>),
 }
 
@@ -50,11 +51,11 @@ impl<E: Extractor> FormatRegistry<E> {
         Self { extractor }
     }
 
-    /// Resolve `source` into a `Prepared` directory, extracting rar files.
+    /// Resolve `source` into a `Prepared` directory, extracting rar/zip files.
     pub(crate) async fn prepare(&self, source: &SourceItem) -> Result<Prepared, ExtractError> {
         match source {
             SourceItem::Folder(path) => Ok(Prepared::Folder(path.clone())),
-            SourceItem::RarFile(path) => {
+            SourceItem::RarFile(path) | SourceItem::ZipFile(path) => {
                 Ok(Prepared::Extracted(self.extractor.extract(path).await?))
             }
         }
@@ -77,7 +78,8 @@ mod tests {
         }
     }
 
-    /// A fake extractor: records calls, optionally fails for given rar file names.
+    /// A fake extractor: records calls, optionally fails for entries whose
+    /// filename is in `fail_names`.
     struct FakeExtractor {
         fail_names: HashSet<String>,
         calls: Arc<AtomicUsize>,
@@ -148,5 +150,24 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(ExtractError::Backend(_))));
+    }
+
+    #[tokio::test]
+    async fn zip_is_extracted_and_dir_points_at_the_temp_tree() {
+        let fake = FakeExtractor::new();
+        let calls = fake.calls.clone();
+        let registry = FormatRegistry::new(Arc::new(fake));
+
+        let prepared = registry
+            .prepare(&SourceItem::ZipFile(PathBuf::from("a.zip")))
+            .await
+            .expect("zip prepares");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "zip must extract once");
+        assert!(
+            prepared.dir().is_dir(),
+            "prepared dir should be a real directory"
+        );
+        assert!(matches!(prepared, Prepared::Extracted(_)));
     }
 }

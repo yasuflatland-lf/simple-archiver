@@ -1,13 +1,13 @@
-//! The source item to archive — either a rar file or a folder (no IO).
+//! The source item to archive — a rar file, a zip file, or a folder (no IO).
 
 use std::path::PathBuf;
 
-/// Error returned when a path is neither a folder nor a `.rar` file.
+/// Error returned when a path is neither a `.rar`/`.zip` archive nor a directory.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("unsupported item: {}", .0.display())]
 pub struct UnsupportedSourceItem(pub PathBuf);
 
-/// A source item to archive: either a rar file or a folder.
+/// A source item to archive: a rar file, a zip file, or a folder.
 ///
 /// This is a value object. Use [`SourceItem::classify`] to derive the correct
 /// variant from a path; the filesystem probe (`is_dir`) is injected by the
@@ -16,6 +16,8 @@ pub struct UnsupportedSourceItem(pub PathBuf);
 pub enum SourceItem {
     /// A rar file to be extracted and re-archived as a zip.
     RarFile(PathBuf),
+    /// A zip file to be extracted and re-archived as a zip.
+    ZipFile(PathBuf),
     /// A folder to be archived as a zip.
     Folder(PathBuf),
 }
@@ -25,21 +27,18 @@ impl SourceItem {
     ///
     /// `is_dir` is injected by the caller so the domain never touches the
     /// filesystem (layer purity). A `.rar` file (case-insensitive extension)
-    /// becomes `RarFile`, a directory becomes `Folder`, anything else is
-    /// `UnsupportedSourceItem`. A non-UTF-8 extension cannot match `rar`, so it
-    /// is also classified as unsupported.
+    /// becomes `RarFile`, a `.zip` file becomes `ZipFile`, a directory becomes
+    /// `Folder`, and anything else is `UnsupportedSourceItem`. A non-UTF-8
+    /// extension cannot match any supported format, so it is also classified as
+    /// unsupported. Directory classification always takes precedence over extension.
     pub fn classify(path: PathBuf, is_dir: bool) -> Result<Self, UnsupportedSourceItem> {
         if is_dir {
             return Ok(SourceItem::Folder(path));
         }
-        let is_rar = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("rar"));
-        if is_rar {
-            Ok(SourceItem::RarFile(path))
-        } else {
-            Err(UnsupportedSourceItem(path))
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some(e) if e.eq_ignore_ascii_case("rar") => Ok(SourceItem::RarFile(path)),
+            Some(e) if e.eq_ignore_ascii_case("zip") => Ok(SourceItem::ZipFile(path)),
+            _ => Err(UnsupportedSourceItem(path)),
         }
     }
 }
@@ -104,6 +103,7 @@ mod tests {
         let item = SourceItem::RarFile(path.clone());
         match item {
             SourceItem::RarFile(p) => assert_eq!(p, path),
+            SourceItem::ZipFile(_) => panic!("Expected RarFile variant"),
             SourceItem::Folder(_) => panic!("Expected RarFile variant"),
         }
     }
@@ -115,6 +115,57 @@ mod tests {
         match item {
             SourceItem::Folder(p) => assert_eq!(p, path),
             SourceItem::RarFile(_) => panic!("Expected Folder variant"),
+            SourceItem::ZipFile(_) => panic!("Expected Folder variant"),
+        }
+    }
+
+    #[test]
+    fn classify_zip_file_is_zip() {
+        let p = PathBuf::from("/some/archive.zip");
+        assert_eq!(
+            SourceItem::classify(p.clone(), false),
+            Ok(SourceItem::ZipFile(p))
+        );
+    }
+
+    #[test]
+    fn classify_zip_extension_is_case_insensitive() {
+        let p_upper = PathBuf::from("/some/ARCHIVE.ZIP");
+        assert_eq!(
+            SourceItem::classify(p_upper.clone(), false),
+            Ok(SourceItem::ZipFile(p_upper))
+        );
+
+        let p_mixed = PathBuf::from("/some/archive.Zip");
+        assert_eq!(
+            SourceItem::classify(p_mixed.clone(), false),
+            Ok(SourceItem::ZipFile(p_mixed))
+        );
+    }
+
+    #[test]
+    fn classify_directory_with_zip_extension_is_folder_not_zip() {
+        // is_dir takes precedence over the extension: a directory named
+        // "archive.zip" is a Folder, never a ZipFile.
+        let p = PathBuf::from("/some/archive.zip");
+        assert_eq!(
+            SourceItem::classify(p.clone(), true),
+            Ok(SourceItem::Folder(p))
+        );
+    }
+
+    #[test]
+    fn construct_zip_file_variant() {
+        let path = PathBuf::from("/path/to/file.zip");
+        let item = SourceItem::ZipFile(path.clone());
+        // Verify clone produces an equal value.
+        let cloned = item.clone();
+        assert_eq!(item, cloned);
+        // Exhaustive match extracts the inner path.
+        match cloned {
+            SourceItem::ZipFile(p) => assert_eq!(p, path),
+            SourceItem::RarFile(_) => panic!("Expected ZipFile variant"),
+            SourceItem::Folder(_) => panic!("Expected ZipFile variant"),
         }
     }
 

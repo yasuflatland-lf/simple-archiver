@@ -8,7 +8,18 @@
 - `SequenceNumber(NonZeroU32)` — 1-based; `0` is rejected at construction (`SequenceError::Zero`).
 - `NamingRule { template }` — parses the template into a segment list; see "Naming rule details" below.
 - `FileStem` / `OutputFileName` — enforce Windows-superset filename validity (see "FileStem / OutputFileName" below). `OutputFileName::from_stem` appends `.zip`.
-- `SourceItem` — enum `RarFile(PathBuf)` | `Folder(PathBuf)`, constructed via `SourceItem::classify(path, is_dir) -> Result<Self, UnsupportedSourceItem>` (the single source of truth for the classification rule): a directory → `Folder`, a `.rar` file (case-insensitive extension) → `RarFile`, anything else → `UnsupportedSourceItem`. "unsupported" is an **error, not a variant** — a constructed `SourceItem` is always one of the two valid kinds. `is_dir` is injected by the caller so the domain never touches the filesystem.
+- `SourceItem` — enum `RarFile(PathBuf)` | `ZipFile(PathBuf)` | `Folder(PathBuf)`, constructed via `SourceItem::classify(path, is_dir) -> Result<Self, UnsupportedSourceItem>` (the single source of truth for the classification rule). Classification order:
+  1. `is_dir == true` → `Folder` (takes precedence over extension; a directory literally named `archive.zip` or `archive.rar` is still a `Folder`).
+  2. Extension matched case-insensitively (`eq_ignore_ascii_case`): `"rar"` → `RarFile`, `"zip"` → `ZipFile`.
+  3. Anything else (including a non-UTF-8 extension, which cannot match any format) → `Err(UnsupportedSourceItem)`.
+
+  "unsupported" is an **error, not a variant** — a constructed `SourceItem` is always one of the three valid kinds. `is_dir` is injected by the caller so the domain never touches the filesystem.
+
+  **Application-layer collapse.** Both archive variants flow through the SAME pipeline (extract → rename → recompress to Deflate zip). `FormatRegistry::prepare` collapses them: `RarFile(p) | ZipFile(p) ⇒ Prepared::Extracted` (via the `Extractor` port); `Folder(p) ⇒ Prepared::Folder`. The distinction between the two archive kinds is invisible to the engine beyond this point.
+
+  **Presentation `SourceKind` mirror.** The presentation-layer enum `SourceKind { Folder, Rar, Zip }` mirrors `SourceItem` one-for-one. The two are kept in sync solely by the exhaustive `draft_item_from_source` match (compile-time) and the ts-rs binding-export test (`export_typescript_bindings` in `dto.rs`). **Invariant to uphold when adding a format:** add the new variant to BOTH `SourceItem` AND `SourceKind`, update the `draft_item_from_source` match (the compiler enforces exhaustiveness), and re-run the binding-export test to regenerate the TypeScript declaration.
+
+  **`ExtractError::Backend` display string.** `ExtractError::Backend` displays as the archive-neutral `"extract error: {0}"` (was rar-specific in earlier iterations). This string crosses the IPC boundary and is pinned by `extract_error_display_strings_are_stable` in `ports.rs` — do not change it without updating that test.
 - `OutputDirectory(PathBuf)` — a newtype wrapper for the output directory path. In the pure `domain` layer it performs **no filesystem-existence check**; that IO validation is deferred to the infrastructure layer (a later PR).
 - `TaskProgress { bytes_done: u64, bytes_total: u64 }` — progress counters only. There is no `phase` field: the current phase is already represented by `TaskStatus` (`Extracting` / `Compressing`), so `TaskProgress` is purely a pair of byte counters. **`bytes_done <= bytes_total` invariant:** `TaskProgress::new` enforces it via `debug_assert!` (loud in dev/CI) plus a release-build clamp (`bytes_done.min(bytes_total)`) — never a fallible constructor, because the only callers are internal progress callbacks with no recovery path (see conventions.md "debug_assert + release clamp for caller-bug invariants"). **`remaining()` invariant (PR9):** `remaining() = bytes_total.saturating_sub(bytes_done)`, never negative. ETA is typed `Option<Duration>` at the application layer — `None` while throughput is not yet measurable, `Some(ZERO)` when `remaining() == 0`; only `TaskProgress::remaining()` is a domain addition. The `EtaEstimator`/`EtaTracker` that compute ETA live in the **application** layer, not domain (see `architecture.md` "Execution engine").
 
@@ -93,3 +104,4 @@ Windows-superset validity rules (applied identically on all platforms):
 - `ArchiveJob::plan` numbering, name resolution, and uniqueness check.
 - Invariants maintained after `move_up` / `move_down` (order ↔ sequence, name uniqueness).
 - The `TaskStatus` state-transition model.
+- `SourceItem::classify`: zip case-insensitive match, `is_dir` precedence over `.zip`/`.rar` extension, unsupported extensions, missing extension, non-UTF-8 extension → `UnsupportedSourceItem`.

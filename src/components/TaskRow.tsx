@@ -18,6 +18,7 @@ const KIND_BADGE_BASE =
 const KIND_BADGE_COLORS = {
   folder: "bg-category-folder-subtle text-category-folder-foreground",
   rar: "bg-category-archive-subtle text-category-archive-foreground",
+  zip: "bg-category-archive-subtle text-category-archive-foreground",
 } as const;
 
 // Styling shared by both reorder buttons (Move up / Move down).

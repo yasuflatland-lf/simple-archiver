@@ -13,8 +13,8 @@ use simple_archiver_core::domain::archive_job::ArchiveJob;
 use simple_archiver_core::domain::naming_rule::NamingRule;
 use simple_archiver_core::domain::sequence_number::SequenceNumber;
 use simple_archiver_core::domain::source_item::SourceItem;
+use simple_archiver_core::infrastructure::archive_extractor::ArchiveExtractor;
 use simple_archiver_core::infrastructure::system_clock::SystemClock;
-use simple_archiver_core::infrastructure::unrar_extractor::UnrarExtractor;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 
 use crate::presentation::dto::{DraftSnapshot, JobSummaryDto};
@@ -142,7 +142,7 @@ pub async fn run_job_inner(
 ) -> JobSummaryDto {
     let engine = RunArchiveJob::with_default_parallelism(
         Arc::new(ZipArchiver::new()),
-        Arc::new(UnrarExtractor::new()),
+        Arc::new(ArchiveExtractor::new()),
     );
     let clock = SystemClock::new();
     let sink = EventSink::new(emitter);
@@ -311,6 +311,15 @@ mod tests {
         std::fs::write(&rar, b"").expect("write foo.rar");
         let item = classify_path(&rar).expect("a .rar file should classify");
         assert_eq!(item, SourceItem::RarFile(rar));
+    }
+
+    #[test]
+    fn classify_path_zip_is_zip() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let zip = dir.path().join("foo.zip");
+        std::fs::write(&zip, b"").expect("write foo.zip");
+        let item = classify_path(&zip).expect("a .zip file should classify");
+        assert_eq!(item, SourceItem::ZipFile(zip));
     }
 
     #[test]
