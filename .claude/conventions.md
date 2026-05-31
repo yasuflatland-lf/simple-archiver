@@ -26,8 +26,8 @@ This repository requires **all in-code comments to be written in English**.
 ## Naming / style
 
 - Rust: `rustfmt`-compliant. Types `UpperCamelCase`, functions/variables `snake_case`, constants `SCREAMING_SNAKE_CASE`.
-- TypeScript / JS / JSON: linted by **oxlint** (v1.67.0) and formatted by **oxfmt** (v0.52.0). Run `pnpm check` (format + lint, with autofix) before committing; CI enforces it via `pnpm lint:ci`. oxfmt owns style (2-space indent, double quotes, semicolons) and import organization; `tsc` still owns type-checking and `knip` owns unused-code detection.
-  - **`react/button-has-type` is enforced.** Every raw `<button>` element — including in tests — must carry an explicit `type` attribute (e.g. `type="button"`). This rule is enabled as `error` in `.oxlintrc.json` (react plugin, restriction category) and is caught automatically on `pnpm check`.
+- TypeScript / JS / JSON: linted by **oxlint** (v1.67.0) and formatted by **oxfmt** (v0.52.0). Run `pnpm check` (format + lint, with autofix) before committing; CI enforces it via `pnpm fmt:check` + `pnpm lint:ci`. oxfmt owns style (2-space indent, double quotes, semicolons) and import sorting (via oxfmt `sortImports`); `tsc` still owns type-checking and `knip` owns unused-code detection.
+  - **`react/button-has-type` is enforced.** Every raw `<button>` element — including in tests — must carry an explicit `type` attribute (e.g. `type="button"`). This rule is enabled as `error` in `.oxlintrc.json` (react plugin) and is caught automatically on `pnpm check`.
 - Match the surrounding code's comment density, naming, and idioms. Do not introduce a new style.
 - **`#[derive(Clone)]` over-constrains a generic that only holds `Arc<E>` — hand-write the impl instead.**
   - **Why:** `#[derive(Clone)]` on `struct Foo<E> { x: Arc<E> }` generates `impl<E: Clone> Clone for Foo<E>` — it requires `E: Clone` even though cloning an `Arc<E>` only bumps a refcount and never clones `E`. For a generic bounded by a non-`Clone` trait (e.g. `E: Extractor`), the derive makes `Foo<E>` un-cloneable for real implementors even though the operation is perfectly sound.

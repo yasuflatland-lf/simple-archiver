@@ -160,7 +160,7 @@ cargo fmt
 
 # Frontend
 pnpm test             # Vitest one-shot
-pnpm check            # oxlint + oxfmt: format + lint with autofix
+pnpm check            # oxfmt + oxlint: format + lint with autofix
 pnpm build            # tsc + vite build (the load-bearing type gate)
 ```
 
