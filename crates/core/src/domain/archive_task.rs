@@ -2,7 +2,6 @@
 
 use crate::domain::file_name::OutputFileName;
 use crate::domain::source_item::SourceItem;
-use crate::domain::task_progress::TaskProgress;
 use crate::domain::task_status::{IllegalTransition, TaskEvent, TaskStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,12 +45,10 @@ pub struct ArchiveTask {
     source: SourceItem,
     output_name: OutputFileName,
     status: TaskStatus,
-    progress: TaskProgress,
 }
 
 impl ArchiveTask {
-    /// Create a new `ArchiveTask` in the [`TaskStatus::Pending`] state with
-    /// zero progress.
+    /// Create a new `ArchiveTask` in the [`TaskStatus::Pending`] state.
     ///
     /// This constructor is crate-internal; only `ArchiveJob` builds tasks.
     pub(crate) fn new(id: TaskId, source: SourceItem, output_name: OutputFileName) -> Self {
@@ -60,7 +57,6 @@ impl ArchiveTask {
             source,
             output_name,
             status: TaskStatus::Pending,
-            progress: TaskProgress::zero(),
         }
     }
 
@@ -84,11 +80,6 @@ impl ArchiveTask {
     /// Return a reference to the current lifecycle status.
     pub fn status(&self) -> &TaskStatus {
         &self.status
-    }
-
-    /// Return a reference to the current byte-level progress.
-    pub fn progress(&self) -> &TaskProgress {
-        &self.progress
     }
 
     // ── Crate-internal mutators ───────────────────────────────────────────────
@@ -205,12 +196,6 @@ mod tests {
     fn new_task_status_is_pending() {
         let task = make_task(1);
         assert_eq!(task.status(), &TaskStatus::Pending);
-    }
-
-    #[test]
-    fn new_task_progress_is_zero() {
-        let task = make_task(1);
-        assert_eq!(task.progress(), &TaskProgress::zero());
     }
 
     #[test]
@@ -376,12 +361,5 @@ mod tests {
         task.apply_event(TaskEvent::StartExtracting).unwrap();
         task.set_output_name(make_output_name("other"));
         assert_eq!(task.status(), &TaskStatus::Extracting);
-    }
-
-    #[test]
-    fn set_output_name_leaves_progress_unchanged() {
-        let mut task = make_task(1);
-        task.set_output_name(make_output_name("other"));
-        assert_eq!(task.progress(), &TaskProgress::zero());
     }
 }
