@@ -61,6 +61,13 @@ jobs:
           printf '%s' "$ARTIFACT_PATHS" \
             | jq -r '.[]' \
             | while IFS= read -r path; do
+                # Normalize Windows backslash paths so Git Bash and gh both resolve them.
+                path="${path//\\//}"
+                # tauri lists the macOS .app bundle (a directory) next to the .dmg; upload regular files only.
+                if [ ! -f "$path" ]; then
+                  echo "Skipping non-file artifact: $path"
+                  continue
+                fi
                 echo "Uploading: $path"
                 gh release upload "$TAG" "$path" --clobber
               done
