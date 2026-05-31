@@ -53,11 +53,10 @@ pub fn preview_output_name(template: String, seq: u32) -> Result<String, String>
 // Path classification
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Classify a filesystem path into a [`SourceItem`].
+/// Probe the filesystem for `path` and delegate to `SourceItem::classify`.
 ///
-/// A directory becomes [`SourceItem::Folder`]; a file whose extension is `rar`
-/// (case-insensitive) becomes [`SourceItem::RarFile`]; anything else yields an
-/// error string suitable for the IPC boundary.
+/// The `is_dir` probe stays here (presentation) so the domain stays IO-free;
+/// the domain error is mapped to a `String` for the IPC boundary.
 fn classify_path(path: &Path) -> Result<SourceItem, String> {
     // Filesystem probing (`is_dir`) stays in presentation; the classification
     // rule itself lives in the domain (`SourceItem::classify`).

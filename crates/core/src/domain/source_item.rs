@@ -2,15 +2,16 @@
 
 use std::path::PathBuf;
 
-/// Error returned when a dropped item is neither a folder nor a `.rar` file.
+/// Error returned when a path is neither a folder nor a `.rar` file.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("unsupported item: {}", .0.display())]
 pub struct UnsupportedSourceItem(pub PathBuf);
 
 /// A source item to archive: either a rar file or a folder.
 ///
-/// This is a value object. The caller (application layer) classifies the input
-/// and constructs the appropriate variant; the domain does not inspect the filesystem.
+/// This is a value object. Use [`SourceItem::classify`] to derive the correct
+/// variant from a path; the filesystem probe (`is_dir`) is injected by the
+/// caller so the domain itself stays IO-free.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceItem {
     /// A rar file to be extracted and re-archived as a zip.
@@ -20,12 +21,13 @@ pub enum SourceItem {
 }
 
 impl SourceItem {
-    /// Classify a dropped path into a `SourceItem`.
+    /// Classify a path into a `SourceItem`.
     ///
     /// `is_dir` is injected by the caller so the domain never touches the
     /// filesystem (layer purity). A `.rar` file (case-insensitive extension)
     /// becomes `RarFile`, a directory becomes `Folder`, anything else is
-    /// `UnsupportedSourceItem`.
+    /// `UnsupportedSourceItem`. A non-UTF-8 extension cannot match `rar`, so it
+    /// is also classified as unsupported.
     pub fn classify(path: PathBuf, is_dir: bool) -> Result<Self, UnsupportedSourceItem> {
         if is_dir {
             return Ok(SourceItem::Folder(path));
@@ -86,7 +88,8 @@ mod tests {
     #[test]
     fn unsupported_source_item_display_matches_ipc_contract() {
         // The Display string crosses the IPC boundary as-is; keep "unsupported item: <path>"
-        // so the frontend's substring check ("unsupported item") keeps working.
+        // so the presentation-layer test classify_path_other_file_is_err in commands.rs
+        // (which asserts err.contains("unsupported item")) keeps passing.
         let path = PathBuf::from("note.txt");
         let e = UnsupportedSourceItem(path.clone());
         assert_eq!(
@@ -153,5 +156,27 @@ mod tests {
         let original = SourceItem::Folder(path);
         let cloned = original.clone();
         assert_eq!(original, cloned);
+    }
+
+    #[test]
+    fn classify_file_with_no_extension_is_unsupported() {
+        // A path with no extension (e.g. "Makefile") yields None from
+        // path.extension(), so it falls through to unsupported.
+        let p = PathBuf::from("/some/Makefile");
+        assert_eq!(
+            SourceItem::classify(p.clone(), false),
+            Err(UnsupportedSourceItem(p))
+        );
+    }
+
+    #[test]
+    fn classify_directory_with_rar_extension_is_folder_not_rar() {
+        // is_dir takes precedence over the extension: a directory named
+        // "archive.rar" is a Folder, never a RarFile.
+        let p = PathBuf::from("/some/archive.rar");
+        assert_eq!(
+            SourceItem::classify(p.clone(), true),
+            Ok(SourceItem::Folder(p))
+        );
     }
 }
