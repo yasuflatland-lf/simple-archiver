@@ -50,4 +50,7 @@ describe("formatBytes", () => {
   it("handles a zero total without dividing by zero", () => {
     expect(formatBytes(0, 0)).toBe("0 / 0 B");
   });
+  it("clamps negative inputs to zero", () => {
+    expect(formatBytes(-5, -10)).toBe("0 / 0 B");
+  });
 });

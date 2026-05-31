@@ -32,6 +32,11 @@ const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
  * backend owns all progress truth.
  */
 export function formatBytes(done: number, total: number): string {
+  // Byte counts are non-negative by construction; clamp defensively so this
+  // formatter degrades the same way its sibling progressPercent does.
+  done = Math.max(0, done);
+  total = Math.max(0, total);
+
   let unitIndex = 0;
   while (
     total >= 1024 ** (unitIndex + 1) &&
