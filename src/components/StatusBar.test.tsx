@@ -32,6 +32,21 @@ describe("StatusBar", () => {
     expect(screen.getByText(/2 items queued/i)).toBeTruthy();
   });
 
+  it("shows the singular form when idle with 1 item queued", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/a.rar", kind: "rar" }],
+        namingTemplate: null,
+        outputDir: null,
+      },
+      progress: null,
+      summary: null,
+      running: false,
+    });
+    render(<StatusBar />);
+    expect(screen.getByText(/1 item queued/i)).toBeTruthy();
+  });
+
   it("shows the overall progress bar while running", () => {
     useJobStore.setState({
       progress: {
