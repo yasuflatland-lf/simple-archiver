@@ -56,4 +56,16 @@ describe("ModeToggle", () => {
     expect(document.documentElement.classList.contains("light")).toBe(true);
     expect(document.documentElement.classList.contains("dark")).toBe(false);
   });
+
+  it("renders a decorative icon (aria-hidden svg), not a text glyph", () => {
+    render(
+      <ThemeProvider defaultTheme="light">
+        <ModeToggle />
+      </ThemeProvider>,
+    );
+    const btn = screen.getByRole("button", { name: /theme/i });
+    const svg = btn.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg?.getAttribute("aria-hidden")).toBe("true");
+  });
 });
