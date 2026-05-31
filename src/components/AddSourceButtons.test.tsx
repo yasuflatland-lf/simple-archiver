@@ -73,4 +73,19 @@ describe("AddSourceButtons", () => {
     );
     expect(addItems).not.toHaveBeenCalled();
   });
+
+  it("surfaces a string-typed dialog rejection on the files button", async () => {
+    // Tauri command errors can arrive as raw strings, not wrapped in Error objects.
+    // This test ensures that messageFromReason handles string-type rejections.
+    vi.mocked(open).mockRejectedValue("boom");
+    const addItems = vi.fn().mockResolvedValue(undefined);
+    useJobStore.setState({ addItems });
+
+    const user = userEvent.setup();
+    render(<AddSourceButtons />);
+    await user.click(screen.getByRole("button", { name: /add files/i }));
+
+    await waitFor(() => expect(useJobStore.getState().error).toBe("boom"));
+    expect(addItems).not.toHaveBeenCalled();
+  });
 });
