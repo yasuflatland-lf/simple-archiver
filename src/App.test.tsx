@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
@@ -203,10 +204,10 @@ describe("App", () => {
     // Shared spy — reset by outer beforeEach (resetJobStore) then re-applied
     // here so all five cases can assert on the same action without repeating
     // the two-line setup.
-    let setOutputDirSpy: ReturnType<typeof vi.fn>;
+    let setOutputDirSpy: Mock<(dir: string) => Promise<void>>;
 
     beforeEach(() => {
-      setOutputDirSpy = vi.fn(() => Promise.resolve());
+      setOutputDirSpy = vi.fn(async (_dir: string) => {});
       useJobStore.setState({ setOutputDir: setOutputDirSpy });
     });
 
