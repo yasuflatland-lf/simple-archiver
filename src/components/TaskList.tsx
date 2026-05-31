@@ -2,6 +2,7 @@ import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import { Progress } from "@/components/ui/progress";
 import { formatEta, progressPercent } from "@/lib/format";
+import { statusVisual } from "@/lib/status";
 import { useJobStore } from "@/store/jobStore";
 
 // ---------------------------------------------------------------------------
@@ -12,8 +13,8 @@ import { useJobStore } from "@/store/jobStore";
 const KIND_BADGE_BASE =
   "inline-block rounded px-1.5 py-0.5 text-xs font-medium";
 const KIND_BADGE_COLORS = {
-  folder: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  rar: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
+  folder: "bg-category-folder-subtle text-category-folder-foreground",
+  rar: "bg-category-archive-subtle text-category-archive-foreground",
 } as const;
 
 // Styling shared by both reorder buttons (Move up / Move down).
@@ -68,14 +69,14 @@ function computeStatus(
       return "Done";
     }
     if (summary.succeeded.includes(taskId)) {
-      return "Success";
+      return statusVisual("succeeded").label;
     }
     if (summary.cancelled.includes(taskId)) {
-      return "Cancelled";
+      return statusVisual("cancelled").label;
     }
     const failedEntry = summary.failed.find((f) => f.taskId === taskId);
     if (failedEntry !== undefined) {
-      return `Failed: ${failedEntry.reason}`;
+      return `${statusVisual("failed").label}: ${failedEntry.reason}`;
     }
     return "Done";
   }
