@@ -61,8 +61,7 @@ impl Extractor for ZipExtractor {
 
             // Zip-slip guard + relative-path computation. A rejected entry aborts
             // the whole extraction (nothing is written for it).
-            let rel = safe_relative_path(&name)?;
-            let Some(rel) = rel else {
+            let Some(rel) = safe_relative_path(&name)? else {
                 // Empty after filtering (e.g. `.` only): nothing to write.
                 continue;
             };
