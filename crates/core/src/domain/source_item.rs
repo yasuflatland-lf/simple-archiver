@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-/// Error returned when a path is neither a folder nor a supported archive file.
+/// Error returned when a path is neither a `.rar`/`.zip` archive nor a directory.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("unsupported item: {}", .0.display())]
 pub struct UnsupportedSourceItem(pub PathBuf);

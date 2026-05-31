@@ -24,6 +24,10 @@ impl ArchiveExtractor {
 
 impl Extractor for ArchiveExtractor {
     async fn extract(&self, src_archive: &Path) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+        // TODO: keep this `"rar"`/`"zip"` extension list in sync with
+        // `SourceItem::classify` when a new format is added. The compiler enforces
+        // the domain side (an exhaustive `SourceItem` match) but NOT this router,
+        // so adding a format requires updating both places by hand.
         match src_archive.extension().and_then(|e| e.to_str()) {
             Some(e) if e.eq_ignore_ascii_case("rar") => self.rar.extract(src_archive).await,
             Some(e) if e.eq_ignore_ascii_case("zip") => self.zip.extract(src_archive).await,

@@ -11,8 +11,6 @@ use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
 use crate::infrastructure::temp_workspace::TempWorkspace;
 use async_zip::tokio::read::seek::ZipFileReader;
 use std::path::{Component, Path, PathBuf};
-use tokio::io::AsyncReadExt;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 /// Extracts zip archives into a temporary directory via `async_zip`.
 #[derive(Debug, Default)]
@@ -30,8 +28,9 @@ impl Extractor for ZipExtractor {
         let workspace = TempWorkspace::new()?; // io::Error -> ExtractError::Io
 
         // Open the archive with tokio and wrap in a buffered reader: the seek
-        // reader requires `AsyncBufRead + AsyncSeek`. `tokio-fs` is not enabled,
-        // so we construct the reader from a plain file handle ourselves.
+        // reader (`ZipFileReader::with_tokio`) requires `AsyncBufRead + AsyncSeek`.
+        // `tokio::fs::File` implements `AsyncSeek` but NOT `AsyncBufRead`, so the
+        // `BufReader` adds the missing buffered-read layer.
         let file = tokio::fs::File::open(src_archive).await?; // io::Error -> ExtractError::Io
         let buf = tokio::io::BufReader::new(file);
         let mut reader = ZipFileReader::with_tokio(buf)
@@ -50,7 +49,9 @@ impl Extractor for ZipExtractor {
                 let name = entry
                     .filename()
                     .as_str()
-                    .map_err(|e| ExtractError::Backend(e.to_string()))?
+                    .map_err(|e| {
+                        ExtractError::Backend(format!("entry {i} has a non-UTF-8 name: {e}"))
+                    })?
                     .to_owned();
                 (is_dir, name)
             };
@@ -66,18 +67,18 @@ impl Extractor for ZipExtractor {
                 continue;
             };
 
-            // Now take the entry reader (`&mut self`); the metadata borrow is gone.
-            let entry_reader = reader
-                .reader_without_entry(i)
+            // Now take the entry-bearing reader (`&mut self`); the metadata borrow
+            // is gone. `reader_with_entry` returns a `ZipEntryReader<WithEntry>`,
+            // whose `read_to_end_checked` validates the entry's CRC32 (and rejects
+            // encrypted/corrupt/truncated entries) — surfacing `CRC32CheckError`
+            // and friends as `Err` so the task fails instead of writing garbage.
+            let mut entry_reader = reader
+                .reader_with_entry(i)
                 .await
                 .map_err(|e| ExtractError::Backend(e.to_string()))?;
-            // Bridge the futures-io `AsyncRead` to tokio via `tokio_util::compat`
-            // (tokio-util's `compat` feature is enabled transitively by async_zip's
-            // `tokio` feature, so no new dependency is introduced).
-            let mut compat = entry_reader.compat();
             let mut bytes = Vec::new();
-            compat
-                .read_to_end(&mut bytes)
+            entry_reader
+                .read_to_end_checked(&mut bytes)
                 .await
                 .map_err(|e| ExtractError::Backend(e.to_string()))?;
 
@@ -229,6 +230,54 @@ mod tests {
         assert!(
             matches!(kind, Err(ExtractError::Backend(_))),
             "expected Backend error for non-zip bytes, got {kind:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn encrypted_zip_entry_fails_with_backend_error() {
+        use zip::unstable::write::FileOptionsExt as _;
+
+        // Build an ENCRYPTED Stored entry: this is the silently-corrupting case
+        // the seek path used to accept. The checked reader decrypts to garbage,
+        // whose CRC32 fails to match, so extraction MUST fail.
+        let tmp = tempfile::NamedTempFile::new().expect("temp zip file");
+        let mut writer = ZipWriter::new(tmp.reopen().expect("reopen temp zip"));
+        let opts = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .with_deprecated_encryption(b"secret");
+        writer
+            .start_file("secret.txt", opts)
+            .expect("start encrypted entry");
+        writer
+            .write_all(b"top secret bytes")
+            .expect("write encrypted entry bytes");
+        writer.finish().expect("finalize zip");
+
+        let result = ZipExtractor::new().extract(tmp.path()).await;
+        let kind = result.map(|_| "ok");
+        assert!(
+            matches!(kind, Err(ExtractError::Backend(_))),
+            "expected Backend error for an encrypted entry, got {kind:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_zip_extracts_to_empty_directory() {
+        // A zip with ZERO entries is valid; the design allows it to extract into
+        // an empty output directory.
+        let zip = make_zip(&[]);
+
+        let tree = ZipExtractor::new()
+            .extract(zip.path())
+            .await
+            .expect("empty zip should extract successfully");
+
+        let root = tree.path();
+        assert!(root.is_dir(), "extraction tree directory should exist");
+        let mut entries = std::fs::read_dir(root).expect("read extraction tree");
+        assert!(
+            entries.next().is_none(),
+            "an empty zip must extract to an empty directory"
         );
     }
 }

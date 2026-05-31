@@ -1,7 +1,8 @@
 //! `FormatRegistry`: resolves a `SourceItem` into a compressible directory.
 //!
-//! `Folder` is already a directory; `RarFile` is extracted into a temp guard via
-//! the `Extractor` port. The returned `Prepared` owns the extracted-tree guard, so
+//! `Folder` is already a directory; `RarFile` and `ZipFile` are each extracted
+//! into a temp guard via the `Extractor` port. The returned `Prepared` owns the
+//! extracted-tree guard, so
 //! the temp directory lives exactly as long as the value is held by the caller
 //! (the engine drops it after compression).
 
@@ -77,7 +78,8 @@ mod tests {
         }
     }
 
-    /// A fake extractor: records calls, optionally fails for given rar file names.
+    /// A fake extractor: records calls, optionally fails for entries whose
+    /// filename is in `fail_names`.
     struct FakeExtractor {
         fail_names: HashSet<String>,
         calls: Arc<AtomicUsize>,
