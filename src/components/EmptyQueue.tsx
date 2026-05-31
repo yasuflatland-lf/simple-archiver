@@ -19,7 +19,7 @@ export function EmptyQueue() {
         Drag &amp; drop files or folders
       </p>
       <p className="text-sm">
-        Drop .rar files or whole folders here to queue them.
+        Drop .rar / .zip files or whole folders here to queue them.
       </p>
       <AddSourceButtons />
     </div>

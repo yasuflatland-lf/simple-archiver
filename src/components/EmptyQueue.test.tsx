@@ -37,4 +37,9 @@ describe("EmptyQueue", () => {
     expect(svg).not.toBeNull();
     expect(svg?.getAttribute("aria-hidden")).toBe("true");
   });
+
+  it("drop hint mentions both .rar and .zip", () => {
+    render(<EmptyQueue />);
+    expect(screen.getByText(/Drop \.rar \/ \.zip/i)).toBeTruthy();
+  });
 });

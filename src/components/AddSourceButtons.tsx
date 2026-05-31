@@ -25,7 +25,7 @@ function handleAddFiles() {
   return browseAndAdd({
     multiple: true,
     directory: false,
-    filters: [{ name: "rar", extensions: ["rar"] }],
+    filters: [{ name: "Archives", extensions: ["rar", "zip"] }],
   });
 }
 
@@ -39,7 +39,7 @@ interface AddSourceButtonsProps {
 }
 
 /**
- * The two browse fallbacks for adding sources: a rar-filtered file picker and a
+ * The two browse fallbacks for adding sources: a rar/zip-filtered file picker and a
  * folder picker. Rendered by EmptyQueue (always) and by the SetupToolbar action bar (only when the queue has items).
  */
 export function AddSourceButtons({ size = "sm" }: AddSourceButtonsProps) {
