@@ -46,6 +46,7 @@ This repository requires **all in-code comments to be written in English**.
 
 - Default visibility is `pub(crate)`; keep cross-layer exposure minimal.
 - Do not import `std::fs` / `tokio` / `async` / external IO crates into the `domain` module (keep it pure at compile time).
+- **When the domain needs a filesystem FACT to make a decision, inject it as a plain parameter** rather than probing inside the domain — the presentation layer performs the probe and passes the result (e.g. `SourceItem::classify(path, is_dir: bool)`, where presentation supplies `path.is_dir()`). This keeps the domain pure for simple boolean facts without standing up a full `Extractor` / `Archiver` / `Clock` port.
 - All IO goes through the `Extractor` / `Archiver` / `Clock` ports; confine concrete implementations to `infrastructure`.
 - Reject imports that violate the dependency direction (presentation → application → domain, infrastructure → domain) in clippy / review.
 - **A context/port object handed to an adapter must expose the narrowest read-only surface that adapter needs — never the underlying capability.** `CompressContext` (passed to the `Archiver` port) exposes a read-only `is_cancelled()` predicate, never the raw `CancellationToken`: returning `&CancellationToken` would leak `.cancel()` (it takes `&self`) to an archiver that must only *observe* the signal, letting one task tear down the whole job. Hand out the observation, not the control.

@@ -53,23 +53,12 @@ pub fn preview_output_name(template: String, seq: u32) -> Result<String, String>
 // Path classification
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Classify a filesystem path into a [`SourceItem`].
+/// Probe the filesystem for `path` and delegate to `SourceItem::classify`.
 ///
-/// A directory becomes [`SourceItem::Folder`]; a file whose extension is `rar`
-/// (case-insensitive) becomes [`SourceItem::RarFile`]; anything else yields an
-/// error string suitable for the IPC boundary.
+/// The `is_dir` probe stays here (presentation) so the domain stays IO-free;
+/// the domain error is mapped to a `String` for the IPC boundary.
 fn classify_path(path: &Path) -> Result<SourceItem, String> {
-    if path.is_dir() {
-        return Ok(SourceItem::Folder(path.to_path_buf()));
-    }
-    let is_rar = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("rar"));
-    if is_rar {
-        return Ok(SourceItem::RarFile(path.to_path_buf()));
-    }
-    Err(format!("unsupported item: {}", path.display()))
+    SourceItem::classify(path.to_path_buf(), path.is_dir()).map_err(|e| e.to_string())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

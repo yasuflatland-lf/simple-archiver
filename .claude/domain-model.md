@@ -8,7 +8,7 @@
 - `SequenceNumber(NonZeroU32)` — 1-based; `0` is rejected at construction (`SequenceError::Zero`).
 - `NamingRule { template }` — parses the template into a segment list; see "Naming rule details" below.
 - `FileStem` / `OutputFileName` — enforce Windows-superset filename validity (see "FileStem / OutputFileName" below). `OutputFileName::from_stem` appends `.zip`.
-- `SourceItem` — enum `RarFile(PathBuf)` | `Folder(PathBuf)`.
+- `SourceItem` — enum `RarFile(PathBuf)` | `Folder(PathBuf)`, constructed via `SourceItem::classify(path, is_dir) -> Result<Self, UnsupportedSourceItem>` (the single source of truth for the classification rule): a directory → `Folder`, a `.rar` file (case-insensitive extension) → `RarFile`, anything else → `UnsupportedSourceItem`. "unsupported" is an **error, not a variant** — a constructed `SourceItem` is always one of the two valid kinds. `is_dir` is injected by the caller so the domain never touches the filesystem.
 - `OutputDirectory(PathBuf)` — a newtype wrapper for the output directory path. In the pure `domain` layer it performs **no filesystem-existence check**; that IO validation is deferred to the infrastructure layer (a later PR).
 - `TaskProgress { bytes_done: u64, bytes_total: u64 }` — progress counters only. There is no `phase` field: the current phase is already represented by `TaskStatus` (`Extracting` / `Compressing`), so `TaskProgress` is purely a pair of byte counters. **`bytes_done <= bytes_total` invariant:** `TaskProgress::new` enforces it via `debug_assert!` (loud in dev/CI) plus a release-build clamp (`bytes_done.min(bytes_total)`) — never a fallible constructor, because the only callers are internal progress callbacks with no recovery path (see conventions.md "debug_assert + release clamp for caller-bug invariants"). **`remaining()` invariant (PR9):** `remaining() = bytes_total.saturating_sub(bytes_done)`, never negative. ETA is typed `Option<Duration>` at the application layer — `None` while throughput is not yet measurable, `Some(ZERO)` when `remaining() == 0`; only `TaskProgress::remaining()` is a domain addition. The `EtaEstimator`/`EtaTracker` that compute ETA live in the **application** layer, not domain (see `architecture.md` "Execution engine").
 
@@ -27,7 +27,7 @@
 - **Full value type**: derives `PartialEq + Eq` (possible because `NamingRule` and all constituent types are `Eq`-capable).
 - **Invariants**:
   - Order ↔ sequence number (head = 1) always match.
-  - Output names are unique within the job.
+  - Output names are unique within the job, checked **case-insensitively** via ASCII case-fold (`to_ascii_lowercase`): names differing only in case (e.g. `A.zip` / `a.zip`) are rejected, because a case-insensitive filesystem (Windows / default macOS) would otherwise silently overwrite a prior output. **Known limitation:** non-ASCII Unicode case pairs (e.g. `É` / `é`) are NOT folded; full Unicode case-folding is deferred to a future issue.
 - Operations:
   - `move_up` / `move_down` — re-derive sequence numbers and output names after reordering.
   - Factory `ArchiveJob::plan(items, rule, out_dir) -> Result<_, PlanError>` — number → resolve names → uniqueness check.

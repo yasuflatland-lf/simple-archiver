@@ -251,10 +251,17 @@ impl ArchiveJob {
     ///
     /// [`plan`]: ArchiveJob::plan
     pub(crate) fn check_unique(names: &[OutputFileName]) -> Result<(), PlanError> {
-        let mut seen: HashSet<&str> = HashSet::with_capacity(names.len());
+        // Case-insensitive filesystems (Windows / default macOS) resolve names that
+        // differ only in ASCII case to the same file, so uniqueness is checked after
+        // ASCII-lowercasing; otherwise a later task could silently overwrite an
+        // earlier one's output. Non-ASCII case pairs (e.g. É/é) are not folded here:
+        // the current naming rule emits ASCII-only output, and Unicode folding is
+        // deferred to a future issue. This guard is primarily defensive.
+        let mut seen: HashSet<String> = HashSet::with_capacity(names.len());
         for name in names {
-            if !seen.insert(name.as_str()) {
+            if !seen.insert(name.as_str().to_ascii_lowercase()) {
                 return Err(PlanError::DuplicateName {
+                    // Report the original (non-folded) name for a faithful message.
                     name: name.as_str().to_string(),
                 });
             }
@@ -385,6 +392,32 @@ mod tests {
             result,
             Err(PlanError::DuplicateName {
                 name: "a.zip".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn check_unique_rejects_names_differing_only_in_case() {
+        // On case-insensitive filesystems (Windows / default macOS) "A.zip" and
+        // "a.zip" resolve to the same file, so the check must reject the pair.
+        let names = [name("A"), name("a")];
+        assert_eq!(
+            ArchiveJob::check_unique(&names),
+            Err(PlanError::DuplicateName {
+                name: "a.zip".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn check_unique_reports_second_occurrence_regardless_of_case_order() {
+        // The reported name is always the second (colliding) occurrence in list
+        // order, in its original casing — here the uppercase entry comes second.
+        let names = [name("a"), name("A")];
+        assert_eq!(
+            ArchiveJob::check_unique(&names),
+            Err(PlanError::DuplicateName {
+                name: "A.zip".to_string()
             })
         );
     }
