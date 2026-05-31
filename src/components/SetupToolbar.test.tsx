@@ -68,4 +68,16 @@ describe("SetupToolbar", () => {
     const { container } = render(<SetupToolbar />);
     expect(container.querySelector(".flex-wrap")).not.toBeNull();
   });
+
+  it("hides the browse buttons again after all items are removed", () => {
+    withItems();
+    const { rerender } = render(<SetupToolbar />);
+    expect(screen.getByRole("button", { name: /add files/i })).toBeTruthy();
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: null },
+      setNamingRule: vi.fn(),
+    });
+    rerender(<SetupToolbar />);
+    expect(screen.queryByRole("button", { name: /add files/i })).toBeNull();
+  });
 });

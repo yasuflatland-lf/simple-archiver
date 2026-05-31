@@ -35,7 +35,7 @@ function runReasonText(run: HTMLElement): string | null {
 describe("RunControls – Run disabled reasons (accessible)", () => {
   it("marks Run aria-disabled and describes the no-items reason", () => {
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: null },
+      draft: { items: [], namingTemplate: null, outputDir: "/out" },
       running: false,
       error: null,
       summary: null,
@@ -58,6 +58,8 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
     const run = screen.getByRole("button", { name: /run/i });
     expect(run.getAttribute("aria-disabled")).toBe("true");
     expect(runReasonText(run)).toMatch(/choose an output directory/i);
+    expect(run.getAttribute("aria-describedby")).toBe("run-disabled-reason");
+    expect(run.getAttribute("title")).toMatch(/choose an output directory/i);
   });
 
   it("describes the already-running reason when running is true", () => {
@@ -71,6 +73,8 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
     const run = screen.getByRole("button", { name: /run/i });
     expect(run.getAttribute("aria-disabled")).toBe("true");
     expect(runReasonText(run)).toMatch(/a job is already running/i);
+    expect(run.getAttribute("aria-describedby")).toBe("run-disabled-reason");
+    expect(run.getAttribute("title")).toMatch(/a job is already running/i);
   });
 
   it("is not aria-disabled and has no reason when ready", () => {
@@ -117,6 +121,52 @@ describe("RunControls – Run action guard", () => {
     render(<RunControls />);
     await user.click(screen.getByRole("button", { name: /run/i }));
     expect(runJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT call runJob when Enter is pressed while Run is disabled", async () => {
+    const runJob = vi.fn();
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: null },
+      running: false,
+      error: null,
+      summary: null,
+      runJob,
+    });
+    const user = userEvent.setup();
+    render(<RunControls />);
+    const run = screen.getByRole("button", { name: /run/i });
+    run.focus();
+    await user.keyboard("{Enter}");
+    expect(runJob).not.toHaveBeenCalled();
+  });
+
+  it("keeps Run focusable while disabled (aria-disabled, not native disabled)", () => {
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: null },
+      running: false,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    const run = screen.getByRole("button", {
+      name: /run/i,
+    }) as HTMLButtonElement;
+    expect(run.disabled).toBe(false);
+  });
+
+  it("does NOT call runJob when disabled for the no-output-dir reason", async () => {
+    const runJob = vi.fn();
+    useJobStore.setState({
+      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      running: false,
+      error: null,
+      summary: null,
+      runJob,
+    });
+    const user = userEvent.setup();
+    render(<RunControls />);
+    await user.click(screen.getByRole("button", { name: /run/i }));
+    expect(runJob).not.toHaveBeenCalled();
   });
 });
 
