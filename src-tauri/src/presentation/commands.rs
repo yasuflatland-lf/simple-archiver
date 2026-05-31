@@ -58,8 +58,6 @@ pub fn preview_output_name(template: String, seq: u32) -> Result<String, String>
 /// The `is_dir` probe stays here (presentation) so the domain stays IO-free;
 /// the domain error is mapped to a `String` for the IPC boundary.
 fn classify_path(path: &Path) -> Result<SourceItem, String> {
-    // Filesystem probing (`is_dir`) stays in presentation; the classification
-    // rule itself lives in the domain (`SourceItem::classify`).
     SourceItem::classify(path.to_path_buf(), path.is_dir()).map_err(|e| e.to_string())
 }
 
