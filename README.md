@@ -6,6 +6,10 @@
 
 A native desktop app (Mac / Windows) that takes drag-and-dropped **rar files** and **folders** and batch re-archives them into **zip** files following a single naming rule. rar files are extracted and re-compressed to zip; folders are zipped as-is.
 
+## Architecture
+
+![simple-archiver architecture](docs/images/architecture.png)
+
 ## Overview
 
 Drop a mix of rar files and folders, reorder them, give the batch a single naming rule with an auto-incrementing sequence number, and hit run. Each item is compressed to a zip in list order, with a per-row progress bar and ETA plus an overall progress bar and ETA for the whole job.
@@ -23,6 +27,32 @@ It ships as a single self-contained native application built with **Tauri 2** �
 - **Live per-item progress** — each row shows a progress bar and an estimated-time-remaining string, updated asynchronously while the job runs.
 - **Overall progress** — a job-wide progress bar and ETA for all items combined.
 - **Resilient by design** — output goes to one user-chosen folder; existing names are **not overwritten** (that item fails instead), a failed item never stops the others, and a run can be cancelled (in-flight work is interrupted and partial output / temp files are cleaned up). A success/failure summary is shown at the end.
+
+## Getting started
+
+Prerequisites: a Rust toolchain, Node.js, and pnpm. The toolchain versions are pinned via [`mise.toml`](mise.toml) (run `mise install` to get them), and the Tauri prerequisites for your OS are listed in the [Tauri docs](https://v2.tauri.app/start/prerequisites/).
+
+```bash
+pnpm install          # install frontend dependencies
+pnpm tauri dev        # run the app in development
+pnpm tauri build      # build a native bundle for the current OS
+```
+
+## Development
+
+Run all commands from the repo root (the Cargo workspace lives there, not under `src-tauri/`).
+
+```bash
+# Rust — pure core (the TDD battleground; -p keeps Tauri out)
+cargo nextest run -p simple-archiver-core
+cargo clippy -p simple-archiver-core --all-targets -- -D warnings
+cargo fmt
+
+# Frontend
+pnpm test             # Vitest one-shot
+pnpm check            # oxfmt + oxlint: format + lint with autofix
+pnpm build            # tsc + vite build (the load-bearing type gate)
+```
 
 ## Tech stack
 
@@ -43,25 +73,6 @@ It ships as a single self-contained native application built with **Tauri 2** �
 | Tooling | [pnpm](https://pnpm.io/) (package manager) + [mise](https://mise.jdx.dev/) (pinned toolchain) |
 
 Technology choices are fixed. The compression libraries are deliberately kept behind a common interface so they can be treated as plugins (see below), but the libraries themselves are not swapped without a corresponding design change.
-
-## Architecture
-
-![simple-archiver architecture](docs/images/architecture.png)
-
-> Regenerable from [`docs/images/diagram.py`](docs/images/diagram.py) (mingrammer/diagrams + Graphviz) — see [`docs/images/README.md`](docs/images/README.md).
-
-The Rust backend follows **DDD layered / hexagonal** design, split across a Cargo workspace with two crates: a pure `simple-archiver-core` crate holding `domain` / `application` / `infrastructure`, and the `src-tauri` crate holding `presentation`.
-
-```
-presentation   src-tauri/src/presentation/ — Tauri commands, session state, DTO / event wiring
-application    simple-archiver-core — RunArchiveJob: N parallel workers, progress aggregation,
-               cancellation, error tally / ports: Extractor, Archiver, Clock / FormatRegistry
-domain         simple-archiver-core — pure, no IO (ArchiveJob, ArchiveTask, NamingRule, …)
-infrastructure simple-archiver-core — adapters: ZipArchiver(async_zip) / UnrarExtractor(unrar)
-                                       / TempWorkspace / SystemClock
-```
-
-Dependency direction is strict: `presentation → application → domain` and `infrastructure → domain`; `domain` depends on no other layer and contains no IO or async. All file, process, and clock access goes through ports. For the full design and the layer-boundary rules, see [`docs/architecture.md`](docs/architecture.md).
 
 ### Pluggable compression
 
@@ -138,37 +149,7 @@ sequenceDiagram
 
 Workers run concurrently up to `available_parallelism`, but only one task — the aggregator on the engine's own task — ever writes progress: each worker pushes `WorkerMsg` over an `mpsc` channel, the aggregator folds them into a job-wide snapshot, and the presentation layer's `TauriEmitter` forwards each snapshot to the frontend as an `archive://progress` event. A failed item is tallied but never stops its siblings, and `run_job` always resolves with a `JobSummaryDto` — the load-bearing terminal signal — even if some progress frames were dropped along the way.
 
-## Getting started
 
-Prerequisites: a Rust toolchain, Node.js, and pnpm. The toolchain versions are pinned via [`mise.toml`](mise.toml) (run `mise install` to get them), and the Tauri prerequisites for your OS are listed in the [Tauri docs](https://v2.tauri.app/start/prerequisites/).
-
-```bash
-pnpm install          # install frontend dependencies
-pnpm tauri dev        # run the app in development
-pnpm tauri build      # build a native bundle for the current OS
-```
-
-## Development
-
-Run all commands from the repo root (the Cargo workspace lives there, not under `src-tauri/`).
-
-```bash
-# Rust — pure core (the TDD battleground; -p keeps Tauri out)
-cargo nextest run -p simple-archiver-core
-cargo clippy -p simple-archiver-core --all-targets -- -D warnings
-cargo fmt
-
-# Frontend
-pnpm test             # Vitest one-shot
-pnpm check            # oxfmt + oxlint: format + lint with autofix
-pnpm build            # tsc + vite build (the load-bearing type gate)
-```
-
-This project is built with **TDD**: write tests before implementation. For the full set of commands, the testing policy, and CI layout, see [`docs/development.md`](docs/development.md).
-
-## Status
-
-Under active development. The archiving engine is wired end-to-end for both folders and rar files; the production app-shell UI (three-zone layout: header / setup toolbar / scrollable queue / status footer) is in place, with drag-drop intake, reorder, naming-rule preview, run / cancel, live per-item and overall progress bars with ETA, cancellation with cleanup, and a success/failure summary.
 
 ## Documentation
 
