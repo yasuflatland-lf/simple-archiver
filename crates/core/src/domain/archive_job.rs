@@ -251,10 +251,14 @@ impl ArchiveJob {
     ///
     /// [`plan`]: ArchiveJob::plan
     pub(crate) fn check_unique(names: &[OutputFileName]) -> Result<(), PlanError> {
-        let mut seen: HashSet<&str> = HashSet::with_capacity(names.len());
+        // Case-insensitive filesystems (Windows / default macOS) resolve names that
+        // differ only in case to the same file, so uniqueness must be case-folded;
+        // otherwise a later task could silently overwrite an earlier one's output.
+        let mut seen: HashSet<String> = HashSet::with_capacity(names.len());
         for name in names {
-            if !seen.insert(name.as_str()) {
+            if !seen.insert(name.as_str().to_ascii_lowercase()) {
                 return Err(PlanError::DuplicateName {
+                    // Report the original (non-folded) name for a faithful message.
                     name: name.as_str().to_string(),
                 });
             }
@@ -383,6 +387,19 @@ mod tests {
         let result = ArchiveJob::check_unique(&names);
         assert_eq!(
             result,
+            Err(PlanError::DuplicateName {
+                name: "a.zip".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn check_unique_rejects_names_differing_only_in_case() {
+        // On case-insensitive filesystems (Windows / default macOS) "A.zip" and
+        // "a.zip" resolve to the same file, so the check must reject the pair.
+        let names = [name("A"), name("a")];
+        assert_eq!(
+            ArchiveJob::check_unique(&names),
             Err(PlanError::DuplicateName {
                 name: "a.zip".to_string()
             })
