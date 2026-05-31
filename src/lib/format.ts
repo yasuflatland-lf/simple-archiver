@@ -22,3 +22,28 @@ export function progressPercent(done: number, total: number): number {
   if (total <= 0) return 0;
   return Math.min(100, Math.round((done / total) * 100));
 }
+
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
+
+/**
+ * Format a byte pair as "<done> / <total> <unit>", choosing the unit from the
+ * total so both numbers share one scale (e.g. "12.4 / 19 MB"). Bytes render as
+ * whole numbers; larger units keep one decimal. Pure formatting only — the
+ * backend owns all progress truth.
+ */
+export function formatBytes(done: number, total: number): string {
+  let unitIndex = 0;
+  while (
+    total >= 1024 ** (unitIndex + 1) &&
+    unitIndex < BYTE_UNITS.length - 1
+  ) {
+    unitIndex++;
+  }
+  const render = (n: number) => {
+    const scaled = n / 1024 ** unitIndex;
+    return unitIndex === 0
+      ? String(Math.round(scaled))
+      : (Math.round(scaled * 10) / 10).toString();
+  };
+  return `${render(done)} / ${render(total)} ${BYTE_UNITS[unitIndex]}`;
+}
