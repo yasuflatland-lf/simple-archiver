@@ -35,4 +35,14 @@ describe("AppHeader", () => {
     const title = screen.getByText("simple-archiver");
     expect(title.className).toContain("text-heading");
   });
+
+  it("renders the app logo image, not an emoji placeholder", () => {
+    const { container } = render(
+      <ThemeProvider>
+        <AppHeader />
+      </ThemeProvider>,
+    );
+    const logo = container.querySelector("img");
+    expect(logo?.getAttribute("src")).toBe("/logo.png");
+  });
 });
