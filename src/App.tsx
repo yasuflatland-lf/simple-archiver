@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+
 import "./App.css";
 import { FileDropZone } from "@/components/FileDropZone";
 import { ModeToggle } from "@/components/mode-toggle";

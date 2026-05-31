@@ -138,7 +138,9 @@ export function TaskList() {
 
             return (
               <tr
-                // biome-ignore lint/suspicious/noArrayIndexKey: rows are a positional, backend-ordered list with no per-row local state; item paths may legitimately duplicate, so they are not unique keys.
+                // rows are a positional, backend-ordered list with no per-row local state;
+                // item paths may legitimately duplicate, so index keys are correct here.
+                // oxlint-disable-next-line react/no-array-index-key
                 key={i}
                 className="border-b border-border/50 hover:bg-muted/30 transition-colors"
               >

@@ -1,6 +1,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { type OpenDialogOptions, open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { messageFromReason } from "@/lib/errors";
 import { useJobStore } from "@/store/jobStore";
