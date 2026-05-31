@@ -266,6 +266,35 @@ describe("setOutputDir", () => {
 
     expect(mockPersistOutputDir).not.toHaveBeenCalled();
   });
+
+  it("does not surface an error when persistence throws (best-effort localStorage)", async () => {
+    // Simulate a QuotaExceededError / SecurityError from localStorage. The
+    // backend already succeeded, so the draft must reflect the new dir and
+    // error must remain null — the persistence failure is logged, not shown.
+    const draft = makeDraft(2, "photo_{n}", "/out");
+    mockArchive.setOutputDir.mockResolvedValue(draft);
+    mockPersistOutputDir.mockImplementation(() => {
+      throw new DOMException("QuotaExceededError");
+    });
+
+    await useJobStore.getState().setOutputDir("/out");
+
+    expect(useJobStore.getState().draft.outputDir).toBe("/out");
+    expect(useJobStore.getState().error).toBeNull();
+  });
+
+  it("clears a pre-existing error when the backend succeeds", async () => {
+    // Seed a non-null error (e.g. from a previous failed operation) to verify
+    // that a successful setOutputDir wipes it via set({ draft, error: null }).
+    useJobStore.setState({ error: "stale error" });
+
+    const draft = makeDraft(2, "photo_{n}", "/out");
+    mockArchive.setOutputDir.mockResolvedValue(draft);
+
+    await useJobStore.getState().setOutputDir("/out");
+
+    expect(useJobStore.getState().error).toBeNull();
+  });
 });
 
 describe("recomputePreviews", () => {

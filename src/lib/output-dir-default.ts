@@ -5,8 +5,9 @@ export const OUTPUT_DIR_STORAGE_KEY = "simple-archiver-output-dir";
 
 /**
  * Type guard: returns true only for a non-empty, non-whitespace string.
- * Defends against stale or corrupt persisted values (mirrors the `isTheme`
- * guard in theme-provider.tsx).
+ * Defends against stale or corrupt persisted values. Uses the same
+ * validate-before-use pattern as the persisted-value guards elsewhere
+ * (e.g. theme-provider).
  */
 export function isValidOutputDir(value: string | null): value is string {
   return value !== null && value.trim().length > 0;
@@ -18,21 +19,34 @@ export function isValidOutputDir(value: string | null): value is string {
  * returns null.  Never throws.
  */
 export function loadPersistedOutputDir(): string | null {
-  const stored = localStorage.getItem(OUTPUT_DIR_STORAGE_KEY);
-  return isValidOutputDir(stored) ? stored : null;
+  try {
+    const stored = localStorage.getItem(OUTPUT_DIR_STORAGE_KEY);
+    return isValidOutputDir(stored) ? stored : null;
+  } catch (reason) {
+    // Non-fatal: DOM storage may be disabled (e.g. private mode, restricted
+    // WebView).  Fall through to the default resolution path.
+    console.error(
+      "loadPersistedOutputDir: reading localStorage failed",
+      reason,
+    );
+    return null;
+  }
 }
 
 /**
  * Write the given directory path to localStorage under the storage key.
+ * Invalid (empty or whitespace-only) values are silently ignored so that a
+ * corrupt value can never be stored.
  */
 export function persistOutputDir(dir: string): void {
+  if (!isValidOutputDir(dir)) return;
   localStorage.setItem(OUTPUT_DIR_STORAGE_KEY, dir);
 }
 
 /**
  * Ask Tauri for the OS Downloads folder and return it if valid.
- * On any failure, resolves to null — progress is a non-fatal enhancement and
- * the empty-state UI handles a null directory gracefully.
+ * On any failure, resolves to null — this smart default is a non-fatal
+ * enhancement and the empty-state UI handles a null directory gracefully.
  */
 export async function resolveDefaultOutputDir(): Promise<string | null> {
   try {

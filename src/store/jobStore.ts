@@ -128,11 +128,17 @@ export const useJobStore = create<JobState>()((set, get) => ({
       // Output dir does not affect preview filenames, so skip recompute.
       const draft = await archive.setOutputDir(dir);
       set({ draft, error: null });
-      // Persist only on success so the choice is restored next launch; never
-      // persist on the error path below.
-      persistOutputDir(dir);
     } catch (reason) {
       set({ error: messageFromReason(reason) });
+      return;
+    }
+    // Persistence is best-effort: a localStorage failure (quota / disabled
+    // storage) must not surface as a user-facing error for an operation that
+    // already succeeded.
+    try {
+      persistOutputDir(dir);
+    } catch (reason) {
+      console.error("setOutputDir: persisting output dir failed", reason);
     }
   },
 

@@ -58,6 +58,14 @@ describe("loadPersistedOutputDir", () => {
     localStorage.setItem(OUTPUT_DIR_STORAGE_KEY, "   ");
     expect(loadPersistedOutputDir()).toBeNull();
   });
+
+  it("returns null (does not throw) when localStorage.getItem throws a SecurityError", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementationOnce(() => {
+      throw new DOMException("Storage access denied", "SecurityError");
+    });
+    expect(() => loadPersistedOutputDir()).not.toThrow();
+    expect(loadPersistedOutputDir()).toBeNull();
+  });
 });
 
 describe("persistOutputDir", () => {
@@ -66,6 +74,21 @@ describe("persistOutputDir", () => {
     expect(localStorage.getItem(OUTPUT_DIR_STORAGE_KEY)).toBe(
       "/Users/me/Archives",
     );
+  });
+
+  it("does not write to localStorage when dir is an empty string", () => {
+    persistOutputDir("");
+    expect(localStorage.getItem(OUTPUT_DIR_STORAGE_KEY)).toBeNull();
+  });
+
+  it("does not write to localStorage when dir is whitespace only", () => {
+    persistOutputDir("   ");
+    expect(localStorage.getItem(OUTPUT_DIR_STORAGE_KEY)).toBeNull();
+  });
+
+  it("writes a valid path to localStorage", () => {
+    persistOutputDir("/valid/path");
+    expect(localStorage.getItem(OUTPUT_DIR_STORAGE_KEY)).toBe("/valid/path");
   });
 });
 
@@ -79,6 +102,16 @@ describe("resolveDefaultOutputDir", () => {
 
   it("returns null and does not throw when downloadDir rejects", async () => {
     mockedDownloadDir.mockRejectedValue(new Error("tauri not available"));
+    await expect(resolveDefaultOutputDir()).resolves.toBeNull();
+  });
+
+  it("returns null when downloadDir resolves to an empty string", async () => {
+    mockedDownloadDir.mockResolvedValue("");
+    await expect(resolveDefaultOutputDir()).resolves.toBeNull();
+  });
+
+  it("returns null when downloadDir resolves to a whitespace-only string", async () => {
+    mockedDownloadDir.mockResolvedValue("   ");
     await expect(resolveDefaultOutputDir()).resolves.toBeNull();
   });
 });
