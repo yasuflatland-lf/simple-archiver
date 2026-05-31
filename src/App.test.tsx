@@ -68,23 +68,19 @@ describe("App", () => {
   it("renders the key UI elements", async () => {
     render(<App />);
 
-    // Page heading
+    // Header
     expect(screen.getByText("simple-archiver")).toBeDefined();
-
-    // FileDropZone — "Add files" browse button
-    expect(screen.getByRole("button", { name: /add files/i })).toBeDefined();
-
-    // NamingRuleForm — "Naming template" label
+    // Toolbar — add-source fallback + setup controls. The empty-state CTA also
+    // renders AddSourceButtons, so "Add files" appears in both the toolbar and
+    // the main region; assert at least one is present.
+    expect(
+      screen.getAllByRole("button", { name: /add files/i }).length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText(/naming template/i)).toBeDefined();
-
-    // TaskList — empty-state message
-    expect(screen.getByText(/no items yet/i)).toBeDefined();
-
-    // OutputDirPicker — "Output directory" label
     expect(screen.getByText(/output directory/i)).toBeDefined();
-
-    // RunControls — "Run" button
     expect(screen.getByRole("button", { name: /^run$/i })).toBeDefined();
+    // Main — empty-state CTA (replaces the old "No items yet" text)
+    expect(screen.getByText(/drag .* drop files or folders/i)).toBeDefined();
   });
 
   // -------------------------------------------------------------------------
