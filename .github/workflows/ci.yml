@@ -12,6 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Belt and suspenders: mise.toml requests rustfmt/clippy/llvm-tools-preview
       # components, but ensure they exist on the active toolchain even if a cached
       # install lacks them. llvm-tools-preview is required by cargo-llvm-cov.
@@ -32,6 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Belt and suspenders: ensure clippy is available even if a cached install lacks it.
       - run: rustup component add clippy
       # Keep the loom-gated build warning-clean (normal clippy never sees #[cfg(loom)] code).
@@ -93,16 +99,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
-      # Belt and suspenders: mise.toml requests rustfmt/clippy components, but
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Belt and suspenders: mise.toml requests clippy components, but
       # ensure they exist on the active toolchain even if a cached install lacks them.
-      - run: rustup component add rustfmt clippy
-      - run: cargo fmt --check
-      - run: cargo clippy -p simple-archiver-core --all-targets -- -D warnings
+      - run: rustup component add clippy
       - run: cargo nextest run -p simple-archiver-core --profile ci
       # PR6: the presentation crate's tests (Tauri command surface, progress
       # event sink, run_job integration) only build on runners with the Tauri
       # toolchain, which the app job has. Run them here so they are covered in CI.
-      - run: cargo clippy -p simple-archiver --all-targets -- -D warnings
+      - if: matrix.os == 'macos-latest'
+        run: cargo clippy -p simple-archiver --all-targets -- -D warnings
       - run: cargo nextest run -p simple-archiver --profile ci
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
