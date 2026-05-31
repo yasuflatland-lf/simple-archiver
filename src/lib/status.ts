@@ -1,8 +1,9 @@
 /**
  * The single bridge between a finished task's outcome (the projection of the
- * backend's terminal TaskStatus, surfaced as the JobSummaryDto arrays (`succeeded`/`cancelled`/`failed`)) and its
- * user-facing presentation: a unified label, the visual status-token classes,
- * and a text icon (so status is never communicated by color alone).
+ * backend's terminal TaskStatus, surfaced as the JobSummaryDto arrays
+ * (`succeeded`/`cancelled`/`failed`)) and its user-facing presentation: a
+ * unified label, the visual status-token classes, and a text icon (so status
+ * is never communicated by color alone).
  *
  * Owning this in one place keeps the vocabulary consistent across the summary
  * panel and the per-row task list, and keeps the domain-state → visual-token
@@ -19,7 +20,11 @@ export interface StatusVisual {
   label: string;
   /** Tailwind classes wiring the status color tokens (subtle bg + foreground). */
   className: string;
-  /** Text glyph paired with the label so meaning is not color-only; must be a non-empty string (accessibility guarantee: status is never communicated by color alone). */
+  /**
+   * Text glyph paired with the label so meaning is not color-only; must be a
+   * non-empty string (accessibility guarantee: status is never communicated by
+   * color alone).
+   */
   icon: string;
 }
 

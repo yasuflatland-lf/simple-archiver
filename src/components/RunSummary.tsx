@@ -1,6 +1,19 @@
 import { statusVisual } from "@/lib/status";
 import { useJobStore } from "@/store/jobStore";
 
+// Map a failed task id back to its output preview name via the positional
+// alignment invariant (taskIdByIndex[i] <-> previewNames[i]); fall back to the
+// raw id when alignment is unavailable.
+function outputNameForTask(
+  taskId: number,
+  previewNames: string[],
+  taskIdByIndex: number[],
+): string {
+  const index = taskIdByIndex.indexOf(taskId);
+  const name = index >= 0 ? previewNames[index] : undefined;
+  return name ?? `task ${taskId}`;
+}
+
 /**
  * RunSummary is the completion panel shown after a job finishes. It is a pure
  * projection of the backend JobSummaryDto: counts are array lengths (never
@@ -19,15 +32,6 @@ export function RunSummary() {
     { visual: statusVisual("cancelled"), n: summary.cancelled.length },
     { visual: statusVisual("failed"), n: summary.failed.length },
   ];
-
-  // Map a failed task id back to its output preview name via the positional
-  // alignment invariant (taskIdByIndex[i] <-> previewNames[i]); fall back to the
-  // raw id when alignment is unavailable.
-  function outputNameForTask(taskId: number): string {
-    const index = taskIdByIndex.indexOf(taskId);
-    const name = index >= 0 ? previewNames[index] : undefined;
-    return name ?? `task ${taskId}`;
-  }
 
   // <output> carries an implicit ARIA role of "status" (and implicit aria-live),
   // so the panel is announced to assistive tech and tests resolve it via
@@ -65,7 +69,8 @@ export function RunSummary() {
                 key={f.taskId}
                 className="font-mono text-status-danger-foreground"
               >
-                {outputNameForTask(f.taskId)} — {f.reason}
+                {outputNameForTask(f.taskId, previewNames, taskIdByIndex)} —{" "}
+                {f.reason}
               </li>
             ))}
           </ul>
