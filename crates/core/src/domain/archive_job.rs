@@ -82,7 +82,7 @@ fn seq_index(i: usize) -> u32 {
 /// **Position/identity invariant:** the task at position `p` always holds the
 /// name `rule.resolve(p + 1)`. This is established by [`ArchiveJob::plan`] and
 /// preserved by every reorder: names are position-derived and stay with the
-/// position, while each task's id, status, and progress travel with the task.
+/// position, while each task's id and status travel with the task.
 ///
 /// `ArchiveJob` is a value type with full structural equality: it derives both
 /// `PartialEq` and `Eq`.
@@ -98,7 +98,7 @@ impl ArchiveJob {
     ///
     /// Items are numbered 1-based in the order given: item at index `i` gets
     /// `TaskId(i + 1)`, its output name `rule.resolve(SequenceNumber::new(i + 1))`,
-    /// and starts `Pending` with zero progress. The `SequenceNumber` is a transient
+    /// and starts `Pending`. The `SequenceNumber` is a transient
     /// argument to name resolution — it is derived from position and is NOT stored
     /// on the task.
     ///
@@ -224,8 +224,8 @@ impl ArchiveJob {
     /// output name bound to that position.
     ///
     /// Reordering only changes which task object occupies a position; the output
-    /// name stays bound to the POSITION while the task's id, status, and progress
-    /// travel with the task. The implementation therefore (1) saves the current
+    /// name stays bound to the POSITION while the task's id and status travel
+    /// with the task. The implementation therefore (1) saves the current
     /// name at each position before the swap, (2) calls `self.tasks.swap(a, b)`
     /// to move the task objects, then (3) restores each position's saved name via
     /// `set_output_name`. This is infallible — it never calls `rule.resolve` and
