@@ -1,20 +1,22 @@
 import { useEffect } from "react";
 
 import "./App.css";
-import { FileDropZone } from "@/components/FileDropZone";
-import { ModeToggle } from "@/components/mode-toggle";
-import { NamingRuleForm } from "@/components/NamingRuleForm";
-import { OutputDirPicker } from "@/components/OutputDirPicker";
-import { OverallProgress } from "@/components/OverallProgress";
-import { RunControls } from "@/components/RunControls";
-import { RunSummary } from "@/components/RunSummary";
+import { AppHeader } from "@/components/AppHeader";
+import { AppShell } from "@/components/AppShell";
+import { DropOverlay } from "@/components/DropOverlay";
+import { EmptyQueue } from "@/components/EmptyQueue";
+import { SetupToolbar } from "@/components/SetupToolbar";
+import { StatusBar } from "@/components/StatusBar";
 import { TaskList } from "@/components/TaskList";
+import { useFileDrop } from "@/hooks/useFileDrop";
 import { subscribeProgress } from "@/lib/archive";
 import { useJobStore } from "@/store/jobStore";
 
 function App() {
-  // Surface the latest store error in a single top-level banner.
   const error = useJobStore((s) => s.error);
+  const hasItems = useJobStore((s) => s.draft.items.length > 0);
+  // Single OS drag-drop subscription for the whole app; drives DropOverlay.
+  const { isDragging } = useFileDrop();
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -27,7 +29,6 @@ function App() {
         if (active) {
           unlisten = fn;
         } else {
-          // Already unmounted — release immediately.
           fn();
         }
       })
@@ -43,38 +44,29 @@ function App() {
     };
   }, []);
 
+  // Surface the latest store error in a single top-level banner slot.
+  const banner =
+    error !== null ? (
+      <p
+        role="alert"
+        className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+      >
+        {error}
+      </p>
+    ) : undefined;
+
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-10">
-        <header className="flex items-center justify-between">
-          <h1 className="text-[28px] leading-8 font-bold tracking-[-0.56px] text-[var(--heading)]">
-            simple-archiver
-          </h1>
-          <ModeToggle />
-        </header>
-
-        <p className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
-          Batch archive · RAR → ZIP
-        </p>
-
-        {error !== null && (
-          <p
-            role="alert"
-            className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          >
-            {error}
-          </p>
-        )}
-
-        <FileDropZone />
-        <NamingRuleForm />
-        <TaskList />
-        <OutputDirPicker />
-        <RunControls />
-        <OverallProgress />
-        <RunSummary />
-      </div>
-    </main>
+    <>
+      <AppShell
+        header={<AppHeader />}
+        toolbar={<SetupToolbar />}
+        banner={banner}
+        statusBar={<StatusBar />}
+      >
+        {hasItems ? <TaskList /> : <EmptyQueue />}
+      </AppShell>
+      <DropOverlay visible={isDragging} />
+    </>
   );
 }
 

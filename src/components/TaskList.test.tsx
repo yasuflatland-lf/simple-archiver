@@ -345,4 +345,59 @@ describe("TaskList progress", () => {
 
     expect(screen.getByText("Succeeded")).toBeTruthy();
   });
+
+  it("disables reorder buttons while a job is running", () => {
+    useJobStore.setState({
+      draft: {
+        items: makeItems(3),
+        namingTemplate: null,
+        outputDir: null,
+      },
+      previewNames: [],
+      running: true,
+      progress: {
+        overall: { bytesDone: 0, bytesTotal: 0 },
+        overallEtaMs: null,
+        perTask: [],
+        elapsedMs: 0,
+      },
+    });
+    render(<TaskList />);
+    const up = screen.getAllByRole("button", {
+      name: /move up/i,
+    }) as HTMLButtonElement[];
+    const down = screen.getAllByRole("button", {
+      name: /move down/i,
+    }) as HTMLButtonElement[];
+    // Every reorder control is disabled while running, regardless of position.
+    expect(up.every((b) => b.disabled)).toBe(true);
+    expect(down.every((b) => b.disabled)).toBe(true);
+  });
+
+  it("shows a human-readable byte caption under the per-row bar", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/tmp/a.rar", kind: "rar" }],
+        namingTemplate: null,
+        outputDir: null,
+      },
+      previewNames: ["out1.zip"],
+      running: true,
+      progress: {
+        overall: { bytesDone: 13_002_342, bytesTotal: 19_922_944 },
+        overallEtaMs: 8000,
+        perTask: [
+          {
+            taskId: 1,
+            bytesDone: 13_002_342,
+            bytesTotal: 19_922_944,
+            etaMs: 8000,
+          },
+        ],
+        elapsedMs: 1000,
+      },
+    });
+    render(<TaskList />);
+    expect(screen.getByText(/12\.4 \/ 19 MB/)).toBeTruthy();
+  });
 });

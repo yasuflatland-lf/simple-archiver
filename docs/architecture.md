@@ -136,6 +136,20 @@ A zustand store holds the UI state. Each mutating action calls the corresponding
 
 `previewNames` and `taskIdByIndex` are parallel arrays index-aligned with `draft.items`, and `progress.perTask` / the summary arrays are in job order — so a row maps to its `TaskId` purely by position. Because `TaskId` is a stable identity assigned at plan time while row position changes under reorder (see [domain-model.md](../.claude/domain-model.md) "TaskId vs SequenceNumber"), the store **clears `summary` / `progress` / `taskIdByIndex` on every draft edit** (addItems/reorder); otherwise a post-run reorder would mislabel the status column. Async preview recomputation uses a module-level generation counter and discards stale results, so a slower batch can never overwrite a newer one.
 
+### Frontend information architecture (PR11)
+
+The full-screen layout is handled by a presentational `AppShell` (`flex h-screen flex-col`) divided into five fixed vertical zones:
+
+- **header** — title + theme toggle; always visible
+- **toolbar** — `SetupToolbar`: add-source buttons, naming template, output dir, Run/Cancel; always visible
+- **banner** — optional error alert; occupies space only when present
+- **main** — the single scroll region (`flex-1 min-h-0 overflow-y-auto`); holds `TaskList` or the `EmptyQueue` empty-state. `min-h-0` is load-bearing: without it a flex child refuses to shrink below its content height and the inner scroll silently breaks.
+- **footer** — `StatusBar`: overall progress while running, results summary when done; always visible
+
+This zoning maps the domain lifecycle onto screen space: everything above the queue (`header` + `toolbar`) is mutable pre-run setup; the footer is a read-only post-run observation zone; only the queue region scrolls.
+
+**Single drag-drop subscription:** `useFileDrop()` owns the one `getCurrentWebview().onDragDropEvent` subscription, mounted exactly once in `App`. It returns `{ isDragging }` which drives the presentational `DropOverlay`. Drag-and-drop is the single affordance that accepts BOTH files and folders.
+
 ### Progress bars and ETA display (PR9)
 
 Each `ProgressEvent` emitted on `archive://progress` now carries two new optional fields: `overallEtaMs` (overall job ETA in milliseconds) and per-task `etaMs` (inside each entry of the `perTask` array). The frontend renders a shadcn `Progress` bar for the overall job (`OverallProgress` component) and a per-row shadcn `Progress` bar plus a `formatEta` string in `TaskList`. All ETA arithmetic — the sliding `ETA_WINDOW` moving-average — is owned entirely by Rust (`EtaEstimator` / `EtaTracker`); the TypeScript layer only formats milliseconds into a human-readable string and has no ETA logic of its own. Rust is the single source of truth for ETA.

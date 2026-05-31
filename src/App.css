@@ -156,8 +156,15 @@
     @apply border-border outline-ring/50;
   }
 
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
   body {
     @apply bg-background text-foreground;
+    overflow: hidden;
     font-family:
       "Inter Variable", "Helvetica Neue", Helvetica, Arial, sans-serif;
     font-synthesis: none;

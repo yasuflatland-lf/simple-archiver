@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatEta, progressPercent } from "./format";
+import { formatEta, progressPercent, formatBytes } from "./format";
 
 describe("formatEta", () => {
   it("returns an em dash for unknown (null) ETA", () => {
@@ -33,5 +33,24 @@ describe("progressPercent", () => {
   });
   it("clamps to 100", () => {
     expect(progressPercent(120, 100)).toBe(100);
+  });
+});
+
+describe("formatBytes", () => {
+  it("renders both numbers on the unit of the total", () => {
+    // 12.4 MB done of 19 MB total (1 MB = 1024*1024).
+    expect(formatBytes(13_002_342, 19_922_944)).toBe("12.4 / 19 MB");
+  });
+  it("uses whole numbers for bytes (no decimals under 1 KB)", () => {
+    expect(formatBytes(512, 1000)).toBe("512 / 1000 B");
+  });
+  it("scales to KB", () => {
+    expect(formatBytes(512, 2048)).toBe("0.5 / 2 KB");
+  });
+  it("handles a zero total without dividing by zero", () => {
+    expect(formatBytes(0, 0)).toBe("0 / 0 B");
+  });
+  it("clamps negative inputs to zero", () => {
+    expect(formatBytes(-5, -10)).toBe("0 / 0 B");
   });
 });

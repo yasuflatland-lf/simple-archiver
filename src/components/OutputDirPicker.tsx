@@ -28,7 +28,7 @@ export function OutputDirPicker() {
   }
 
   return (
-    <section className="flex flex-col gap-2 border-t border-border pt-4">
+    <section className="flex flex-col gap-1.5">
       <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
         Output directory
       </span>
