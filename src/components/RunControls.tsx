@@ -8,11 +8,9 @@ import { useJobStore } from "@/store/jobStore";
 function runUnavailableReason(
   itemCount: number,
   outputDir: string | null,
-  running: boolean,
 ): string {
   if (itemCount === 0) return "Add at least one item";
   if (!outputDir) return "Choose an output directory";
-  if (running) return "A job is already running";
   return "";
 }
 
@@ -20,18 +18,22 @@ function runUnavailableReason(
 const RUN_REASON_ID = "run-disabled-reason";
 
 /**
- * RunControls renders the primary job actions (Cancel / Run). Run is the
- * right-edge primary; Cancel sits to its left and is recessive. The completion
- * summary is rendered separately by RunSummary; error display is handled by
- * the top-level App banner — no duplication here.
+ * RunControls renders the primary job action for the current state:
+ *   - idle  (running === false): Run only (Cancel is not in the DOM).
+ *   - active (running === true): Cancel only (Run is not in the DOM).
+ *
+ * Run retains full accessible-disabled semantics (aria-disabled / aria-describedby /
+ * sr-only reason span / title / handler guard) so assistive technology can announce
+ * why it is unavailable even before the user has filled in all required fields.
  */
 export function RunControls() {
   const itemCount = useJobStore((s) => s.draft.items.length);
   const outputDir = useJobStore((s) => s.draft.outputDir);
   const running = useJobStore((s) => s.running);
-  // Run is only enabled with at least one item, an output directory set, and no
-  // job in flight.
-  const runReason = runUnavailableReason(itemCount, outputDir, running);
+
+  // Run disabled reason is computed only from items/outputDir; the running
+  // branch is never shown while running (Cancel replaces Run entirely).
+  const runReason = runUnavailableReason(itemCount, outputDir);
   const runDisabled = runReason !== "";
 
   function handleRun() {
@@ -42,18 +44,23 @@ export function RunControls() {
   }
 
   function handleCancel() {
-    // Mirror the button's disabled={!running} prop; native disabled already
-    // suppresses clicks, this keeps the handler safe if that ever changes.
-    if (!running) return;
     useJobStore.getState().cancelJob();
+  }
+
+  if (running) {
+    return (
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="outline" onClick={handleCancel}>
+          Cancel
+        </Button>
+      </div>
+    );
   }
 
   return (
     <div className="flex items-center gap-2">
-      <Button variant="outline" disabled={!running} onClick={handleCancel}>
-        Cancel
-      </Button>
       <Button
+        type="button"
         variant="brand"
         aria-disabled={runDisabled || undefined}
         aria-describedby={runDisabled ? RUN_REASON_ID : undefined}
