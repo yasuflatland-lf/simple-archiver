@@ -52,6 +52,7 @@ infrastructure simple-archiver-core — isolates the variation / adapters
 
 - **`ZipArchiver` walks the full source file list before creating/opening the destination zip.** If the output zip lands inside the source directory, creating it first lets `WalkDir` encounter the partially-written archive and read it back into itself — a corrupt, order/timing-dependent result (a runtime path-skip via `canonicalize` is fail-open when canonicalization fails under load). Walking first, then writing, makes self-inclusion structurally impossible regardless of platform symlinks or filesystem timing.
 - **`ZipArchiver` forces durability before returning.** `tokio::fs::File` writes on the blocking pool and its `Drop` does **not** wait for them, so a naive return can hand back an unflushed/locked archive — an order/timing-dependent CI flake. After `async_zip`'s `close()` writes the central directory, recover the file via `.into_inner()`, then `shutdown().await` + `sync_all().await` so the zip is complete and readable immediately. PR-5a also reports per-entry byte progress through the `CompressContext` and **refuses to overwrite** an existing destination (`OpenOptions::create_new(true)` → `AlreadyExists` → `ArchiveError::Io` → the task fails).
+- **`ZipArchiver` cancellation drain symmetry (PR10).** The cancel path previously called a bare `drop(writer)` and then `remove_file`, which could let queued blocking writes race the delete and transiently leave a partial zip. PR10 eliminates this asymmetry: the cancel path now **drains the writer (`close` → recover the file via `.into_inner()` → `shutdown().await` + `sync_all().await`) before calling `remove_file`**, via a shared `drain_to_disk` helper that is also used by the success path. The cancel and success paths are now structurally identical up to the final `remove_file` step. Mid-extraction unrar cancellation remains out of scope; temp cleanup on cancel is still the `TempWorkspace` RAII `Drop` guarantee.
 - **`UnrarExtractor` runs the synchronous `unrar` C API on `tokio::task::spawn_blocking`, and owns the `TempWorkspace` guard inside the blocking closure.** Three consequences follow from that choice:
   - The `unrar` crate (bundled UnRAR C++) is synchronous and CPU/IO-bound, so it must not run on the async runtime; `spawn_blocking` keeps the reactor free.
   - `TempWorkspace` is created and held *inside* the closure and only moved out on `Ok`; on any error or a panic in the blocking thread it drops there during unwind, so the temp dir is reclaimed on every exit path (no orphaned temp dirs).
@@ -77,6 +78,19 @@ The frontend uses a **two-layer design-token system** in `src/App.css`:
 **Dark mode** is class-driven: `.dark` on `<html>` overrides only the semantic layer. `@custom-variant dark (&:is(.dark *))` replaces Tailwind v4's default media-query dark variant so the theme is user-controlled. `ThemeProvider` (`src/components/theme-provider.tsx`) toggles the class, persists the choice to `localStorage` under the key `simple-archiver-theme`, and follows the OS via a `matchMedia change` listener only while the theme is set to `"system"`. Persisted values are validated through a type guard (`isTheme`) before use — unrecognised strings fall back to the default rather than being cast blindly.
 
 **Color discipline:** navy (`--asics-ink`) is `--primary`; red `#e60012` is reserved for the single `--brand` CTA (`Button variant="brand"`), `--destructive`, and error badges — not a general accent.
+
+**Functional status token tier and category tier (PR10):** Two additional token tiers were added to `src/App.css` on top of the existing primitive/semantic layers:
+
+- A **functional status tier** — `--status-{success,warning,danger}-{foreground,subtle}` — maps outcome states to colour without coupling them to the shadcn semantic names. These are declared core→semantic, light/dark symmetric, and exposed via `@theme inline`.
+- A **category tier** — `--category-{folder,archive}-{foreground,subtle}` — distinguishes source-item types for icon/badge colouring.
+
+The status axis and category axis are kept strictly distinct and are never mixed.
+
+**Single mapping point — `statusVisual()` (`src/lib/status.ts`):** this is the ONE place that wires a **domain/summary outcome → user-facing label → status token**. No other file should derive a label or colour from a `TaskStatus` or `JobSummaryDto` field directly.
+
+**`RunSummary` is a pure projection of `JobSummaryDto`:** counts are array lengths; failure reasons are the verbatim strings passed in the DTO. No client-side recomputation or re-classification.
+
+**Vocabulary unification (PR10):** the task-lifecycle terminal `TaskStatus::Completed` is tallied at the job-summary level as `succeeded` and shown in the UI as **"Succeeded"**; "Success" is no longer used anywhere. Labels are unified to **Succeeded / Failed / Cancelled** across Rust, DTOs, and the frontend.
 
 **shadcn/ui (new-york)** primitives live in `src/components/ui/`. Keep them faithful to upstream templates; the `cn` helper (`clsx` + `tailwind-merge`) is used throughout, so later utility classes win conflicts (e.g. a variant's `rounded-full` overrides the base `rounded-md`). The `@/` path alias resolves to `src/` (tsconfig `paths` + vite `resolve.alias`).
 
