@@ -19,6 +19,11 @@ export const DEBOUNCE_MS = 200;
  * pushes the template into the store via setNamingRule. The live preview and
  * template-error display live in OutputSettings, which derives the full landing
  * path from the store template + output directory.
+ *
+ * Renders as a fragment of two grid cells so it flattens into the shared OUTPUT
+ * editing grid owned by OutputSettings: a tier-2 "Name" label cell followed by
+ * the template input. The input spans the control + action columns (no Choose
+ * button on this row), keeping its label/input association intact for a11y.
  */
 export function NamingRuleForm() {
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE);
@@ -35,7 +40,7 @@ export function NamingRuleForm() {
   }, [template]);
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <>
       <Label
         htmlFor="naming-template"
         className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground"
@@ -44,9 +49,10 @@ export function NamingRuleForm() {
       </Label>
       <Input
         id="naming-template"
+        className="col-span-2"
         value={template}
         onChange={(event) => setTemplate(event.target.value)}
       />
-    </div>
+    </>
   );
 }

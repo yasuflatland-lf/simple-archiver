@@ -6,8 +6,12 @@ import { useJobStore } from "@/store/jobStore";
 
 /**
  * Lets the user pick an output directory via the native OS dialog.
- * Displays the current selection (or a muted placeholder when none is set).
  * Calls setOutputDir in the job store when a directory is chosen.
+ *
+ * Renders as a fragment of three grid cells so it flattens into the shared
+ * OUTPUT editing grid owned by OutputSettings: a tier-2 "Destination" label, the
+ * current path (or a "(not set)" empty state with a "Required" badge when none
+ * is chosen), and the Choose button pinned to the right-hand action column.
  */
 export function OutputDirPicker() {
   const outputDir = useJobStore((s) => s.draft.outputDir);
@@ -28,22 +32,25 @@ export function OutputDirPicker() {
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <>
       <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
         Destination
       </span>
-      <div className="flex items-center gap-3">
-        <span className="flex-1 truncate text-sm">
-          {outputDir !== null ? (
-            outputDir
-          ) : (
-            <span className="text-muted-foreground">(none)</span>
-          )}
-        </span>
-        <Button variant="outline" size="sm" onClick={handleChoose}>
-          Choose…
-        </Button>
-      </div>
-    </div>
+      <span className="flex min-w-0 items-center gap-2 text-sm">
+        {outputDir !== null ? (
+          <span className="truncate">{outputDir}</span>
+        ) : (
+          <>
+            <span className="text-muted-foreground">(not set)</span>
+            <span className="rounded-full bg-status-danger-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-status-danger-foreground">
+              Required
+            </span>
+          </>
+        )}
+      </span>
+      <Button variant="outline" size="sm" onClick={handleChoose}>
+        Choose…
+      </Button>
+    </>
   );
 }

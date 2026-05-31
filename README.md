@@ -27,7 +27,7 @@ It ships as a single self-contained native application built with **Tauri 2** �
   - **folder** → compressed into a zip directly.
 - **Live per-item progress** — each row shows a progress bar and an estimated-time-remaining string, updated asynchronously while the job runs.
 - **Overall progress** — a job-wide progress bar and ETA for all items combined.
-- **Output directory** — pick one destination folder through the native OS picker; all archives are written there.
+- **Output directory** — pick one destination folder through the native OS picker; all archives are written there. The app remembers your last chosen directory and, on first run, defaults to the OS Downloads folder.
 - **Resilient by design** — existing names are **not overwritten** (that item fails instead), a failed item never stops the others, and a run can be cancelled (in-flight work is interrupted and partial output / temp files are cleaned up). A run summary tallying **succeeded / cancelled / failed** items is shown at the end.
 
 ## Getting started
