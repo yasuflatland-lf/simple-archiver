@@ -97,6 +97,63 @@ async fn run_job_inner_happy_path_archives_every_item() {
     );
 }
 
+/// Path to the committed real RAR5 fixture in the core crate's test tree.
+fn rar_fixture() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/core/tests/fixtures/sample.rar")
+}
+
+/// Build a two-item job (folder at position 0, rar at position 1) through the
+/// public draft API, writing the output zips into `out_dir`.
+fn build_mixed_job(src_folder: &Path, rar: &Path, out_dir: &Path) -> ArchiveJob {
+    let state = AppState::default();
+    {
+        let mut draft = state.draft.lock().unwrap();
+        draft.add_items(vec![
+            SourceItem::Folder(src_folder.to_path_buf()),
+            SourceItem::RarFile(rar.to_path_buf()),
+        ]);
+        draft
+            .set_template("out_{n}".to_string())
+            .expect("valid template");
+        draft.set_out_dir(out_dir.to_path_buf());
+    }
+    let draft = state.draft.lock().unwrap();
+    draft.build().expect("draft should build into a job")
+}
+
+#[tokio::test]
+async fn run_job_inner_mixed_folder_and_rar_produce_both_zips() {
+    let src_folder = source_folder_with_file(b"from folder");
+    let out_dir = tempfile::tempdir().expect("create out tempdir");
+
+    let job = build_mixed_job(src_folder.path(), &rar_fixture(), out_dir.path());
+
+    let emitter = RecordingEmitter::default();
+    let token = CancellationToken::new();
+    let summary = run_job_inner(&emitter, job, token).await;
+
+    assert_eq!(
+        summary.succeeded.len(),
+        2,
+        "both tasks should succeed: {summary:?}"
+    );
+    assert!(
+        summary.failed.is_empty(),
+        "no task should fail: {summary:?}"
+    );
+    assert!(summary.cancelled.is_empty(), "no task should be cancelled");
+
+    // Folder → out_1.zip (position 0); rar → out_2.zip (position 1).
+    assert!(
+        out_dir.path().join("out_1.zip").is_file(),
+        "out_1.zip should exist"
+    );
+    assert!(
+        out_dir.path().join("out_2.zip").is_file(),
+        "out_2.zip should exist"
+    );
+}
+
 #[tokio::test]
 async fn run_job_inner_pre_cancelled_archives_nothing() {
     let src_a = source_folder_with_file(b"alpha");
