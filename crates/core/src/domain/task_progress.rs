@@ -8,9 +8,16 @@ pub struct TaskProgress {
 
 impl TaskProgress {
     /// Create a task progress from explicit byte counters.
+    ///
+    /// Enforces the invariant `bytes_done <= bytes_total`: a debug build asserts
+    /// loudly, and a release build clamps to keep the progress ratio and ETA sound.
     pub fn new(bytes_done: u64, bytes_total: u64) -> Self {
+        debug_assert!(
+            bytes_done <= bytes_total,
+            "TaskProgress invariant: bytes_done ({bytes_done}) must not exceed bytes_total ({bytes_total})"
+        );
         Self {
-            bytes_done,
+            bytes_done: bytes_done.min(bytes_total),
             bytes_total,
         }
     }
@@ -86,7 +93,24 @@ mod tests {
     fn remaining_is_total_minus_done_saturating() {
         assert_eq!(TaskProgress::new(3, 10).remaining(), 7);
         assert_eq!(TaskProgress::new(10, 10).remaining(), 0);
-        // Done exceeding total never underflows.
-        assert_eq!(TaskProgress::new(12, 10).remaining(), 0);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "bytes_done")]
+    fn new_debug_asserts_when_done_exceeds_total() {
+        // In a debug build the invariant fires loudly instead of clamping silently.
+        let _ = TaskProgress::new(12, 10);
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn new_clamps_done_to_total_in_release() {
+        // In a release build the invariant is preserved by clamping, keeping the
+        // progress ratio and ETA sound.
+        let p = TaskProgress::new(12, 10);
+        assert_eq!(p.bytes_done(), 10);
+        assert_eq!(p.bytes_total(), 10);
+        assert_eq!(p.remaining(), 0);
     }
 }

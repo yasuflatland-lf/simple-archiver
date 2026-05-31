@@ -69,6 +69,18 @@ Model lifecycle as `apply(self, Event) -> Result<Self, IllegalTransition>` that 
 self.status = self.status.clone().apply(event)?;
 ```
 
+**Hot-path variant — `std::mem::replace` to avoid the happy-path clone.** When the `&mut self` mutator runs in a hot loop and `apply` consumes the current state, take the state out with a cheap placeholder instead of cloning every call:
+
+```rust
+let prev = std::mem::replace(&mut self.status, TaskStatus::Pending); // cheap placeholder
+match prev.clone().apply(event) {
+    Ok(next) => self.status = next,                 // happy path: no clone of prev kept
+    Err(e) => { self.status = prev; return Err(e); } // restore on illegal transition
+}
+```
+
+Only the error/restore path pays for a clone; the happy path moves. **Contract — the placeholder must never leak:** every `match` arm overwrites `self.status` before returning, so a caller can never observe the placeholder. **Harness:** lock the contract with a test that drives the mutator from a NON-placeholder state through a legal transition and asserts the concrete next state — a leaked placeholder then fails the assertion loudly.
+
 ## Error handling
 
 - Use a per-task `Result`; catch failures and never stop other tasks from running.
@@ -76,6 +88,8 @@ self.status = self.status.clone().apply(event)?;
 - Always clean up temp; on failure/cancellation, delete the partial output zip.
 - Do not swallow errors (no silent failures). Always surface them in logs / the summary.
 - **No-silent-failure, interim form (no logging facade yet).** The project has no `tracing`/`log` crate wired up, so until a logging-infrastructure PR lands, honor the rule minimally and consistently: (1) `debug_assert!` on "cannot-happen given engine ordering" invariant violations — loud in debug/test/loom, a no-op `continue` in release where the state-derived summary reconciles the task to `failed` (see the aggregator `apply` site in `run_archive_job`); (2) explicitly match and ignore *expected* error kinds (e.g. `ErrorKind::NotFound` on best-effort cleanup) while swallowing the rest *with a comment*; (3) mark each deferred-logging site in a comment so a `logError` + error-id slots in once logging exists. This is interim policy, not the end state.
+- **`debug_assert` + release clamp for caller-bug invariants.** For a pure-domain value object whose invalid input is provably a *caller* bug (not a user-facing error) — its only callers are internal code with no meaningful recovery path — prefer `debug_assert!(invariant)` (loud in dev/CI) plus a release-build clamp to a sound value over a `Result`-returning constructor. **Why:** in a shipping desktop app, clamping to keep a derived quantity sound (e.g. a progress ratio / ETA) beats panicking in release, while the dev/CI assertion still catches the real upstream bug loudly. This is the value-object analogue of the aggregator's `debug_assert` + no-op `continue` above — same no-silent-failure stance, applied at construction. Canonical: `TaskProgress::new` asserts `bytes_done <= bytes_total` then clamps `bytes_done.min(bytes_total)`. Reserve a fallible constructor for invariants that *user* input can violate. (Test both paths — see `docs/development.md` testing policy on `cargo nextest run --release`.)
+- **No silent numeric casts: prefer `try_from` over `as` for narrowing.** Do not use a silent `as` downcast for a narrowing integer conversion — it truncates without warning. Use `u32::try_from(x).expect("<state the invariant that makes truncation unreachable>")` when truncation is provably impossible (the `expect` message documents *why*), or saturating `u64::try_from(x).unwrap_or(u64::MAX)` when saturation is the correct domain semantic. When handing such a helper to `.map`, pass it **by reference** (`.map(helper)`, not `.map(|x| helper(x))`) to avoid `clippy::redundant_closure`. This is a direct extension of the no-silent-failure policy to numeric truncation.
 - **Intentional best-effort swallows are allowed only when the load-bearing signal is delivered elsewhere.** The engine drops a progress `send` once the receiver is gone (`let _ = tx.send(Progress…)`) — that only happens during teardown and the *terminal* status is what matters; document the reason at the site. Pair such swallows with a completeness guarantee: `into_summary` reconciles any non-terminal task into `failed`, so `succeeded + failed` always equals the task count and a panicked worker can never silently vanish.
 - **Native dialog calls (`open`/`save`) can reject, not only resolve to `null` on cancel.** A plugin/permission/OS failure rejects the promise; wrap dialog calls in try/catch, surface the real error to the user (status text), and treat only a falsy/`null` resolve as a silent user-cancel. Only **real** dialog/IPC errors reach a `catch`, so never swallow them with a bare `catch {}` — route them to the store `error`. Non-fatal subscription failures (progress / drag-drop listener registration) should at least be `console.error`-logged, not silently dropped.
 - **Normalize every rejection through one helper.** `messageFromReason(reason, fallback?)` in `src/lib/errors.ts` turns an unknown throw into an English string (string → as-is, `Error` → `.message`, else fallback) so the UI never renders `[object Object]`. Do not re-duplicate this per file. Store async actions catch failures, record the message in a single `error` state field, and leave `draft` unchanged on failure; the UI surfaces `store.error` in **one** top-level banner (`App`), never per-component, to avoid detached/duplicated error display.
