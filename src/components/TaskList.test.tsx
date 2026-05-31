@@ -199,7 +199,7 @@ describe("TaskList status", () => {
     expect(screen.getAllByText("Waiting").length).toBe(2);
   });
 
-  it("shows bytes text when running and progress.perTask[i] exists", () => {
+  it("shows a progress bar (not bytes text) when running and progress.perTask[i] exists", () => {
     useJobStore.setState({
       draft: {
         items: makeItems(2),
@@ -210,9 +210,10 @@ describe("TaskList status", () => {
       running: true,
       progress: {
         overall: { bytesDone: 512, bytesTotal: 1024 },
+        overallEtaMs: null,
         perTask: [
-          { taskId: 0, bytesDone: 256, bytesTotal: 512 },
-          { taskId: 1, bytesDone: 100, bytesTotal: 200 },
+          { taskId: 0, bytesDone: 256, bytesTotal: 512, etaMs: null },
+          { taskId: 1, bytesDone: 100, bytesTotal: 200, etaMs: null },
         ],
         elapsedMs: 500,
       },
@@ -221,8 +222,10 @@ describe("TaskList status", () => {
 
     render(<TaskList />);
 
-    expect(screen.getByText("256 / 512 bytes")).toBeTruthy();
-    expect(screen.getByText("100 / 200 bytes")).toBeTruthy();
+    // Progress bars replace the raw bytes text when running with perTask data.
+    expect(screen.getAllByRole("progressbar").length).toBe(2);
+    expect(screen.queryByText("256 / 512 bytes")).toBeNull();
+    expect(screen.queryByText("100 / 200 bytes")).toBeNull();
   });
 
   it("shows Processing when running but no matching perTask entry", () => {
@@ -238,6 +241,7 @@ describe("TaskList status", () => {
         overall: { bytesDone: 0, bytesTotal: 0 },
         perTask: [],
         elapsedMs: 0,
+        overallEtaMs: null,
       },
       summary: null,
     });
@@ -293,5 +297,52 @@ describe("TaskList status", () => {
     render(<TaskList />);
 
     expect(screen.getByText("Done")).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Progress bar + ETA
+// ---------------------------------------------------------------------------
+
+describe("TaskList progress", () => {
+  it("shows a per-row bar and ETA while running", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/tmp/a.rar", kind: "rar" }],
+        namingTemplate: null,
+        outputDir: null,
+      },
+      previewNames: ["out1.zip"],
+      running: true,
+      progress: {
+        overall: { bytesDone: 5, bytesTotal: 10 },
+        overallEtaMs: 12000,
+        perTask: [{ taskId: 1, bytesDone: 5, bytesTotal: 10, etaMs: 12000 }],
+        elapsedMs: 1000,
+      },
+    });
+
+    render(<TaskList />);
+
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+    expect(screen.getByText(/12s/)).toBeTruthy();
+  });
+
+  it("shows the summary status after the job finishes", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/tmp/a.rar", kind: "rar" }],
+        namingTemplate: null,
+        outputDir: null,
+      },
+      previewNames: ["out1.zip"],
+      running: false,
+      taskIdByIndex: [1],
+      summary: { succeeded: [1], cancelled: [], failed: [] },
+    });
+
+    render(<TaskList />);
+
+    expect(screen.getByText("Success")).toBeTruthy();
   });
 });

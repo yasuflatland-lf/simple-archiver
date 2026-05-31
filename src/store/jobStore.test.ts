@@ -98,10 +98,11 @@ describe("addItems", () => {
     const progress: ProgressEvent = {
       overall: { bytesDone: 100, bytesTotal: 100 },
       perTask: [
-        { taskId: 10, bytesDone: 50, bytesTotal: 50 },
-        { taskId: 11, bytesDone: 50, bytesTotal: 50 },
+        { taskId: 10, bytesDone: 50, bytesTotal: 50, etaMs: null },
+        { taskId: 11, bytesDone: 50, bytesTotal: 50, etaMs: null },
       ],
       elapsedMs: 5,
+      overallEtaMs: null,
     };
     useJobStore.setState({ summary, progress, taskIdByIndex: [10, 11] });
 
@@ -148,10 +149,11 @@ describe("reorder", () => {
     const progress: ProgressEvent = {
       overall: { bytesDone: 100, bytesTotal: 100 },
       perTask: [
-        { taskId: 10, bytesDone: 50, bytesTotal: 50 },
-        { taskId: 11, bytesDone: 50, bytesTotal: 50 },
+        { taskId: 10, bytesDone: 50, bytesTotal: 50, etaMs: null },
+        { taskId: 11, bytesDone: 50, bytesTotal: 50, etaMs: null },
       ],
       elapsedMs: 5,
+      overallEtaMs: null,
     };
     useJobStore.setState({ summary, progress, taskIdByIndex: [10, 11] });
 
@@ -356,10 +358,11 @@ describe("runJob", () => {
     const event: ProgressEvent = {
       overall: { bytesDone: 0, bytesTotal: 100 },
       perTask: [
-        { taskId: 11, bytesDone: 0, bytesTotal: 50 },
-        { taskId: 22, bytesDone: 0, bytesTotal: 50 },
+        { taskId: 11, bytesDone: 0, bytesTotal: 50, etaMs: null },
+        { taskId: 22, bytesDone: 0, bytesTotal: 50, etaMs: null },
       ],
       elapsedMs: 0,
+      overallEtaMs: null,
     };
     useJobStore.getState().applyProgress(event);
 
@@ -401,10 +404,11 @@ describe("applyProgress", () => {
     const event: ProgressEvent = {
       overall: { bytesDone: 10, bytesTotal: 100 },
       perTask: [
-        { taskId: 7, bytesDone: 5, bytesTotal: 50 },
-        { taskId: 8, bytesDone: 5, bytesTotal: 50 },
+        { taskId: 7, bytesDone: 5, bytesTotal: 50, etaMs: null },
+        { taskId: 8, bytesDone: 5, bytesTotal: 50, etaMs: null },
       ],
       elapsedMs: 42,
+      overallEtaMs: null,
     };
 
     useJobStore.getState().applyProgress(event);

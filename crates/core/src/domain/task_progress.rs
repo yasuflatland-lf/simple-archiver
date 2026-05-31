@@ -29,6 +29,11 @@ impl TaskProgress {
     pub fn bytes_total(&self) -> u64 {
         self.bytes_total
     }
+
+    /// Bytes still to process (`bytes_total - bytes_done`, saturating at 0).
+    pub fn remaining(&self) -> u64 {
+        self.bytes_total.saturating_sub(self.bytes_done)
+    }
 }
 
 #[cfg(test)]
@@ -75,5 +80,13 @@ mod tests {
         let p = TaskProgress::new(3, 10);
         assert_eq!(p.bytes_done(), 3);
         assert_eq!(p.bytes_total(), 10);
+    }
+
+    #[test]
+    fn remaining_is_total_minus_done_saturating() {
+        assert_eq!(TaskProgress::new(3, 10).remaining(), 7);
+        assert_eq!(TaskProgress::new(10, 10).remaining(), 0);
+        // Done exceeding total never underflows.
+        assert_eq!(TaskProgress::new(12, 10).remaining(), 0);
     }
 }

@@ -16,4 +16,8 @@ export type TaskProgressDto = {
    * Total bytes to process.
    */
   bytesTotal: number;
+  /**
+   * Estimated time remaining for this task, in milliseconds; null when unknown.
+   */
+  etaMs: number | null;
 };

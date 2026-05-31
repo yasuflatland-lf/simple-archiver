@@ -117,6 +117,7 @@ mod tests {
 
         sink.report(JobProgress {
             overall: TaskProgress::new(5, 10),
+            overall_eta: None,
             per_task: vec![],
             elapsed: Duration::from_millis(42),
         });
@@ -129,5 +130,9 @@ mod tests {
         assert_eq!(ev.overall.bytes_total, 10);
         assert_eq!(ev.elapsed_ms, 42);
         assert!(ev.per_task.is_empty(), "per_task must be empty");
+        assert!(
+            ev.overall_eta_ms.is_none(),
+            "overall_eta_ms must be None when not set"
+        );
     }
 }

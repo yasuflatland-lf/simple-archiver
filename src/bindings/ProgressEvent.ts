@@ -11,6 +11,10 @@ export type ProgressEvent = {
    */
   overall: ProgressCounts;
   /**
+   * Estimated time remaining for the whole job, in milliseconds; null when unknown.
+   */
+  overallEtaMs: number | null;
+  /**
    * Per-task progress in the job's task order.
    */
   perTask: Array<TaskProgressDto>;

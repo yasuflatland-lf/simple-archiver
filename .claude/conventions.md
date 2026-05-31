@@ -135,7 +135,7 @@ PR6 example: `RunState` in `src-tauri/src/presentation/state.rs` keeps its `toke
 - Derive `Serialize + TS + Clone + Debug + PartialEq + Eq` (for send-only DTOs omit `Deserialize`; `Serialize` alone suffices). For the `Eq` requirement, cross-reference the value-object-equality rule — it applies identically to DTOs, so derive both `PartialEq` and `Eq` whenever all fields are `Eq`-capable.
 - Apply `#[serde(rename_all = "camelCase")]` on every DTO struct and `#[ts(export, export_to = "...")]` to regenerate the TypeScript binding automatically on test runs.
 - Map from domain/application types via `From` impls written **in the presentation layer only** (domain/application stay serde/ts-rs-free). Keep `From` impls in `dto.rs` next to the DTO they produce.
-- When `u64` fields would emit `bigint` in TypeScript (which mismatches Tauri's JSON-number IPC transport), annotate with `#[ts(type = "number")]` and document the reason.
+- When `u64` fields would emit `bigint` in TypeScript (which mismatches Tauri's JSON-number IPC transport), annotate with `#[ts(type = "number")]` and document the reason. For `Option<u64>` fields use `#[ts(type = "number | null")]` — ts-rs would emit `bigint | null`, but Tauri IPC delivers a JSON number-or-null. Pin both overrides with a binding-shape test asserting the emitted type and absence of `bigint`.
 
 PR6 examples: `ProgressEvent`, `JobSummaryDto`, `DraftSnapshot` in `src-tauri/src/presentation/dto.rs`; mapping impls `From<&JobProgress> for ProgressEvent`, `From<JobSummary> for JobSummaryDto`.
 

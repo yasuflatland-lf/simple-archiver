@@ -5,6 +5,7 @@ import { FileDropZone } from "@/components/FileDropZone";
 import { ModeToggle } from "@/components/mode-toggle";
 import { NamingRuleForm } from "@/components/NamingRuleForm";
 import { OutputDirPicker } from "@/components/OutputDirPicker";
+import { OverallProgress } from "@/components/OverallProgress";
 import { RunControls } from "@/components/RunControls";
 import { TaskList } from "@/components/TaskList";
 import { subscribeProgress } from "@/lib/archive";
@@ -69,6 +70,7 @@ function App() {
         <TaskList />
         <OutputDirPicker />
         <RunControls />
+        <OverallProgress />
       </div>
     </main>
   );

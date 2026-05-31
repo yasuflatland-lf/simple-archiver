@@ -3,6 +3,8 @@
 
 pub mod compress_context;
 #[cfg(not(loom))]
+pub mod eta_estimator;
+#[cfg(not(loom))]
 pub mod format_registry;
 #[cfg(loom)]
 pub(crate) mod loom_nucleus;

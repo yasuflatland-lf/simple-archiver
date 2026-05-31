@@ -1,5 +1,7 @@
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
+import { Progress } from "@/components/ui/progress";
+import { formatEta, progressPercent } from "@/lib/format";
 import { useJobStore } from "@/store/jobStore";
 
 // ---------------------------------------------------------------------------
@@ -128,6 +130,8 @@ export function TaskList() {
               summary,
               taskIdByIndex,
             );
+            // While running, a live entry replaces the text status with a bar.
+            const liveEntry = running ? progress?.perTask[i] : undefined;
             const outputName = previewNames[i] ?? "";
             const isFirst = i === 0;
             const isLast = i === items.length - 1;
@@ -167,8 +171,24 @@ export function TaskList() {
                   {outputName}
                 </td>
 
-                {/* Status */}
-                <td className="py-2 pr-3 text-muted-foreground">{status}</td>
+                {/* Status: live bar + ETA while running, else text status */}
+                <td className="py-2 pr-3 text-muted-foreground">
+                  {liveEntry ? (
+                    <div className="flex min-w-[8rem] flex-col gap-1">
+                      <Progress
+                        value={progressPercent(
+                          liveEntry.bytesDone,
+                          liveEntry.bytesTotal,
+                        )}
+                      />
+                      <span className="text-xs">
+                        {formatEta(liveEntry.etaMs)}
+                      </span>
+                    </div>
+                  ) : (
+                    status
+                  )}
+                </td>
 
                 {/* Reorder buttons */}
                 <td className="py-2">

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::application::progress::JobProgress;
+use crate::application::progress::{JobProgress, TaskProgressEntry};
 use crate::domain::archive_job::{ArchiveJob, JobError};
 use crate::domain::archive_task::TaskId;
 use crate::domain::task_progress::TaskProgress;
@@ -74,11 +74,16 @@ impl Aggregator {
                 let p = self.progress.get(&t.id()).copied().unwrap_or_default();
                 done += p.bytes_done();
                 total += p.bytes_total();
-                (t.id(), p)
+                TaskProgressEntry {
+                    id: t.id(),
+                    progress: p,
+                    eta: None, // filled by EtaTracker in the engine
+                }
             })
             .collect();
         JobProgress {
             overall: TaskProgress::new(done, total),
+            overall_eta: None,
             per_task,
             elapsed: now.saturating_duration_since(self.started_at),
         }
@@ -113,6 +118,7 @@ impl Aggregator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::progress::TaskProgressEntry;
     use crate::domain::naming_rule::NamingRule;
     use crate::domain::output_directory::OutputDirectory;
     use crate::domain::source_item::SourceItem;
@@ -156,8 +162,16 @@ mod tests {
         assert_eq!(
             snap.per_task,
             vec![
-                (id[0], TaskProgress::new(2, 10)),
-                (id[1], TaskProgress::new(3, 5))
+                TaskProgressEntry {
+                    id: id[0],
+                    progress: TaskProgress::new(2, 10),
+                    eta: None
+                },
+                TaskProgressEntry {
+                    id: id[1],
+                    progress: TaskProgress::new(3, 5),
+                    eta: None
+                },
             ]
         );
         assert_eq!(snap.elapsed, Duration::from_millis(50));

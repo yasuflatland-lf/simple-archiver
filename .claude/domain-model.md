@@ -10,7 +10,7 @@
 - `FileStem` / `OutputFileName` — enforce Windows-superset filename validity (see "FileStem / OutputFileName" below). `OutputFileName::from_stem` appends `.zip`.
 - `SourceItem` — enum `RarFile(PathBuf)` | `Folder(PathBuf)`.
 - `OutputDirectory(PathBuf)` — a newtype wrapper for the output directory path. In the pure `domain` layer it performs **no filesystem-existence check**; that IO validation is deferred to the infrastructure layer (a later PR).
-- `TaskProgress { bytes_done: u64, bytes_total: u64 }` — progress counters only. There is no `phase` field: the current phase is already represented by `TaskStatus` (`Extracting` / `Compressing`), so `TaskProgress` is purely a pair of byte counters.
+- `TaskProgress { bytes_done: u64, bytes_total: u64 }` — progress counters only. There is no `phase` field: the current phase is already represented by `TaskStatus` (`Extracting` / `Compressing`), so `TaskProgress` is purely a pair of byte counters. **`remaining()` invariant (PR9):** `remaining() = bytes_total.saturating_sub(bytes_done)`, never negative. ETA is typed `Option<Duration>` at the application layer — `None` while throughput is not yet measurable, `Some(ZERO)` when `remaining() == 0`; only `TaskProgress::remaining()` is a domain addition. The `EtaEstimator`/`EtaTracker` that compute ETA live in the **application** layer, not domain (see `architecture.md` "Execution engine").
 
 ## Entities / aggregate
 
