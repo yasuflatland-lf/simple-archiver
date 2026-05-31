@@ -106,9 +106,28 @@ impl ArchiveTask {
     /// On a legal transition the status is updated and `Ok(())` is returned.
     /// On an illegal transition an [`IllegalTransition`] error is returned and
     /// the status is left **unchanged**.
+    ///
+    /// Uses `std::mem::replace` so the happy path performs zero heap allocations:
+    /// the current status is moved out, consumed by `TaskStatus::apply`, and the
+    /// next status is written back directly.  Only the rare error path clones
+    /// (to restore `err.from` as the canonical "status unchanged" invariant).
     pub(crate) fn apply_event(&mut self, event: TaskEvent) -> Result<(), IllegalTransition> {
-        self.status = self.status.clone().apply(event)?;
-        Ok(())
+        // Move the current status out without cloning.
+        // `Pending` is a throwaway placeholder: both the `Ok` and `Err` match
+        // arms overwrite `self.status` before this function returns, so it is
+        // never observable as a real state.
+        let prev = std::mem::replace(&mut self.status, TaskStatus::Pending);
+        match prev.apply(event) {
+            Ok(next) => {
+                self.status = next;
+                Ok(())
+            }
+            Err(err) => {
+                // Restore the original status; clone only on the (rare) error path.
+                self.status = err.from.clone();
+                Err(err)
+            }
+        }
     }
 }
 
@@ -241,6 +260,26 @@ mod tests {
         assert_eq!(task.status(), &TaskStatus::Completed);
     }
 
+    #[test]
+    fn apply_event_from_non_pending_state_reaches_next_state() {
+        // Locks in the mem::replace "placeholder never leaks" contract:
+        // a second apply_event starting from a non-Pending state must land on
+        // the correct next state, not on the Pending placeholder.
+        let mut task = make_task(1);
+        // First transition: Pending -> Extracting.
+        task.apply_event(TaskEvent::StartExtracting).unwrap();
+        assert_eq!(task.status(), &TaskStatus::Extracting);
+
+        // Second transition: Extracting -> Compressing (non-Pending start).
+        let result = task.apply_event(TaskEvent::StartCompressing);
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            task.status(),
+            &TaskStatus::Compressing,
+            "status must be Compressing, not the Pending placeholder"
+        );
+    }
+
     // ── apply_event — illegal transition leaves status unchanged ──────────────
 
     #[test]
@@ -286,6 +325,32 @@ mod tests {
         let result = task.apply_event(TaskEvent::StartExtracting);
         assert!(result.is_err());
         assert_eq!(task.status(), &TaskStatus::Completed);
+    }
+
+    #[test]
+    fn illegal_transition_from_failed_preserves_original_reason() {
+        let mut task = make_task(1);
+        task.apply_event(TaskEvent::Fail {
+            reason: "boom".to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            task.status(),
+            &TaskStatus::Failed {
+                reason: "boom".to_string()
+            }
+        );
+
+        // Complete is illegal from a terminal Failed state.
+        let result = task.apply_event(TaskEvent::Complete);
+        assert!(result.is_err());
+        // The original Failed { reason } must be restored exactly on the error path.
+        assert_eq!(
+            task.status(),
+            &TaskStatus::Failed {
+                reason: "boom".to_string()
+            }
+        );
     }
 
     // ── set_output_name ───────────────────────────────────────────────────────
