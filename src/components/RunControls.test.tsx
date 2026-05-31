@@ -25,8 +25,15 @@ beforeEach(() => {
 // Minimal DraftItemDto stub – only `path` and `kind` are required by the type.
 const ITEM = { path: "/a.rar", kind: "rar" as const };
 
-describe("RunControls – Run button disabled states", () => {
-  it("explains why Run is disabled via a title on its wrapper", () => {
+// The reason node is referenced by the Run button via aria-describedby.
+function runReasonText(run: HTMLElement): string | null {
+  const id = run.getAttribute("aria-describedby");
+  if (!id) return null;
+  return document.getElementById(id)?.textContent ?? null;
+}
+
+describe("RunControls – Run disabled reasons (accessible)", () => {
+  it("marks Run aria-disabled and describes the no-items reason", () => {
     useJobStore.setState({
       draft: { items: [], namingTemplate: null, outputDir: null },
       running: false,
@@ -35,11 +42,12 @@ describe("RunControls – Run button disabled states", () => {
     });
     render(<RunControls />);
     const run = screen.getByRole("button", { name: /run/i });
-    const wrapper = run.parentElement as HTMLElement;
-    expect(wrapper.getAttribute("title")).toMatch(/add at least one item/i);
+    expect(run.getAttribute("aria-disabled")).toBe("true");
+    expect(runReasonText(run)).toMatch(/add at least one item/i);
+    expect(run.getAttribute("title")).toMatch(/add at least one item/i);
   });
 
-  it("shows no-output-dir reason via a title when items present but outputDir null", () => {
+  it("describes the no-output-dir reason when items present but outputDir null", () => {
     useJobStore.setState({
       draft: { items: [ITEM], namingTemplate: null, outputDir: null },
       running: false,
@@ -48,13 +56,11 @@ describe("RunControls – Run button disabled states", () => {
     });
     render(<RunControls />);
     const run = screen.getByRole("button", { name: /run/i });
-    const wrapper = run.parentElement as HTMLElement;
-    expect(wrapper.getAttribute("title")).toMatch(
-      /choose an output directory/i,
-    );
+    expect(run.getAttribute("aria-disabled")).toBe("true");
+    expect(runReasonText(run)).toMatch(/choose an output directory/i);
   });
 
-  it("shows already-running reason via a title when running is true", () => {
+  it("describes the already-running reason when running is true", () => {
     useJobStore.setState({
       draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
       running: true,
@@ -63,11 +69,11 @@ describe("RunControls – Run button disabled states", () => {
     });
     render(<RunControls />);
     const run = screen.getByRole("button", { name: /run/i });
-    const wrapper = run.parentElement as HTMLElement;
-    expect(wrapper.getAttribute("title")).toMatch(/a job is already running/i);
+    expect(run.getAttribute("aria-disabled")).toBe("true");
+    expect(runReasonText(run)).toMatch(/a job is already running/i);
   });
 
-  it("has no title on wrapper when Run is ready and enabled", () => {
+  it("is not aria-disabled and has no reason when ready", () => {
     useJobStore.setState({
       draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
       running: false,
@@ -76,55 +82,29 @@ describe("RunControls – Run button disabled states", () => {
     });
     render(<RunControls />);
     const run = screen.getByRole("button", { name: /run/i });
-    const wrapper = run.parentElement as HTMLElement;
-    expect(wrapper.getAttribute("title")).toBe(null);
-  });
-
-  it("disables Run when items is empty (outputDir is set)", () => {
-    useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: "/out" },
-      running: false,
-      error: null,
-      summary: null,
-    });
-    render(<RunControls />);
-    const run = screen.getByRole("button", {
-      name: /run/i,
-    }) as HTMLButtonElement;
-    expect(run.disabled).toBe(true);
-  });
-
-  it("disables Run when outputDir is null (items present)", () => {
-    useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
-      running: false,
-      error: null,
-      summary: null,
-    });
-    render(<RunControls />);
-    const run = screen.getByRole("button", {
-      name: /run/i,
-    }) as HTMLButtonElement;
-    expect(run.disabled).toBe(true);
-  });
-
-  it("disables Run when running is true (items + outputDir present)", () => {
-    useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
-      running: true,
-      error: null,
-      summary: null,
-    });
-    render(<RunControls />);
-    const run = screen.getByRole("button", {
-      name: /run/i,
-    }) as HTMLButtonElement;
-    expect(run.disabled).toBe(true);
+    expect(run.getAttribute("aria-disabled")).toBeNull();
+    expect(run.getAttribute("aria-describedby")).toBeNull();
+    expect(run.getAttribute("title")).toBeNull();
   });
 });
 
-describe("RunControls – Run button enabled and calls runJob", () => {
-  it("enables Run and calls runJob when items present, outputDir set, not running", async () => {
+describe("RunControls – Run action guard", () => {
+  it("does NOT call runJob when Run is clicked while disabled", async () => {
+    const runJob = vi.fn();
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: null },
+      running: false,
+      error: null,
+      summary: null,
+      runJob,
+    });
+    const user = userEvent.setup();
+    render(<RunControls />);
+    await user.click(screen.getByRole("button", { name: /run/i }));
+    expect(runJob).not.toHaveBeenCalled();
+  });
+
+  it("calls runJob when ready", async () => {
     const runJob = vi.fn();
     useJobStore.setState({
       draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
@@ -135,11 +115,7 @@ describe("RunControls – Run button enabled and calls runJob", () => {
     });
     const user = userEvent.setup();
     render(<RunControls />);
-    const run = screen.getByRole("button", {
-      name: /run/i,
-    }) as HTMLButtonElement;
-    expect(run.disabled).toBe(false);
-    await user.click(run);
+    await user.click(screen.getByRole("button", { name: /run/i }));
     expect(runJob).toHaveBeenCalledTimes(1);
   });
 });
@@ -159,21 +135,7 @@ describe("RunControls – Cancel button", () => {
     expect(cancel.disabled).toBe(true);
   });
 
-  it("enables Cancel when running", () => {
-    useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
-      running: true,
-      error: null,
-      summary: null,
-    });
-    render(<RunControls />);
-    const cancel = screen.getByRole("button", {
-      name: /cancel/i,
-    }) as HTMLButtonElement;
-    expect(cancel.disabled).toBe(false);
-  });
-
-  it("calls cancelJob when Cancel is clicked while running", async () => {
+  it("enables Cancel and calls cancelJob when running", async () => {
     const cancelJob = vi.fn();
     useJobStore.setState({
       draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
@@ -184,7 +146,10 @@ describe("RunControls – Cancel button", () => {
     });
     const user = userEvent.setup();
     render(<RunControls />);
-    const cancel = screen.getByRole("button", { name: /cancel/i });
+    const cancel = screen.getByRole("button", {
+      name: /cancel/i,
+    }) as HTMLButtonElement;
+    expect(cancel.disabled).toBe(false);
     await user.click(cancel);
     expect(cancelJob).toHaveBeenCalledTimes(1);
   });
