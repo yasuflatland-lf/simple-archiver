@@ -1,13 +1,15 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useRef, useState } from "react";
 
+import { messageFromReason } from "@/lib/errors";
 import { useJobStore } from "@/store/jobStore";
 
 /**
  * Subscribe ONCE to OS drag-drop over the whole webview. Returns whether a
  * drag is currently over the window; a drop adds its paths to the store (the OS
- * delivers both files and folders here uniformly — this is the single
- * affordance that accepts both). Mount this exactly once at the app root.
+ * delivers both files and folders here uniformly — this is the only affordance
+ * that accepts files and folders in a single drop gesture). Mount this exactly
+ * once at the app root.
  */
 export function useFileDrop(): { isDragging: boolean } {
   const [isDragging, setIsDragging] = useState(false);
@@ -27,10 +29,16 @@ export function useFileDrop(): { isDragging: boolean } {
           setIsDragging(false);
         } else if (payload.type === "drop") {
           setIsDragging(false);
-          // Skip addItems when the OS delivers an empty paths array (can happen
-          // with certain drag sources).
+          // Skip addItems when the OS delivers an empty paths array (some drag
+          // sources do this); otherwise add and surface any failure on the banner
+          // rather than leaving an unhandled rejection.
           if (payload.paths && payload.paths.length > 0) {
-            useJobStore.getState().addItems(payload.paths);
+            void useJobStore
+              .getState()
+              .addItems(payload.paths)
+              .catch((reason) => {
+                useJobStore.setState({ error: messageFromReason(reason) });
+              });
           }
         }
       })
@@ -42,9 +50,14 @@ export function useFileDrop(): { isDragging: boolean } {
         }
       })
       .catch((reason) => {
-        // Drag-drop is an enhancement; log so a misconfigured channel is
-        // debuggable without crashing the app.
+        // Drag-and-drop is the primary affordance for adding sources; if the OS
+        // channel fails to subscribe, tell the user to use the browse buttons
+        // instead of silently no-opping every drop.
         console.error("drag-drop subscription failed", reason);
+        useJobStore.setState({
+          error:
+            "Drag-and-drop is unavailable. Use Add files / Add folder instead.",
+        });
       });
 
     return () => {
