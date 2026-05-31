@@ -1,7 +1,7 @@
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import { Progress } from "@/components/ui/progress";
-import { formatEta, progressPercent } from "@/lib/format";
+import { formatBytes, formatEta, progressPercent } from "@/lib/format";
 import { statusVisual } from "@/lib/status";
 import { useJobStore } from "@/store/jobStore";
 
@@ -183,7 +183,8 @@ export function TaskList() {
                         )}
                       />
                       <span className="text-xs">
-                        {formatEta(liveEntry.etaMs)}
+                        {formatBytes(liveEntry.bytesDone, liveEntry.bytesTotal)}{" "}
+                        · ETA {formatEta(liveEntry.etaMs)}
                       </span>
                     </div>
                   ) : (
@@ -197,7 +198,7 @@ export function TaskList() {
                     <button
                       type="button"
                       aria-label="Move up"
-                      disabled={isFirst}
+                      disabled={isFirst || running}
                       onClick={() => reorder(i, i - 1)}
                       className={REORDER_BUTTON_CLASS}
                     >
@@ -206,7 +207,7 @@ export function TaskList() {
                     <button
                       type="button"
                       aria-label="Move down"
-                      disabled={isLast}
+                      disabled={isLast || running}
                       onClick={() => reorder(i, i + 1)}
                       className={REORDER_BUTTON_CLASS}
                     >
