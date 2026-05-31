@@ -1,6 +1,18 @@
 import { Button } from "@/components/ui/button";
 import { useJobStore } from "@/store/jobStore";
 
+// Human-readable reason Run is unavailable, shown on hover (empty when ready).
+function runUnavailableReason(
+  itemCount: number,
+  outputDir: string | null,
+  running: boolean,
+): string {
+  if (itemCount === 0) return "Add at least one item";
+  if (!outputDir) return "Choose an output directory";
+  if (running) return "A job is already running";
+  return "";
+}
+
 /**
  * RunControls renders the primary job actions (Run / Cancel). The completion
  * summary is rendered separately by RunSummary; error display is handled by the
@@ -12,17 +24,8 @@ export function RunControls() {
   const running = useJobStore((s) => s.running);
   // Run is only enabled when there is at least one item, an output directory
   // has been set, and no job is currently in flight.
-  const runDisabled = items.length === 0 || !outputDir || running;
-
-  // Human-readable reason Run is unavailable, shown on hover (empty when ready).
-  const runReason =
-    items.length === 0
-      ? "Add at least one item"
-      : !outputDir
-        ? "Choose an output directory"
-        : running
-          ? "A job is already running"
-          : "";
+  const runReason = runUnavailableReason(items.length, outputDir, running);
+  const runDisabled = runReason !== "";
 
   function handleRun() {
     useJobStore.getState().runJob();
