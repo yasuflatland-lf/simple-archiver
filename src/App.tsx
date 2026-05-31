@@ -10,6 +10,7 @@ import { StatusBar } from "@/components/StatusBar";
 import { TaskList } from "@/components/TaskList";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { subscribeProgress } from "@/lib/archive";
+import { resolveInitialOutputDir } from "@/lib/output-dir-default";
 import { useJobStore } from "@/store/jobStore";
 
 function App() {
@@ -41,6 +42,44 @@ function App() {
     return () => {
       active = false;
       unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Track liveness so a StrictMode remount / unmount mid-resolution does not
+    // apply a stale value to a store that may have moved on.
+    let active = true;
+
+    // Only seed a default when no destination is set yet; never override a
+    // value the user (or persistence via setOutputDir) has already chosen.
+    if (useJobStore.getState().draft.outputDir !== null) {
+      return () => {
+        active = false;
+      };
+    }
+
+    resolveInitialOutputDir()
+      .then((dir) => {
+        // Re-check both liveness and the store after awaiting: a user choice
+        // could have landed while resolveInitialOutputDir was in flight.
+        if (
+          active &&
+          dir !== null &&
+          useJobStore.getState().draft.outputDir === null
+        ) {
+          // setOutputDir persists the choice itself, keeping the next launch in
+          // sync with what the user sees now.
+          void useJobStore.getState().setOutputDir(dir);
+        }
+      })
+      .catch((reason) => {
+        // The smart default is a non-fatal enhancement; the empty-state UI still
+        // works with a null directory. Log so a misconfigured env is debuggable.
+        console.error("default output dir resolution failed", reason);
+      });
+
+    return () => {
+      active = false;
     };
   }, []);
 

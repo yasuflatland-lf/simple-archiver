@@ -17,9 +17,16 @@ vi.mock("@/lib/archive", () => ({
   subscribeProgress: vi.fn(),
 }));
 
+// Mock the output-dir persistence helper so the store action's persistence
+// side effect can be asserted without touching real localStorage behavior.
+vi.mock("@/lib/output-dir-default", () => ({ persistOutputDir: vi.fn() }));
+
 import * as archive from "@/lib/archive";
+import { persistOutputDir } from "@/lib/output-dir-default";
 
 import { resetJobStore, useJobStore } from "./jobStore";
+
+const mockPersistOutputDir = vi.mocked(persistOutputDir);
 
 // Cast the mocked wrappers to vitest's mock type for typed `mockResolvedValue`.
 const mockArchive = vi.mocked(archive);
@@ -234,6 +241,15 @@ describe("setOutputDir", () => {
     expect(mockArchive.previewOutputName).not.toHaveBeenCalled();
   });
 
+  it("persists the directory on success", async () => {
+    const draft = makeDraft(2, "photo_{n}", "/out");
+    mockArchive.setOutputDir.mockResolvedValue(draft);
+
+    await useJobStore.getState().setOutputDir("/out");
+
+    expect(mockPersistOutputDir).toHaveBeenCalledWith("/out");
+  });
+
   it("sets error and leaves the draft unchanged on failure", async () => {
     mockArchive.setOutputDir.mockRejectedValue("no such dir");
 
@@ -241,6 +257,14 @@ describe("setOutputDir", () => {
 
     expect(useJobStore.getState().error).toBe("no such dir");
     expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);
+  });
+
+  it("does not persist the directory on failure", async () => {
+    mockArchive.setOutputDir.mockRejectedValue("no such dir");
+
+    await useJobStore.getState().setOutputDir("/nope");
+
+    expect(mockPersistOutputDir).not.toHaveBeenCalled();
   });
 });
 

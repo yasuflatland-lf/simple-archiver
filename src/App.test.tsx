@@ -34,12 +34,21 @@ vi.mock("@/lib/archive", () => ({
   previewOutputName: vi.fn(() => Promise.resolve("preview.zip")),
 }));
 
+// Mock the smart-default output-dir resolver so the mount effect can be driven
+// deterministically without a Tauri backend.
+vi.mock("@/lib/output-dir-default", () => ({
+  resolveInitialOutputDir: vi.fn(() => Promise.resolve(null)),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 // Import the mocked module so tests can access vi.fn() instances directly.
 import * as archiveMock from "@/lib/archive";
+import { resolveInitialOutputDir } from "@/lib/output-dir-default";
+
+const mockResolveInitialOutputDir = vi.mocked(resolveInitialOutputDir);
 
 // ---------------------------------------------------------------------------
 // Suite
@@ -52,6 +61,9 @@ describe("App", () => {
     // Restore the default mock return so individual tests that override it
     // don't bleed into subsequent tests.
     vi.mocked(archiveMock.subscribeProgress).mockResolvedValue(() => {});
+    // Default the smart-default resolver to "no directory" so unrelated tests
+    // don't trigger an output-dir apply; tests that exercise it override this.
+    mockResolveInitialOutputDir.mockResolvedValue(null);
     // App renders NamingRuleForm, whose mount effect calls the store's
     // setNamingRule after a debounce. The real action awaits the mocked
     // archive.setNamingRule (which returns undefined here) and would then
@@ -182,5 +194,47 @@ describe("App", () => {
 
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain("kaboom");
+  });
+
+  // -------------------------------------------------------------------------
+  // 6. Smart-default output dir: applied at mount when none is set yet
+  // -------------------------------------------------------------------------
+  it("applies the resolved default output dir on mount when none is set", async () => {
+    mockResolveInitialOutputDir.mockResolvedValue("/Users/me/Downloads");
+
+    // Spy on the store action so we can assert it is invoked with the default.
+    const setOutputDirSpy = vi.fn(() => Promise.resolve());
+    useJobStore.setState({ setOutputDir: setOutputDirSpy });
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(setOutputDirSpy).toHaveBeenCalledWith("/Users/me/Downloads"),
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // 7. Smart-default output dir: never overrides an existing destination
+  // -------------------------------------------------------------------------
+  it("does not apply the default when a destination is already set", async () => {
+    mockResolveInitialOutputDir.mockResolvedValue("/Users/me/Downloads");
+
+    // Seed an existing destination so the mount effect must bail before
+    // resolving the default.
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: "/already/set" },
+    });
+    const setOutputDirSpy = vi.fn(() => Promise.resolve());
+    useJobStore.setState({ setOutputDir: setOutputDirSpy });
+
+    render(<App />);
+
+    // Give any pending microtasks a chance to run, then assert no apply.
+    await waitFor(() =>
+      expect(archiveMock.subscribeProgress).toHaveBeenCalled(),
+    );
+    expect(mockResolveInitialOutputDir).not.toHaveBeenCalled();
+    expect(setOutputDirSpy).not.toHaveBeenCalled();
+    expect(useJobStore.getState().draft.outputDir).toBe("/already/set");
   });
 });

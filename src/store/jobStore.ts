@@ -7,6 +7,7 @@ import type { ProgressEvent } from "@/bindings/ProgressEvent";
 // which share names (addItems, reorder, setNamingRule, ...).
 import * as archive from "@/lib/archive";
 import { messageFromReason } from "@/lib/errors";
+import { persistOutputDir } from "@/lib/output-dir-default";
 
 // Monotonic counter tagging each recomputePreviews run. A run only commits its
 // result if it is still the latest; otherwise a slower batch could overwrite a
@@ -127,6 +128,9 @@ export const useJobStore = create<JobState>()((set, get) => ({
       // Output dir does not affect preview filenames, so skip recompute.
       const draft = await archive.setOutputDir(dir);
       set({ draft, error: null });
+      // Persist only on success so the choice is restored next launch; never
+      // persist on the error path below.
+      persistOutputDir(dir);
     } catch (reason) {
       set({ error: messageFromReason(reason) });
     }
