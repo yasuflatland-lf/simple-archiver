@@ -1,3 +1,5 @@
+import { ArrowDownToLine } from "lucide-react";
+
 import { AddSourceButtons } from "@/components/AddSourceButtons";
 
 /**
@@ -12,9 +14,7 @@ export function EmptyQueue() {
       data-testid="empty-queue"
       className="flex h-full flex-col items-center justify-center gap-4 rounded-lg border-2 border-dashed border-border p-10 text-center text-muted-foreground"
     >
-      <span aria-hidden="true" className="text-3xl">
-        ⬇
-      </span>
+      <ArrowDownToLine aria-hidden="true" className="size-8" />
       <p className="text-base font-medium text-foreground">
         Drag &amp; drop files or folders
       </p>

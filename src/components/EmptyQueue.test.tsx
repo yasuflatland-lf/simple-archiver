@@ -29,4 +29,12 @@ describe("EmptyQueue", () => {
     expect(zone.className).toContain("border-border");
     expect(zone.className).toContain("text-muted-foreground");
   });
+
+  it("shows a decorative drop glyph (aria-hidden svg)", () => {
+    render(<EmptyQueue />);
+    const zone = screen.getByTestId("empty-queue");
+    const svg = zone.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg?.getAttribute("aria-hidden")).toBe("true");
+  });
 });

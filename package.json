@@ -29,6 +29,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "lucide-react": "^1.17.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tailwind-merge": "^3.6.0",
@@ -36,8 +37,6 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "oxlint": "^1.67.0",
-    "oxfmt": "^0.52.0",
     "@tauri-apps/cli": "^2",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.1.0",
@@ -48,6 +47,8 @@
     "@vitest/coverage-v8": "^4.1.7",
     "jsdom": "^25.0.1",
     "knip": "^6.14.2",
+    "oxfmt": "^0.52.0",
+    "oxlint": "^1.67.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "^4.1.7"
