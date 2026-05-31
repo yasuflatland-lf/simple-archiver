@@ -70,14 +70,16 @@ jobs:
       - run: cargo modules orphans -p simple-archiver-core --lib --deny
 
   frontend:
-    name: frontend (biome + vitest + build + knip)
+    name: frontend (oxlint + oxfmt + vitest + build + knip)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
       - run: pnpm install --frozen-lockfile
-      # Frontend format + lint gate (config in biome.json); fails on any violation.
-      - run: pnpm biome:ci
+      # Frontend format check (config in .oxfmtrc.json); fails if any file is unformatted.
+      - run: pnpm fmt:check
+      # Frontend lint gate (config in .oxlintrc.json); fails on warnings or errors.
+      - run: pnpm lint:ci
       # Frontend dependency hygiene: unused files / deps / exports (config in knip.json).
       - run: pnpm knip
       - run: pnpm run test:coverage

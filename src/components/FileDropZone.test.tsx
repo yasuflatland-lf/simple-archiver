@@ -3,7 +3,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { resetJobStore, useJobStore } from "@/store/jobStore";
+
 import { FileDropZone } from "./FileDropZone";
 
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: vi.fn() }));

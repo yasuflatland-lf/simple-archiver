@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { messageFromReason } from "./errors";
 
 describe("messageFromReason", () => {

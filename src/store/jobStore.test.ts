@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { DraftSnapshot } from "@/bindings/DraftSnapshot";
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
@@ -16,6 +17,7 @@ vi.mock("@/lib/archive", () => ({
 }));
 
 import * as archive from "@/lib/archive";
+
 import { resetJobStore, useJobStore } from "./jobStore";
 
 // Cast the mocked wrappers to vitest's mock type for typed `mockResolvedValue`.

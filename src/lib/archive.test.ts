@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import type { TaskProgressDto } from "@/bindings/TaskProgressDto";
 

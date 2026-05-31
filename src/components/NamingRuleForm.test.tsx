@@ -8,7 +8,9 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { resetJobStore, useJobStore } from "@/store/jobStore";
+
 import { DEBOUNCE_MS, NamingRuleForm } from "./NamingRuleForm";
 
 vi.mock("@tauri-apps/api/core", () => ({
