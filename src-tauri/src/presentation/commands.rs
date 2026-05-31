@@ -59,17 +59,9 @@ pub fn preview_output_name(template: String, seq: u32) -> Result<String, String>
 /// (case-insensitive) becomes [`SourceItem::RarFile`]; anything else yields an
 /// error string suitable for the IPC boundary.
 fn classify_path(path: &Path) -> Result<SourceItem, String> {
-    if path.is_dir() {
-        return Ok(SourceItem::Folder(path.to_path_buf()));
-    }
-    let is_rar = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("rar"));
-    if is_rar {
-        return Ok(SourceItem::RarFile(path.to_path_buf()));
-    }
-    Err(format!("unsupported item: {}", path.display()))
+    // Filesystem probing (`is_dir`) stays in presentation; the classification
+    // rule itself lives in the domain (`SourceItem::classify`).
+    SourceItem::classify(path.to_path_buf(), path.is_dir()).map_err(|e| e.to_string())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
