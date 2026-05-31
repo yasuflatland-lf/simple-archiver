@@ -1,0 +1,66 @@
+name: Release
+
+# Build native bundles for macOS + Windows and attach them to the matching
+# GitHub release. Release notes are authored manually (gh release create); this
+# workflow only uploads binaries and never touches the release body.
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual run to (re)build and attach binaries to an existing tag/release,
+  # e.g. a tag that was published before this workflow existed.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach binaries to (e.g. v0.1.0)'
+        required: true
+
+jobs:
+  bundle:
+    name: bundle (${{ matrix.platform }})
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One universal binary covers both Apple Silicon and Intel Macs.
+          - platform: macos-latest
+            args: '--target universal-apple-darwin'
+          - platform: windows-latest
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # On workflow_dispatch, build the requested tag; on tag push, the ref is the tag.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: jdx/mise-action@v2
+      # The universal-apple-darwin build links both arch slices, so both targets are needed.
+      - name: Add macOS universal Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.platform }}
+      - run: pnpm install --frozen-lockfile
+      - name: Build bundles
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        with:
+          # No tagName/releaseId: build only and expose artifactPaths; do not create or edit a release.
+          args: ${{ matrix.args }}
+      - name: Upload bundles to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pass interpolated values through env (never inline into the script) to avoid shell injection.
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: |
+          printf '%s' "$ARTIFACT_PATHS" \
+            | jq -r '.[]' \
+            | while IFS= read -r path; do
+                echo "Uploading: $path"
+                gh release upload "$TAG" "$path" --clobber
+              done
