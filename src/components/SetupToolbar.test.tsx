@@ -69,27 +69,24 @@ describe("SetupToolbar", () => {
     expect(container.querySelector(".flex-wrap")).not.toBeNull();
   });
 
-  it("scrolls only the settings body, never the action bar", () => {
-    // The action bar (Run/Cancel) must stay fully visible when the viewport
-    // shrinks vertically. Only the settings body may live inside the
-    // overflow-y-auto scroll region; the action bar must be outside it.
+  it("keeps the OUTPUT content and action bar in one non-scrolling zone", () => {
+    // The whole setup zone must stay fully visible when the viewport shrinks
+    // vertically — nothing here may be hidden behind an internal scroll. So the
+    // zone itself owns no height-capped overflow region: the readiness chip and
+    // full-path preview (OUTPUT) and the Run/Cancel action bar all live in the
+    // same non-scrolling column. AppShell's queue absorbs vertical shrink.
     const { container } = render(<SetupToolbar />);
-    const scrollRegion = container.querySelector(".overflow-y-auto");
-    expect(scrollRegion).not.toBeNull();
-    const actionBar = screen.getByTestId("setup-action-bar");
-    expect(scrollRegion?.contains(actionBar)).toBe(false);
-    // And the Run button (which the action bar owns) is likewise outside it.
-    const run = screen.getByRole("button", { name: /^run$/i });
-    expect(scrollRegion?.contains(run)).toBe(false);
+    expect(container.querySelector(".overflow-y-auto")).toBeNull();
+    expect(container.querySelector(".overflow-y-scroll")).toBeNull();
+    expect(container.querySelector('[class*="max-h-"]')).toBeNull();
   });
 
-  it("keeps the action bar from collapsing on short windows (shrink-0)", () => {
-    // The action bar is the last row; a height cap on the zone must not squeeze
-    // it. It is marked shrink-0 so its height is always reserved even when the
-    // viewport is too short for the settings body above it.
+  it("renders OUTPUT readiness and the action bar together", () => {
+    // The OUTPUT readiness chip (a vertical-shrink casualty of the old internal
+    // scroll) and the Run control share the setup zone and are present at once.
     render(<SetupToolbar />);
-    const actionBar = screen.getByTestId("setup-action-bar");
-    expect(actionBar.className).toContain("shrink-0");
+    expect(screen.getByText("Add files")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^run$/i })).toBeTruthy();
   });
 
   it("hides the browse buttons again after all items are removed", () => {

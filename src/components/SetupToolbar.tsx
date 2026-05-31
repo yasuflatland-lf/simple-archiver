@@ -8,13 +8,13 @@ import { useJobStore } from "@/store/jobStore";
  * group (Destination + Name + full-path preview + readiness) above an action
  * bar (browse buttons + Cancel/Run).
  *
- * Only the settings body scrolls. The outer column caps its height (`max-h`)
- * and reserves the action bar as a non-shrinking (`shrink-0`) row *outside* the
- * scroll region, while the settings body takes the remaining space and scrolls
- * (`min-h-0 overflow-y-auto`). This keeps Run/Cancel fully visible no matter how
- * short the window gets: a vertically squeezed viewport shrinks the settings
- * body (which scrolls), never the action bar (which would otherwise be clipped
- * off the bottom edge).
+ * The zone is content-sized and has no internal scroll. Its whole content (the
+ * OUTPUT group *and* the action bar) lives in one non-scrolling column, so
+ * nothing here is ever clipped when the window shrinks vertically: the queue
+ * region in AppShell is the only zone that scrolls to absorb vertical shrink,
+ * and AppShell's last-resort scroll keeps the setup reachable on extremely
+ * short viewports. This guarantees the readiness chip, the full-path preview,
+ * the browse buttons and Run/Cancel all stay fully visible together.
  */
 export function SetupToolbar() {
   // The browse buttons live here ONLY when the queue has items: while empty,
@@ -24,13 +24,11 @@ export function SetupToolbar() {
   const hasItems = useJobStore((s) => s.draft.items.length > 0);
 
   return (
-    <div className="flex max-h-[40vh] flex-col gap-3">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <OutputSettings />
-      </div>
+    <div className="flex flex-col gap-3">
+      <OutputSettings />
       <div
         data-testid="setup-action-bar"
-        className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border pt-3"
+        className="flex flex-wrap items-center gap-2 border-t border-border pt-3"
       >
         {hasItems ? <AddSourceButtons /> : null}
         <div className="ml-auto">
