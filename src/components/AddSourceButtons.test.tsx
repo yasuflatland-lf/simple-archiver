@@ -89,3 +89,17 @@ describe("AddSourceButtons", () => {
     expect(addItems).not.toHaveBeenCalled();
   });
 });
+
+describe("AddSourceButtons – icons", () => {
+  beforeEach(() => resetJobStore());
+
+  it("renders a decorative icon on each button without changing the accessible name", () => {
+    render(<AddSourceButtons />);
+    const files = screen.getByRole("button", { name: /add files/i });
+    const folder = screen.getByRole("button", { name: /add folder/i });
+    const filesSvg = files.querySelector("svg");
+    const folderSvg = folder.querySelector("svg");
+    expect(filesSvg?.getAttribute("aria-hidden")).toBe("true");
+    expect(folderSvg?.getAttribute("aria-hidden")).toBe("true");
+  });
+});

@@ -1,4 +1,5 @@
 import { type OpenDialogOptions, open } from "@tauri-apps/plugin-dialog";
+import { FilePlus, FolderPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { messageFromReason } from "@/lib/errors";
@@ -45,9 +46,11 @@ export function AddSourceButtons({ size = "sm" }: AddSourceButtonsProps) {
   return (
     <div className="flex gap-2">
       <Button variant="outline" size={size} onClick={handleAddFiles}>
+        <FilePlus aria-hidden="true" />
         Add files
       </Button>
       <Button variant="outline" size={size} onClick={handleAddFolder}>
+        <FolderPlus aria-hidden="true" />
         Add folder
       </Button>
     </div>
