@@ -154,6 +154,84 @@ async fn run_job_inner_mixed_folder_and_rar_produce_both_zips() {
     );
 }
 
+/// A source folder containing `count` small files, for jobs that need enough
+/// zip entries that a mid-run cancel reliably lands before completion.
+fn source_folder_with_many_files(count: usize) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("create source tempdir");
+    for i in 0..count {
+        fs::write(dir.path().join(format!("f{i:04}.bin")), b"payload").expect("write file");
+    }
+    dir
+}
+
+/// A [`ProgressEmitter`] that cancels the shared token the first time it observes
+/// real byte progress (`overall.bytes_done > 0`). Recording `fired` lets the test
+/// prove a write genuinely occurred (presence) before asserting cleanup (absence).
+struct CancelOnFirstByteEmitter {
+    token: CancellationToken,
+    fired: Mutex<bool>,
+}
+
+impl ProgressEmitter for CancelOnFirstByteEmitter {
+    fn emit_progress(&self, ev: &ProgressEvent) {
+        if ev.overall.bytes_done > 0 {
+            *self.fired.lock().unwrap() = true;
+            self.token.cancel();
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn run_job_inner_mid_run_cancel_leaves_no_partial_zip() {
+    // One task over many entries: after entry #1 the engine reports bytes_done > 0,
+    // the emitter cancels, and the per-entry checkpoint trips long before the task
+    // could finish all entries — so the task ends Cancelled and its partial zip is
+    // drained-then-removed.
+    let src = source_folder_with_many_files(256);
+    let out_dir = tempfile::tempdir().expect("create out tempdir");
+
+    let state = AppState::default();
+    {
+        let mut draft = state.draft.lock().unwrap();
+        draft.add_items(vec![SourceItem::Folder(src.path().to_path_buf())]);
+        draft
+            .set_template("out_{n}".to_string())
+            .expect("valid template");
+        draft.set_out_dir(out_dir.path().to_path_buf());
+    }
+    let job = state.draft.lock().unwrap().build().expect("build job");
+
+    let token = CancellationToken::new();
+    let emitter = CancelOnFirstByteEmitter {
+        token: token.clone(),
+        fired: Mutex::new(false),
+    };
+
+    let summary = run_job_inner(&emitter, job, token).await;
+
+    // Presence: a write actually happened (emitter saw bytes_done > 0 and fired).
+    assert!(
+        *emitter.fired.lock().unwrap(),
+        "emitter must have observed real byte progress before cancelling"
+    );
+    // The task ended cancelled (not succeeded/failed).
+    assert_eq!(
+        summary.cancelled.len(),
+        1,
+        "the task must be cancelled: {summary:?}"
+    );
+    assert!(
+        summary.succeeded.is_empty(),
+        "task must not succeed: {summary:?}"
+    );
+    assert!(summary.failed.is_empty(), "task must not fail: {summary:?}");
+    // Absence: no partial output zip survives the cancellation.
+    assert!(
+        !out_dir.path().join("out_1.zip").exists(),
+        "the partial zip must be removed after mid-run cancellation"
+    );
+}
+
 #[tokio::test]
 async fn run_job_inner_pre_cancelled_archives_nothing() {
     let src_a = source_folder_with_file(b"alpha");
