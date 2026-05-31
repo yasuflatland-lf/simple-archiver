@@ -7,8 +7,9 @@ import { useJobStore } from "@/store/jobStore";
  * While a job runs, `OverallProgress` shows the aggregate bar + ETA; once it
  * finishes, `RunSummary` shows the Succeeded/Failed/Cancelled projection. When
  * idle (no progress, no summary) it shows a quiet hint so the footer is never
- * empty chrome. Both child components own their own null-guards; this composes
- * them and adds the idle line.
+ * empty chrome. StatusBar short-circuits to an idle hint when there is nothing
+ * to show; OverallProgress and RunSummary each keep their own internal
+ * null-guards for when they are mounted but their store slice is null.
  */
 export function StatusBar() {
   const itemCount = useJobStore((s) => s.draft.items.length);

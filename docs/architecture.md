@@ -138,7 +138,7 @@ A zustand store holds the UI state. Each mutating action calls the corresponding
 
 ### Frontend information architecture (PR11)
 
-The full-screen layout is handled by a presentational `AppShell` (`flex-column h-screen`) divided into five fixed vertical zones:
+The full-screen layout is handled by a presentational `AppShell` (`flex h-screen flex-col`) divided into five fixed vertical zones:
 
 - **header** — title + theme toggle; always visible
 - **toolbar** — `SetupToolbar`: add-source buttons, naming template, output dir, Run/Cancel; always visible
@@ -146,7 +146,7 @@ The full-screen layout is handled by a presentational `AppShell` (`flex-column h
 - **main** — the single scroll region (`flex-1 min-h-0 overflow-y-auto`); holds `TaskList` or the `EmptyQueue` empty-state. `min-h-0` is load-bearing: without it a flex child refuses to shrink below its content height and the inner scroll silently breaks.
 - **footer** — `StatusBar`: overall progress while running, results summary when done; always visible
 
-This zoning maps the domain lifecycle onto screen space: everything above the queue (`header` + `toolbar`) is mutable pre-run setup; the footer is immutable post-run observation; only the queue region scrolls.
+This zoning maps the domain lifecycle onto screen space: everything above the queue (`header` + `toolbar`) is mutable pre-run setup; the footer is a read-only post-run observation zone; only the queue region scrolls.
 
 **Single drag-drop subscription:** `useFileDrop()` owns the one `getCurrentWebview().onDragDropEvent` subscription, mounted exactly once in `App`. It returns `{ isDragging }` which drives the presentational `DropOverlay`. Drag-and-drop is the single affordance that accepts BOTH files and folders.
 
