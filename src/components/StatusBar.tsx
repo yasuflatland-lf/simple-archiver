@@ -35,10 +35,9 @@ const NEW_BATCH_CONFIG: ResetDialogConfig = {
  * The footer (AppShell's `statusBar` slot): the post-run observation zone.
  * While a job runs, `OverallProgress` shows the aggregate bar + ETA; once it
  * finishes, `RunSummary` shows the Succeeded/Failed/Cancelled projection. When
- * idle (no progress, no summary) it shows a quiet hint so the footer is never
- * empty chrome. StatusBar short-circuits to an idle hint when there is nothing
- * to show; OverallProgress and RunSummary each keep their own internal
- * null-guards for when they are mounted but their store slice is null.
+ * idle (no progress, no summary) the left slot shows a quiet hint so the footer
+ * is never empty chrome. OverallProgress and RunSummary each keep their own
+ * internal null-guards for when they are mounted but their store slice is null.
  *
  * The right slot holds a Reset button that is visible when there are queued
  * items and no job is running. It opens a ConfirmDialog before calling the

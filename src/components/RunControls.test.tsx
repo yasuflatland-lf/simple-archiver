@@ -179,6 +179,24 @@ describe("RunControls – Run action guard", () => {
     await user.click(screen.getByRole("button", { name: /run/i }));
     expect(runJob).not.toHaveBeenCalled();
   });
+
+  it("does NOT call runJob when items are empty even if outputDir is set", async () => {
+    // items === 0 is checked before outputDir in runUnavailableReason; this test
+    // targets that guard path directly (outputDir present so only the item count
+    // condition fires).
+    const runJob = vi.fn();
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: "/out" },
+      running: false,
+      error: null,
+      summary: null,
+      runJob,
+    });
+    const user = userEvent.setup();
+    render(<RunControls />);
+    await user.click(screen.getByRole("button", { name: /run/i }));
+    expect(runJob).not.toHaveBeenCalled();
+  });
 });
 
 describe("RunControls – Cancel button", () => {

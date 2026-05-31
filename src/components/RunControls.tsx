@@ -37,8 +37,9 @@ export function RunControls() {
   const runDisabled = runReason !== "";
 
   function handleRun() {
-    // Run uses aria-disabled (not the native disabled attribute) so it stays
-    // focusable and assistive technology (AT) can announce why it is unavailable. Guard the action.
+    // Run uses aria-disabled instead of the native disabled attribute so it stays
+    // focusable and AT can announce the reason. Guard clicks explicitly because
+    // aria-disabled does not suppress them.
     if (runDisabled) return;
     useJobStore.getState().runJob();
   }
