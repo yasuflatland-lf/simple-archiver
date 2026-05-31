@@ -50,6 +50,14 @@ describe("App", () => {
     // Restore the default mock return so individual tests that override it
     // don't bleed into subsequent tests.
     vi.mocked(archiveMock.subscribeProgress).mockResolvedValue(() => {});
+    // App renders NamingRuleForm, whose mount effect calls the store's
+    // setNamingRule after a debounce. The real action awaits the mocked
+    // archive.setNamingRule (which returns undefined here) and would then
+    // set draft: undefined, crashing TaskList/RunControls. On fast runners the
+    // test finishes and unmounts before the debounce fires; on slow ones it
+    // fires mid-test. Replace the action with a no-op spy so the debounce can
+    // never mutate the draft, mirroring NamingRuleForm.test.tsx.
+    useJobStore.setState({ setNamingRule: vi.fn() });
   });
 
   // -------------------------------------------------------------------------
