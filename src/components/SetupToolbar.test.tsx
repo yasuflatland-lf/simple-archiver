@@ -57,11 +57,16 @@ describe("SetupToolbar", () => {
     expect(screen.getByRole("button", { name: /add folder/i })).toBeTruthy();
   });
 
-  it("aligns settings in a grid that collapses to one column on narrow windows", () => {
+  it("aligns the OUTPUT editing rows in a single shared label/control grid", () => {
     const { container } = render(<SetupToolbar />);
     const grid = container.querySelector("div.grid") as HTMLElement;
     expect(grid).not.toBeNull();
-    expect(grid.className).toContain("md:grid-cols-2");
+    // Design "B′" replaced the symmetric responsive 2-column grid with one
+    // shared grid: a fixed label column, a flexible control column, and a
+    // trailing action column for the Choose button.
+    expect(grid.className).toContain(
+      "grid-cols-[max-content_minmax(0,1fr)_auto]",
+    );
   });
 
   it("lets the action bar wrap so a narrow window does not clip it", () => {

@@ -117,45 +117,6 @@ describe("OutputSettings", () => {
     await screen.findByText("~/Archives/photo_001.zip");
   });
 
-  it("shows an Add files chip when the queue is empty", () => {
-    useJobStore.setState({
-      draft: { items: [], namingTemplate: "photo_{n:03}", outputDir: "~/out" },
-    });
-    render(<OutputSettings />);
-
-    expect(screen.getByText("Add files")).toBeDefined();
-    expect(screen.queryByText("Ready")).toBeNull();
-  });
-
-  it("shows a Choose a destination chip when no destination is set", () => {
-    useJobStore.setState({
-      draft: {
-        items: [{ path: "/a.rar", kind: "rar" }],
-        namingTemplate: "photo_{n:03}",
-        outputDir: null,
-      },
-    });
-    render(<OutputSettings />);
-
-    expect(screen.getByText("Choose a destination")).toBeDefined();
-    expect(screen.queryByText("Ready")).toBeNull();
-  });
-
-  it("shows Ready when items exist and a destination is set", () => {
-    useJobStore.setState({
-      draft: {
-        items: [{ path: "/a.rar", kind: "rar" }],
-        namingTemplate: "photo_{n:03}",
-        outputDir: "~/out",
-      },
-    });
-    render(<OutputSettings />);
-
-    expect(screen.getByText("Ready")).toBeDefined();
-    expect(screen.queryByText("Add files")).toBeNull();
-    expect(screen.queryByText("Choose a destination")).toBeNull();
-  });
-
   it("computes the preview from the current template via previewOutputName(seq=1)", async () => {
     useJobStore.setState({
       draft: {
@@ -200,6 +161,62 @@ describe("OutputSettings", () => {
     // rendered output; the destination picker shows "~/Archives" without the
     // slash so a queryByText for the slash-terminated form is unambiguous.
     expect(screen.queryByText("~/Archives/")).toBeNull();
+  });
+
+  // Regression: while the preview is still loading (previewName === null), the
+  // hero must render neither a full path nor a bare filename, so the directory
+  // is never shown in isolation during the debounce window.
+  it("does not render the hero path while the preview is still loading", () => {
+    // A pending promise keeps previewName null for the duration of the test.
+    vi.mocked(previewOutputName).mockReturnValue(new Promise<string>(() => {}));
+    useJobStore.setState({
+      draft: {
+        items: [],
+        namingTemplate: "photo_{n:03}",
+        outputDir: "~/Archives",
+      },
+    });
+    render(<OutputSettings />);
+
+    expect(screen.queryByText("~/Archives/photo_001.zip")).toBeNull();
+    expect(screen.queryByText("photo_001.zip")).toBeNull();
+  });
+
+  // Regression: when the preview rejects and no destination is set, the hero
+  // must not render the filename-only line; only the alert and the
+  // destination-required hint remain.
+  it("does not render the filename-only hero after a preview error with no destination", async () => {
+    vi.mocked(previewOutputName).mockRejectedValue(
+      "invalid naming template: stray or malformed brace",
+    );
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: "photo_{n", outputDir: null },
+    });
+    render(<OutputSettings />);
+
+    // Wait for the alert to confirm the error path was reached.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent ?? "").toMatch(/invalid naming template/i);
+
+    expect(screen.queryByText("photo_001.zip")).toBeNull();
+  });
+
+  // The hero must show the full path with a leading arrow once a destination is
+  // set; the arrow is absent in the filename-only (no-destination) state.
+  it("renders the hero arrow only when a destination joins the filename", async () => {
+    useJobStore.setState({
+      draft: {
+        items: [],
+        namingTemplate: "photo_{n:03}",
+        outputDir: "~/Archives",
+      },
+    });
+    const { container } = render(<OutputSettings />);
+
+    await screen.findByText("~/Archives/photo_001.zip");
+    // The lucide ArrowRight renders as an <svg>; with a destination it is the
+    // hero's leading affordance.
+    expect(container.querySelector("svg")).not.toBeNull();
   });
 
   // When the store has not pushed a namingTemplate yet (null), OutputSettings

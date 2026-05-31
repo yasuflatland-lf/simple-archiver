@@ -33,14 +33,26 @@ describe("OutputDirPicker", () => {
     expect(screen.getByText("/my/output")).toBeDefined();
   });
 
-  it("renders a muted placeholder when outputDir is null", () => {
+  it("renders the (not set) empty state with a Required badge when outputDir is null", () => {
     // resetJobStore already sets outputDir: null, but be explicit.
     useJobStore.setState({
       draft: { items: [], namingTemplate: null, outputDir: null },
     });
     render(<OutputDirPicker />);
 
-    expect(screen.getByText("(none)")).toBeDefined();
+    expect(screen.getByText("(not set)")).toBeDefined();
+    // The Required badge signals the destination must be set before a run.
+    expect(screen.getByText("Required")).toBeDefined();
+  });
+
+  it("does not render the Required badge once a destination is set", () => {
+    useJobStore.setState({
+      draft: { items: [], namingTemplate: null, outputDir: "/my/output" },
+    });
+    render(<OutputDirPicker />);
+
+    expect(screen.queryByText("Required")).toBeNull();
+    expect(screen.queryByText("(not set)")).toBeNull();
   });
 
   it("calls open with { directory: true } when the Choose button is clicked", async () => {

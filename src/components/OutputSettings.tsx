@@ -1,4 +1,4 @@
-import { ArrowRight, Check, CircleDot } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -10,46 +10,23 @@ import { OutputDirPicker } from "@/components/OutputDirPicker";
 import { previewOutputName } from "@/lib/archive";
 import { messageFromReason } from "@/lib/errors";
 import { joinOutputPath } from "@/lib/path";
-import { type Readiness, readinessFor } from "@/lib/readiness";
 import { useJobStore } from "@/store/jobStore";
 
 // The live preview always uses the first (1-based) sequence number, matching the
 // backend's naming contract.
 const PREVIEW_SEQ = 1;
 
-// Chip label for each pending readiness state. "ready" gets its own confirming
-// branch in ReadinessChip, so it maps to an empty label here.
-const READINESS_CHIP_LABEL: Record<Readiness, string> = {
-  "add-files": "Add files",
-  "choose-destination": "Choose a destination",
-  ready: "",
-};
-
-// The readiness chip: the visual mirror of Run's disabled reason. Each pending
-// state nudges the user toward the next required action; "ready" confirms a run
-// is possible. (RunControls owns the disabled-Run accessibility semantics.)
-function ReadinessChip({ readiness }: { readiness: Readiness }) {
-  if (readiness === "ready") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-status-success-foreground">
-        <Check aria-hidden="true" className="size-3.5" />
-        Ready
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-muted-foreground">
-      <CircleDot aria-hidden="true" className="size-3.5" />
-      {READINESS_CHIP_LABEL[readiness]}
-    </span>
-  );
-}
-
 /**
  * OutputSettings is the OUTPUT group organism. It binds the Destination
  * (OutputDirPicker) and Name (NamingRuleForm) controls under one heading and
- * makes the full landing-path preview the focal point.
+ * makes the full landing-path preview the hero of the group.
+ *
+ * Information hierarchy (design "B′"):
+ *   1. OUTPUT heading      — tier 1: smallest, uppercase, muted.
+ *   2. Hero full path      — biggest, monospace, foreground; the focal point.
+ *   3. Aligned edit rows   — Destination / Name share one label column and one
+ *                            control column; Choose is pinned to the far right
+ *                            of the Destination row only.
  *
  * The preview is derived state: the backend remains the single source of truth
  * for the filename. OutputSettings reads the store's naming template (falling
@@ -67,10 +44,9 @@ function ReadinessChip({ readiness }: { readiness: Readiness }) {
 export function OutputSettings() {
   const template = useJobStore((s) => s.draft.namingTemplate);
   const outputDir = useJobStore((s) => s.draft.outputDir);
-  const itemCount = useJobStore((s) => s.draft.items.length);
 
   // null  = still loading (debounce pending or first async call in flight).
-  // ""    = preview could not be resolved (error path); the full-path row is
+  // ""    = preview could not be resolved (error path); the hero path is
   //         suppressed the same way as for null, so the directory is never
   //         shown in isolation.
   // <str> = resolved filename ready for display.
@@ -115,12 +91,13 @@ export function OutputSettings() {
     };
   }, [effectiveTemplate]);
 
-  // The full landing path is only shown when previewName is a non-empty
-  // string. Both null (still loading) and "" (error path, set by .catch)
-  // suppress the row, so the output directory is never displayed in isolation,
-  // which would mislead the user about the actual destination.
-  const fullPath = previewName ? joinOutputPath(outputDir, previewName) : null;
-  const readiness = readinessFor(itemCount, outputDir);
+  // The hero path is only shown when previewName is a non-empty string. Both
+  // null (still loading) and "" (error path, set by .catch) suppress it, so the
+  // output directory is never displayed in isolation, which would mislead the
+  // user about the actual destination. joinOutputPath already returns the bare
+  // filename when outputDir is null, so the same value drives both the full
+  // path (destination set) and the filename-only hero (no destination).
+  const heroPath = previewName ? joinOutputPath(outputDir, previewName) : null;
 
   return (
     <section className="flex flex-col gap-3 rounded-md border border-border p-4">
@@ -128,24 +105,23 @@ export function OutputSettings() {
         OUTPUT
       </span>
 
-      {/* Destination and Name stack on narrow windows (Destination → Name) and
-          sit side by side from the md breakpoint up. */}
-      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-3 md:grid-cols-2">
-        <OutputDirPicker />
-        <NamingRuleForm />
-      </div>
-
-      {/* The full-path preview is the focal point of the group. It is only
-          shown once the preview filename has resolved, so the user never sees
-          the destination directory in isolation (which would be misleading). */}
+      {/* Hero: the full landing path is the focal point of the group. It is
+          only shown once the preview filename has resolved, so the user never
+          sees the destination directory in isolation (which would mislead). The
+          leading arrow only appears once a destination joins the filename into a
+          full path. */}
       <div className="flex flex-col gap-1">
-        {fullPath !== null ? (
-          <p className="flex items-center gap-2 text-sm">
-            <ArrowRight
-              aria-hidden="true"
-              className="size-4 shrink-0 text-muted-foreground"
-            />
-            <span className="font-mono text-foreground">{fullPath}</span>
+        {heroPath !== null ? (
+          <p className="flex items-center gap-2 truncate text-base">
+            {outputDir !== null ? (
+              <ArrowRight
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground"
+              />
+            ) : null}
+            <span className="truncate font-mono text-foreground">
+              {heroPath}
+            </span>
           </p>
         ) : null}
         {outputDir === null ? (
@@ -160,8 +136,15 @@ export function OutputSettings() {
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <ReadinessChip readiness={readiness} />
+      {/* Aligned editing rows: one shared grid so the Destination/Name labels
+          align in the first column and their controls align in the second.
+          OutputDirPicker contributes three cells (label, path, Choose); the
+          Choose button lands in the third/right column. NamingRuleForm
+          contributes two cells (label, input) with the input spanning the
+          control + action columns. */}
+      <div className="grid grid-cols-[max-content_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2.5">
+        <OutputDirPicker />
+        <NamingRuleForm />
       </div>
     </section>
   );
