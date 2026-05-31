@@ -63,6 +63,17 @@ pub enum JobError {
 // ArchiveJob
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Convert a 0-based item index to a 1-based `u32` sequence number.
+///
+/// Uses `try_from` rather than `as` to make the "no truncation" intent explicit.
+/// Any realistic job fits within `u32::MAX` items — allocating that many items
+/// would exhaust memory first.
+fn seq_index(i: usize) -> u32 {
+    u32::try_from(i)
+        .expect("job item count fits in u32; allocating that many items exhausts memory first")
+        + 1
+}
+
 /// The aggregate root coordinating a batch of [`ArchiveTask`]s.
 ///
 /// The job owns the ordered list of tasks, the [`NamingRule`] used to derive
@@ -107,12 +118,7 @@ impl ArchiveJob {
         // Resolve a name for every item, propagating the first resolution error.
         let mut names: Vec<OutputFileName> = Vec::with_capacity(items.len());
         for i in 0..items.len() {
-            // `i` is 0-based; `i + 1` is in `1..=u32::MAX` for any realistic job, since
-            // allocating more than u32::MAX items exhausts memory first. `try_from` makes
-            // the "no truncation" intent explicit instead of a silent `as` cast.
-            let seq_n = u32::try_from(i).expect(
-                "job item count fits in u32; allocating that many items exhausts memory first",
-            ) + 1;
+            let seq_n = seq_index(i);
             let seq = SequenceNumber::new(seq_n).expect("seq_n >= 1 because i is 0-based");
             let name = rule
                 .resolve(seq)
@@ -127,18 +133,11 @@ impl ArchiveJob {
         Self::check_unique(&names)?;
 
         // Build the tasks, pairing each item with its id and resolved name.
-        // `i` is 0-based here too; `try_from` makes the "no truncation" intent explicit
-        // for the same reason as the name-resolution loop above.
         let tasks = items
             .into_iter()
             .zip(names)
             .enumerate()
-            .map(|(i, (source, name))| {
-                let id = u32::try_from(i).expect(
-                    "job item count fits in u32; allocating that many items exhausts memory first",
-                ) + 1;
-                ArchiveTask::new(TaskId::new(id), source, name)
-            })
+            .map(|(i, (source, name))| ArchiveTask::new(TaskId::new(seq_index(i)), source, name))
             .collect();
 
         Ok(ArchiveJob {
