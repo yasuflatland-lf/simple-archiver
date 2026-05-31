@@ -61,6 +61,9 @@ jobs:
           printf '%s' "$ARTIFACT_PATHS" \
             | jq -r '.[]' \
             | while IFS= read -r path; do
+                # Windows jq.exe emits CRLF, so each path keeps a trailing CR that
+                # breaks the file test and gh upload; strip it before anything else.
+                path="${path%$'\r'}"
                 # Normalize Windows backslash paths so Git Bash and gh both resolve them.
                 path="${path//\\//}"
                 # tauri lists the macOS .app bundle (a directory) next to the .dmg; upload regular files only.
