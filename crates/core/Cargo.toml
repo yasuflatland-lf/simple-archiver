@@ -16,7 +16,7 @@ logos = "0.14"
 lalrpop-util = "0.20"
 
 [dev-dependencies]
-mockall = "0.13"
+mockall = "0.14"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 zip = "2"
 
