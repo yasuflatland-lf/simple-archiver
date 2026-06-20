@@ -10,6 +10,8 @@
  * `readinessFor`.
  */
 
+import { isValidOutputDir } from "./output-dir-default";
+
 /**
  * What the user still needs to do before a run is possible. `"ready"` is the
  * only state in which Run is enabled.
@@ -25,7 +27,7 @@ export function readinessFor(
   outputDir: string | null,
 ): Readiness {
   if (itemCount === 0) return "add-files";
-  if (!outputDir) return "choose-destination";
+  if (!isValidOutputDir(outputDir)) return "choose-destination";
   return "ready";
 }
 

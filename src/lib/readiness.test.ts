@@ -12,6 +12,12 @@ describe("readinessFor", () => {
     expect(readinessFor(1, null)).toBe("choose-destination");
   });
 
+  it("reports choose-destination for a whitespace-only output directory", () => {
+    expect(readinessFor(1, "   ")).toBe("choose-destination");
+    expect(readinessFor(1, "\t")).toBe("choose-destination");
+    expect(readinessFor(1, "")).toBe("choose-destination");
+  });
+
   it("reports ready when items exist and a destination is set", () => {
     expect(readinessFor(1, "/out")).toBe("ready");
   });
