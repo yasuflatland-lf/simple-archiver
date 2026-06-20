@@ -36,10 +36,16 @@ vi.mock("@/lib/archive", () => ({
 }));
 
 // Mock the smart-default output-dir resolver so the mount effect can be driven
-// deterministically without a Tauri backend.
-vi.mock("@/lib/output-dir-default", () => ({
-  resolveInitialOutputDir: vi.fn(() => Promise.resolve(null)),
-}));
+// deterministically without a Tauri backend. Spread the real module so all
+// other exports (e.g. isValidOutputDir) behave normally in tests.
+vi.mock("@/lib/output-dir-default", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/output-dir-default")>();
+  return {
+    ...actual,
+    resolveInitialOutputDir: vi.fn(() => Promise.resolve(null)),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
