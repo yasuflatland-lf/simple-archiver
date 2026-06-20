@@ -53,6 +53,6 @@ bitflags = "=2.13.0"
 ignored = ["bitflags", "serde", "serde_json"]
 
 [dev-dependencies]
-zip = "2"
-tempfile = "3"
+zip = "=2.4.2"
+tempfile = "=3.27.0"
 
