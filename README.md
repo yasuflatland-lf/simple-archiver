@@ -6,6 +6,64 @@
 
 A native desktop app (Mac / Windows) that takes drag-and-dropped **rar files**, **zip files**, and **folders** and batch re-archives them into **zip** files following a single naming rule. rar and zip files are extracted and re-compressed to standard Deflate zip; folders are zipped as-is.
 
+## Installation
+
+Download the installer for your OS from the **[latest release](https://github.com/yasuflatland-lf/simple-archiver/releases/latest)**:
+
+- **macOS** — `simple-archiver_<version>_universal.dmg` (universal: Apple Silicon + Intel)
+- **Windows** — `simple-archiver_<version>_x64-setup.exe` (installer) or `simple-archiver_<version>_x64_en-US.msi`
+
+> [!IMPORTANT]
+> The app is **not notarized by Apple** and **not signed by a Windows publisher**, so
+> your OS shows a security warning the **first time** you open it. This is expected and
+> safe. Follow the steps below **once** — after that, the app opens normally like any
+> other app.
+
+### macOS — first launch
+
+1. Double-click the downloaded `.dmg`. If a dialog says *"…dmg cannot be opened
+   because Apple cannot check it for malicious software"*, click **Done**
+   (do **not** click *Move to Trash*).
+2. Open the Apple menu → **System Settings…** → **Privacy & Security**.
+3. Scroll down to the **Security** section. macOS shows the blocked item with an
+   **Open Anyway** button on the right, like this:
+
+   > **"simple-archiver_…_universal.dmg" was blocked to protect your Mac.**  `[ Open Anyway ]`
+   >
+   > Apple could not verify "simple-archiver_…_universal.dmg" is free of malware that
+   > may harm your Mac or compromise your privacy.
+
+   Click the **Open Anyway** button on the right of that message.
+4. Click **Open Anyway** once more to confirm, then unlock with Touch ID or your
+   Mac password.
+5. The `.dmg` opens. Drag the **simple-archiver** icon onto the **Applications**
+   folder shown in the window.
+6. Open **simple-archiver** from Applications (or Launchpad). If the same warning
+   appears for the app itself, repeat steps 2–4 once — the blocked item will now be
+   the app — and it will launch. It opens directly every time after that.
+
+### Windows — first launch
+
+1. Run the downloaded `.exe` (or `.msi`).
+2. If **"Windows protected your PC"** (SmartScreen) appears, click the small
+   **More info** link.
+3. Click **Run anyway**, then follow the installer prompts.
+
+<details>
+<summary>Advanced (Terminal): skip the macOS warning</summary>
+
+If you are comfortable with the Terminal, you can remove the quarantine flag instead
+of using System Settings:
+
+```bash
+# the downloaded disk image
+xattr -d com.apple.quarantine ~/Downloads/simple-archiver_*_universal.dmg
+# the installed app (after dragging it to Applications)
+xattr -dr com.apple.quarantine /Applications/simple-archiver.app
+```
+
+</details>
+
 ## Architecture
 
 ![simple-archiver architecture](docs/images/architecture.png)
@@ -29,26 +87,6 @@ It ships as a single self-contained native application built with **Tauri 2** �
 - **Overall progress** — a job-wide progress bar and ETA for all items combined.
 - **Output directory** — pick one destination folder through the native OS picker; all archives are written there. The app remembers your last chosen directory and, on first run, defaults to the OS Downloads folder.
 - **Resilient by design** — existing names are **not overwritten** (that item fails instead), a failed item never stops the others, and a run can be cancelled (in-flight work is interrupted and partial output / temp files are cleaned up). A run summary tallying **succeeded / cancelled / failed** items is shown at the end.
-
-## Install
-
-Download a prebuilt installer from the [latest release](https://github.com/yasuflatland-lf/simple-archiver/releases/latest):
-
-- **macOS** — `simple-archiver_<version>_universal.dmg` (universal: Apple Silicon + Intel)
-- **Windows** — `simple-archiver_<version>_x64-setup.exe` (NSIS installer) or `simple-archiver_<version>_x64_en-US.msi`
-
-Installers are currently **unsigned**, so macOS Gatekeeper / Windows SmartScreen will warn on first launch — open it from the right-click *Open* menu (macOS) or *More info → Run anyway* (Windows).
-
-### macOS: first launch (self-signed build)
-
-The macOS app is **self-signed**, not notarized by Apple, so Gatekeeper shows a
-warning on first launch. To open it:
-
-1. In Finder, **right-click** the app and choose **Open**, then confirm; or
-2. Remove the quarantine attribute:
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/simple-archiver.app
-   ```
 
 ## Getting started (from source)
 
