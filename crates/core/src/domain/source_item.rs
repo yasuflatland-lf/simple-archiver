@@ -1,5 +1,6 @@
 //! The source item to archive — a rar file, a zip file, or a folder (no IO).
 
+use crate::domain::archive_format::ArchiveFormat;
 use std::path::PathBuf;
 
 /// Error returned when a path is neither a `.rar`/`.zip` archive nor a directory.
@@ -36,9 +37,12 @@ impl SourceItem {
             return Ok(SourceItem::Folder(path));
         }
         match path.extension().and_then(|ext| ext.to_str()) {
-            Some(e) if e.eq_ignore_ascii_case("rar") => Ok(SourceItem::RarFile(path)),
-            Some(e) if e.eq_ignore_ascii_case("zip") => Ok(SourceItem::ZipFile(path)),
-            _ => Err(UnsupportedSourceItem(path)),
+            Some(e) => match ArchiveFormat::from_extension(e) {
+                Some(ArchiveFormat::Rar) => Ok(SourceItem::RarFile(path)),
+                Some(ArchiveFormat::Zip) => Ok(SourceItem::ZipFile(path)),
+                None => Err(UnsupportedSourceItem(path)),
+            },
+            None => Err(UnsupportedSourceItem(path)),
         }
     }
 

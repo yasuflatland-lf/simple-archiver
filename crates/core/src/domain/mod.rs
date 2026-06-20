@@ -2,6 +2,7 @@
 //! Naming rules, sequence numbers, output-filename value objects (PR3, issue #3),
 //! and the ArchiveJob aggregate with reordering (PR4, issue #4).
 
+pub mod archive_format;
 pub mod archive_job;
 pub mod archive_task;
 pub mod file_name;
