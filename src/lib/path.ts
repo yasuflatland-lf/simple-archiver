@@ -14,3 +14,14 @@ export function joinOutputPath(dir: string | null, name: string): string {
   const trimmedDir = dir.endsWith("/") ? dir.slice(0, -1) : dir;
   return `${trimmedDir}/${name}`;
 }
+
+/**
+ * Return the last path segment of a filesystem path, handling both forward-
+ * slash (POSIX) and backslash (Windows) separators.
+ */
+export function basename(path: string): string {
+  const segments = path.split(/[/\\]/);
+  // Filter empties in case of trailing slashes, then take the last segment.
+  const nonEmpty = segments.filter((s) => s.length > 0);
+  return nonEmpty[nonEmpty.length - 1] ?? path;
+}

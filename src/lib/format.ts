@@ -52,3 +52,13 @@ export function formatBytes(done: number, total: number): string {
   };
   return `${render(done)} / ${render(total)} ${BYTE_UNITS[unitIndex]}`;
 }
+
+/**
+ * Format a byte-progress pair as "<done> / <total> bytes" using raw integer
+ * counts (no unit scaling). Matches the status string emitted by computeStatus
+ * in TaskRow. Use formatBytes for a human-scaled alternative.
+ * TODO: unify onto formatBytes in a follow-up.
+ */
+export function formatByteProgress(done: number, total: number): string {
+  return `${done} / ${total} bytes`;
+}
