@@ -12,16 +12,16 @@ thiserror = "2"
 tempfile = "3"
 unrar = "0.5"
 loom = { version = "0.7", optional = true }
-logos = "0.14"
-lalrpop-util = "0.20"
+logos = "0.16"
+lalrpop-util = "0.23"
 
 [dev-dependencies]
-mockall = "0.14"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-zip = "2"
+mockall = "=0.14.0"
+tokio = { version = "=1.52.3", features = ["macros", "rt-multi-thread", "time"] }
+zip = "=2.4.2"
 
 [build-dependencies]
-lalrpop = "0.20"
+lalrpop = "0.23"
 
 [package.metadata.cargo-machete]
 # mockall (dev dep) is pre-declared for PR5 to mock the application ports but is
