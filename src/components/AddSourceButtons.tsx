@@ -1,20 +1,21 @@
-import { type OpenDialogOptions, open } from "@tauri-apps/plugin-dialog";
 import { FilePlus, FolderPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { pickFiles, pickFolders } from "@/lib/dialog";
 import { messageFromReason } from "@/lib/errors";
 import { useJobStore } from "@/store/jobStore";
 
 // Shared logic for both browse buttons: open the picker, then add the selected
-// paths. open() rejects only on a real dialog/IPC failure; cancellation
-// resolves to null (handled by the Array.isArray guard). The native browse
-// dialog is mode-exclusive (files XOR folders), which is why there are two
-// buttons — drag-and-drop is the single affordance that accepts both kinds.
-async function browseAndAdd(options: OpenDialogOptions) {
+// paths. The picker wrappers reject only on a real dialog/IPC failure;
+// cancellation resolves to an empty array (handled by the length guard). The
+// native browse dialog is mode-exclusive (files XOR folders), which is why
+// there are two buttons — drag-and-drop is the single affordance that accepts
+// both kinds.
+async function browseAndAdd(pick: () => Promise<string[]>) {
   try {
-    const result = await open(options);
-    if (Array.isArray(result) && result.length > 0) {
-      useJobStore.getState().addItems(result as string[]);
+    const paths = await pick();
+    if (paths.length > 0) {
+      useJobStore.getState().addItems(paths);
     }
   } catch (reason) {
     useJobStore.setState({ error: messageFromReason(reason) });
@@ -22,15 +23,11 @@ async function browseAndAdd(options: OpenDialogOptions) {
 }
 
 function handleAddFiles() {
-  return browseAndAdd({
-    multiple: true,
-    directory: false,
-    filters: [{ name: "Archives", extensions: ["rar", "zip"] }],
-  });
+  return browseAndAdd(pickFiles);
 }
 
 function handleAddFolder() {
-  return browseAndAdd({ directory: true, multiple: true });
+  return browseAndAdd(pickFolders);
 }
 
 interface AddSourceButtonsProps {
