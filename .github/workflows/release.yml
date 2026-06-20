@@ -35,18 +35,18 @@ jobs:
         with:
           # On workflow_dispatch, build the requested tag; on tag push, the ref is the tag.
           ref: ${{ github.event.inputs.tag || github.ref }}
-      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925 # v4
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
       # The universal-apple-darwin build links both arch slices, so both targets are needed.
       - name: Add macOS universal Rust targets
         if: runner.os == 'macOS'
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: release-${{ matrix.platform }}
       - run: pnpm install --frozen-lockfile
       - name: Build bundles
         id: tauri
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         with:
           # No tagName/releaseId: build only and expose artifactPaths; do not create or edit a release.
           args: ${{ matrix.args }}
