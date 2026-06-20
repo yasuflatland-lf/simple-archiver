@@ -22,6 +22,7 @@ vi.mock("@/lib/archive", () => ({
 vi.mock("@/lib/output-dir-default", () => ({ persistOutputDir: vi.fn() }));
 
 import * as archive from "@/lib/archive";
+import { DEFAULT_TEMPLATE } from "@/lib/naming";
 import { persistOutputDir } from "@/lib/output-dir-default";
 
 import { resetJobStore, useJobStore } from "./jobStore";
@@ -83,15 +84,21 @@ describe("addItems", () => {
     expect(useJobStore.getState().error).toBeNull();
   });
 
-  it("recomputes previews after adding (empty when template is null)", async () => {
+  it("recomputes previews after adding (empty per-item names when template is null)", async () => {
     const draft = makeDraft(2, null);
     mockArchive.addItems.mockResolvedValue(draft);
 
     await useJobStore.getState().addItems(["/a.rar", "/b.rar"]);
 
-    // namingTemplate is null in the returned snapshot, so no preview calls and
-    // previewNames is empty.
-    expect(mockArchive.previewOutputName).not.toHaveBeenCalled();
+    // namingTemplate is null in the returned snapshot, so there are no per-item
+    // preview calls and previewNames is empty. The single hero preview still
+    // resolves from DEFAULT_TEMPLATE at seq 1 (the OUTPUT group always shows a
+    // representative filename, even before a template is pushed).
+    expect(mockArchive.previewOutputName).toHaveBeenCalledTimes(1);
+    expect(mockArchive.previewOutputName).toHaveBeenCalledWith(
+      DEFAULT_TEMPLATE,
+      1,
+    );
     expect(useJobStore.getState().previewNames).toEqual([]);
   });
 
@@ -196,27 +203,29 @@ describe("setNamingRule", () => {
     await useJobStore.getState().setNamingRule("photo_{n:03}");
 
     expect(mockArchive.setNamingRule).toHaveBeenCalledWith("photo_{n:03}");
-    expect(mockArchive.previewOutputName).toHaveBeenCalledTimes(3);
-    expect(mockArchive.previewOutputName).toHaveBeenNthCalledWith(
-      1,
+    // Three per-item previews (seq 1..3) plus one hero preview (seq 1) = four
+    // calls. Each per-item sequence is requested with the template.
+    expect(mockArchive.previewOutputName).toHaveBeenCalledTimes(4);
+    expect(mockArchive.previewOutputName).toHaveBeenCalledWith(
       "photo_{n:03}",
       1,
     );
-    expect(mockArchive.previewOutputName).toHaveBeenNthCalledWith(
-      2,
+    expect(mockArchive.previewOutputName).toHaveBeenCalledWith(
       "photo_{n:03}",
       2,
     );
-    expect(mockArchive.previewOutputName).toHaveBeenNthCalledWith(
-      3,
+    expect(mockArchive.previewOutputName).toHaveBeenCalledWith(
       "photo_{n:03}",
       3,
     );
+    // previewNames stays index-aligned with the three items.
     expect(useJobStore.getState().previewNames).toEqual([
       "photo_001.zip",
       "photo_002.zip",
       "photo_003.zip",
     ]);
+    // The hero preview is the seq-1 filename for the same template.
+    expect(useJobStore.getState().firstPreview).toBe("photo_001.zip");
   });
 
   it("sets error and leaves the draft unchanged on failure", async () => {
@@ -309,9 +318,11 @@ describe("recomputePreviews", () => {
     expect(useJobStore.getState().error).toBe("invalid template");
   });
 
-  it("resolves to empty previews for an empty draft even with a template", async () => {
-    // No items means no preview calls, but a non-null template must not skip the
-    // success bookkeeping: previewNames is [] and error is cleared.
+  it("resolves to empty per-item previews for an empty draft even with a template", async () => {
+    // No items means no per-item preview calls, but a non-null template must not
+    // skip the success bookkeeping: previewNames is [] and error is cleared. The
+    // single hero preview (seq 1) still resolves so the OUTPUT group renders.
+    mockArchive.previewOutputName.mockResolvedValue("photo_001.zip");
     useJobStore.setState({
       draft: { items: [], namingTemplate: "photo_{n}", outputDir: null },
       error: "stale error",
@@ -319,15 +330,20 @@ describe("recomputePreviews", () => {
 
     await useJobStore.getState().recomputePreviews();
 
-    expect(mockArchive.previewOutputName).not.toHaveBeenCalled();
+    // Only the hero call fires (no items => no per-item calls).
+    expect(mockArchive.previewOutputName).toHaveBeenCalledTimes(1);
+    expect(mockArchive.previewOutputName).toHaveBeenCalledWith("photo_{n}", 1);
     expect(useJobStore.getState().previewNames).toEqual([]);
+    expect(useJobStore.getState().firstPreview).toBe("photo_001.zip");
     expect(useJobStore.getState().error).toBeNull();
   });
 
   it("ignores a stale recompute that resolves after a newer one (generation guard)", async () => {
     // Drive two overlapping recomputes with manually-controlled promises so we
     // can resolve the newer batch (B) before the older one (A). The stale A
-    // result must NOT overwrite B's previews.
+    // result must NOT overwrite B's previews. Each recompute now issues two
+    // calls (the hero seq-1 preview and the single per-item preview), so the
+    // resolvers accumulate in call order and are released per run.
     const resolvers: Array<(value: string) => void> = [];
     mockArchive.previewOutputName.mockImplementation(
       () =>
@@ -336,7 +352,7 @@ describe("recomputePreviews", () => {
         }),
     );
 
-    // Run A: one item.
+    // Run A: one item. Pulls its two resolvers (hero + per-item) off the queue.
     useJobStore.setState({
       draft: {
         items: makeDraft(1).items,
@@ -345,7 +361,8 @@ describe("recomputePreviews", () => {
       },
     });
     const runA = useJobStore.getState().recomputePreviews();
-    const resolveA = resolvers.shift();
+    const resolveAItem = resolvers.shift();
+    const resolveAHero = resolvers.shift();
 
     // Run B: one item, started after A so it has the newer generation.
     useJobStore.setState({
@@ -356,14 +373,17 @@ describe("recomputePreviews", () => {
       },
     });
     const runB = useJobStore.getState().recomputePreviews();
-    const resolveB = resolvers.shift();
+    const resolveBItem = resolvers.shift();
+    const resolveBHero = resolvers.shift();
 
     // Resolve B first (the winner), then the stale A.
-    resolveB?.("B.zip");
+    resolveBItem?.("B.zip");
+    resolveBHero?.("B.zip");
     await runB;
     expect(useJobStore.getState().previewNames).toEqual(["B.zip"]);
 
-    resolveA?.("A.zip");
+    resolveAItem?.("A.zip");
+    resolveAHero?.("A.zip");
     await runA;
 
     // A is stale and must not clobber B's result.

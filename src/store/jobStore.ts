@@ -7,6 +7,7 @@ import type { ProgressEvent } from "@/bindings/ProgressEvent";
 // which share names (addItems, reorder, setNamingRule, ...).
 import * as archive from "@/lib/archive";
 import { messageFromReason } from "@/lib/errors";
+import { DEFAULT_TEMPLATE } from "@/lib/naming";
 import { persistOutputDir } from "@/lib/output-dir-default";
 
 // Monotonic counter tagging each recomputePreviews run. A run only commits its
@@ -40,6 +41,24 @@ export interface JobState {
    * (no template, or a recompute in flight) or exactly items.length long.
    */
   previewNames: string[];
+  /**
+   * The single hero preview filename for the OUTPUT group, computed from the
+   * effective template (the draft template, or DEFAULT_TEMPLATE before one has
+   * been pushed) at sequence 1. Independent of draft.items so the OUTPUT group
+   * shows a representative filename even with an empty queue. This is the single
+   * source of truth for OutputSettings' full-path hero — it does not run its own
+   * preview pipeline. Tri-state mirroring the old component-local convention:
+   *   null  = loading (a recompute is pending / in flight),
+   *   ""    = the preview could not be resolved (error path),
+   *   <str> = the resolved filename ready for display.
+   */
+  firstPreview: string | null;
+  /**
+   * The error message for the hero preview, or null on success. Distinct from
+   * `error` (general action errors) so the OUTPUT alert reflects only preview
+   * resolution failures, matching the previous component-local `error` state.
+   */
+  previewError: string | null;
   /** The latest progress snapshot received during a job, if any. */
   progress: ProgressEvent | null;
   /** The summary of the most recently finished job, if any. */
@@ -87,6 +106,8 @@ export interface JobState {
 export const useJobStore = create<JobState>()((set, get) => ({
   draft: { items: [], namingTemplate: null, outputDir: null },
   previewNames: [],
+  firstPreview: null,
+  previewError: null,
   progress: null,
   summary: null,
   taskIdByIndex: [],
@@ -172,29 +193,60 @@ export const useJobStore = create<JobState>()((set, get) => ({
   },
 
   recomputePreviews: async () => {
-    // Tag this run; a later run bumps the counter and supersedes us.
+    // Tag this run; a later run bumps the counter and supersedes us. The same
+    // guard covers both the per-item previewNames and the single hero preview,
+    // so they can never disagree mid-flight (the bug F7 collapsed: there is now
+    // one debounce + one race guard, not two).
     const generation = ++previewGeneration;
     const { draft } = get();
     const template = draft.namingTemplate;
-    if (template === null) {
-      // No await before this set, so no newer run can have started yet.
-      set({ previewNames: [] });
-      return;
-    }
+    // The hero always shows a representative filename: fall back to the shared
+    // default before NamingRuleForm has pushed a template, so the OUTPUT group
+    // is meaningful on first paint even with an empty queue.
+    const heroTemplate = template ?? DEFAULT_TEMPLATE;
+    // Mark the hero as loading; firstPreview === null suppresses the hero path
+    // while the recompute is in flight, mirroring the old component-local guard.
+    set({ firstPreview: null });
     try {
       // Sequence numbers are 1-based, matching the backend's naming contract.
-      const names = await Promise.all(
-        draft.items.map((_item, i) =>
-          archive.previewOutputName(template, i + 1),
-        ),
-      );
+      // The hero preview uses sequence 1; per-item previews use i + 1.
+      const [heroName, names] = await Promise.all([
+        archive.previewOutputName(heroTemplate, 1),
+        // previewNames stays index-aligned with draft.items and empty for a null
+        // template (no items, or no template => no per-item names).
+        template === null
+          ? Promise.resolve<string[]>([])
+          : Promise.all(
+              draft.items.map((_item, i) =>
+                archive.previewOutputName(template, i + 1),
+              ),
+            ),
+      ]);
       // Bail if a newer recompute superseded this one while awaiting.
       if (generation !== previewGeneration) return;
-      set({ previewNames: names, error: null });
+      set({
+        previewNames: names,
+        firstPreview: heroName,
+        previewError: null,
+        // Preserve the pre-refactor general-error semantics exactly: only a real
+        // per-item recompute (non-null template) cleared the top-level `error`;
+        // a null-template recompute left it untouched. The hero preview drives
+        // only `previewError`, never App's top banner.
+        ...(template !== null ? { error: null } : {}),
+      });
     } catch (reason) {
       // Same staleness check on the failure path.
       if (generation !== previewGeneration) return;
-      set({ previewNames: [], error: messageFromReason(reason) });
+      const message = messageFromReason(reason);
+      set({
+        previewNames: [],
+        firstPreview: "",
+        previewError: message,
+        // Parity with the success path: a null-template recompute never touched
+        // the general `error` before (it returned early), so a hero-only failure
+        // must not raise the top-level banner.
+        ...(template !== null ? { error: message } : {}),
+      });
     }
   },
 
@@ -210,8 +262,10 @@ export const useJobStore = create<JobState>()((set, get) => ({
         summary: null,
         progress: null,
         error: null,
+        previewError: null,
         taskIdByIndex: [],
         previewNames: [],
+        firstPreview: null,
       });
     } catch (reason) {
       set({ error: messageFromReason(reason) });
@@ -227,3 +281,12 @@ export const useJobStore = create<JobState>()((set, get) => ({
 export function resetJobStore(): void {
   useJobStore.setState(useJobStore.getInitialState(), true);
 }
+
+/**
+ * Select the single hero preview filename for the OUTPUT group. This is the one
+ * source of preview truth OutputSettings reads (it no longer runs its own
+ * debounced previewOutputName pipeline). Tri-state: null = loading, "" = error,
+ * <str> = resolved filename.
+ */
+export const selectFirstPreview = (s: JobState): string | null =>
+  s.firstPreview;
