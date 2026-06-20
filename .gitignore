@@ -47,3 +47,8 @@ dist/
 
 # local git worktrees
 /.claude/worktrees/
+
+# Self-signed code-signing artifacts produced by scripts/macos/generate-self-signed-cert.sh
+cert-out/
+*.p12
+*.p12.base64

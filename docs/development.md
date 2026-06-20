@@ -176,3 +176,34 @@ activated on codecov.io for reports to appear. Coverage config lives in
 - **Avoid duplicate affordances by swapping on state (PR11 follow-up).** `AddSourceButtons` lives in the `EmptyQueue` drop zone while the queue is empty and in the `SetupToolbar` action bar once it has items — exactly one instance is visible at a time (`SetupToolbar` gates them on `draft.items.length > 0`). Don't render the same affordance in two always-present places; pick the owner by state, keeping a persistent browse path once the hero drop zone is gone.
 
 For coding conventions (including the English-comment rule), see L3 [`/.claude/conventions.md`](../.claude/conventions.md).
+
+## macOS code signing (self-signed)
+
+Release `.app`/`.dmg` bundles are signed with a fixed self-signed certificate
+**by Tauri at build time** (`.github/workflows/release.yml` passes the signing
+env to the `tauri-action` Build step). Build-time signing is required so the
+`.app` embedded inside the `.dmg` — the artifact users actually run — is signed;
+post-build `codesign` cannot reach it. Notarization is intentionally not done.
+
+The certificate CN is `Developer ID Application: Simple Archiver` with an OU.
+The Apple-style prefix and OU are required only so Tauri's signing-identity
+discovery can find a self-signed cert; they assert no Apple relationship.
+
+### One-time admin setup
+
+1. Generate the certificate:
+   ```bash
+   P12_PASSWORD='<choose-a-password>' ./scripts/macos/generate-self-signed-cert.sh
+   ```
+   (Use Homebrew OpenSSL 3; the script handles the `-legacy` `.p12` flag.)
+2. Add three repository **Secrets**:
+   - `APPLE_CERTIFICATE` = contents of `cert-out/cert.p12.base64`
+   - `APPLE_CERTIFICATE_PASSWORD` = the `P12_PASSWORD` you chose
+   - `KEYCHAIN_PASSWORD` = any random string (temporary CI keychain password)
+3. The signing identity CN is set literally in `release.yml`; change it there if
+   you regenerate with a different CN.
+
+If the secrets are missing, the macOS release job fails at the Preflight step.
+Verify locally by mounting the produced `.dmg` and running
+`codesign --verify --deep --strict <App.app>` on the app inside it — never
+`spctl`, which always rejects a self-signed bundle.
