@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DEFAULT_TEMPLATE } from "@/lib/naming";
 import { useJobStore } from "@/store/jobStore";
 
-// The naming template the form seeds with. Exported so OutputSettings can use
-// the same default when the store has not yet been given a template, keeping a
-// single source of truth for the starting template.
-export const DEFAULT_TEMPLATE = "photo_{n:03}";
+// Re-export so existing importers (and tests) keep a stable entry point while
+// the constant itself lives in lib (shared with the store, no import cycle).
+export { DEFAULT_TEMPLATE };
 
 // Wait this long after the last keystroke before pushing the template into the
 // store, so we make one store/IPC round-trip per typing pause rather than one

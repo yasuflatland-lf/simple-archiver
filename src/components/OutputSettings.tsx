@@ -1,20 +1,9 @@
 import { ArrowRight } from "lucide-react";
-import { useEffect, useState } from "react";
 
-import {
-  DEBOUNCE_MS,
-  DEFAULT_TEMPLATE,
-  NamingRuleForm,
-} from "@/components/NamingRuleForm";
+import { NamingRuleForm } from "@/components/NamingRuleForm";
 import { OutputDirPicker } from "@/components/OutputDirPicker";
-import { previewOutputName } from "@/lib/archive";
-import { messageFromReason } from "@/lib/errors";
 import { joinOutputPath } from "@/lib/path";
-import { useJobStore } from "@/store/jobStore";
-
-// The live preview always uses the first (1-based) sequence number, matching the
-// backend's naming contract.
-const PREVIEW_SEQ = 1;
+import { selectFirstPreview, useJobStore } from "@/store/jobStore";
 
 /**
  * OutputSettings is the OUTPUT group organism. It binds the Destination
@@ -29,70 +18,31 @@ const PREVIEW_SEQ = 1;
  *                            of the Destination row only.
  *
  * The preview is derived state: the backend remains the single source of truth
- * for the filename. OutputSettings reads the store's naming template (falling
- * back to DEFAULT_TEMPLATE before NamingRuleForm has pushed one), debounces a
- * single previewOutputName(template, 1) call, then joins the result with the
- * output directory for display. The sub-controls keep their own concerns
+ * for the filename, and the store is the single source of truth for the preview.
+ * OutputSettings only reads the store's hero preview (firstPreview) and joins it
+ * with the output directory for display — it runs no debounce or previewOutputName
+ * call of its own. The store's recomputePreviews owns the debounce/race guard and
+ * the DEFAULT_TEMPLATE first-paint fallback, so the per-item previewNames and this
+ * hero can never disagree mid-flight. The sub-controls keep their own concerns
  * (input + store push, directory picking); OutputSettings only joins them for
  * display.
- *
- * Note on preview state: this component holds one local previewName string
- * (the single filename resolved from the store template). This is distinct from
- * the store's per-item previewNames array consumed by TaskList/RunSummary; the
- * two never overlap.
  */
 export function OutputSettings() {
-  const template = useJobStore((s) => s.draft.namingTemplate);
   const outputDir = useJobStore((s) => s.draft.outputDir);
 
-  // null  = still loading (debounce pending or first async call in flight).
-  // ""    = preview could not be resolved (error path); the hero path is
-  //         suppressed the same way as for null, so the directory is never
-  //         shown in isolation.
-  // <str> = resolved filename ready for display.
-  const [previewName, setPreviewName] = useState<string | null>(null);
-  const [error, setError] = useState("");
-
-  // The effective template: the store value once NamingRuleForm has pushed it,
-  // otherwise the shared default so the preview is meaningful on first paint.
-  const effectiveTemplate = template ?? DEFAULT_TEMPLATE;
-
-  useEffect(() => {
-    // Mark preview as loading so the UI shows nothing while the debounce window
-    // is open and the async call is in flight. This prevents the directory path
-    // alone from briefly appearing when the template has not yet resolved.
-    setPreviewName(null);
-
-    // Guard against out-of-order async results: only the latest effect run may
-    // commit state, so a slow call for an older template cannot overwrite a
-    // newer preview/error.
-    let active = true;
-    const handle = setTimeout(() => {
-      previewOutputName(effectiveTemplate, PREVIEW_SEQ)
-        .then((name) => {
-          if (!active) return;
-          setPreviewName(name);
-          setError("");
-        })
-        .catch((reason) => {
-          if (!active) return;
-          setPreviewName("");
-          setError(
-            messageFromReason(
-              reason,
-              "Could not generate a preview. Please try again.",
-            ),
-          );
-        });
-    }, DEBOUNCE_MS);
-    return () => {
-      active = false;
-      clearTimeout(handle);
-    };
-  }, [effectiveTemplate]);
+  // The single source of preview truth. firstPreview is tri-state:
+  //   null  = still loading (a recompute is pending / in flight),
+  //   ""    = preview could not be resolved (error path); the hero path is
+  //           suppressed the same way as for null, so the directory is never
+  //           shown in isolation,
+  //   <str> = resolved filename ready for display.
+  const previewName = useJobStore(selectFirstPreview);
+  // The preview error from the store; coalesced to "" so the alert is hidden
+  // unless a preview resolution actually failed.
+  const error = useJobStore((s) => s.previewError) ?? "";
 
   // The hero path is only shown when previewName is a non-empty string. Both
-  // null (still loading) and "" (error path, set by .catch) suppress it, so the
+  // null (still loading) and "" (the store's error path) suppress it, so the
   // output directory is never displayed in isolation, which would mislead the
   // user about the actual destination. joinOutputPath already returns the bare
   // filename when outputDir is null, so the same value drives both the full

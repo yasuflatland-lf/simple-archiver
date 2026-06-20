@@ -1,9 +1,8 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_TEMPLATE } from "@/components/NamingRuleForm";
 import { previewOutputName } from "@/lib/archive";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
@@ -14,8 +13,9 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
 }));
 
-// The preview filename is owned by the backend; mock the wrapper so the
-// full-path preview is deterministic without a Tauri runtime.
+// previewOutputName is owned by the store now; mock the wrapper only so the
+// child NamingRuleForm's debounced store push cannot reach a real backend.
+// OutputSettings itself no longer calls it: it reads the store's firstPreview.
 vi.mock("@/lib/archive", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/archive")>();
   return { ...actual, previewOutputName: vi.fn() };
@@ -40,141 +40,137 @@ describe("OutputSettings", () => {
     expect(screen.getByText("Name")).toBeDefined();
   });
 
-  it("shows the filename only and a hint when no destination is selected", async () => {
+  it("shows the filename only and a hint when no destination is selected", () => {
     useJobStore.setState({
       draft: { items: [], namingTemplate: "photo_{n:03}", outputDir: null },
+      firstPreview: "photo_001.zip",
     });
     render(<OutputSettings />);
 
-    // The bare filename appears once the debounced preview resolves.
-    await screen.findByText("photo_001.zip");
+    // The bare filename appears from the store's firstPreview.
+    expect(screen.getByText("photo_001.zip")).toBeDefined();
     // The hint nudges the user to pick a destination for the full path.
     expect(
       screen.getByText("Select a destination to preview the full path."),
     ).toBeDefined();
   });
 
-  it("shows the joined full path once a destination is selected", async () => {
+  it("shows the joined full path once a destination is selected", () => {
     useJobStore.setState({
       draft: {
         items: [],
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
       },
+      firstPreview: "photo_001.zip",
     });
     render(<OutputSettings />);
 
-    await screen.findByText("~/Archives/photo_001.zip");
+    expect(screen.getByText("~/Archives/photo_001.zip")).toBeDefined();
     // The destination-required hint must be gone once a destination exists.
     expect(
       screen.queryByText("Select a destination to preview the full path."),
     ).toBeNull();
   });
 
-  it("surfaces a template error from the preview as an alert", async () => {
-    vi.mocked(previewOutputName).mockRejectedValue(
-      "invalid naming template: stray or malformed brace",
-    );
+  it("surfaces a template error from the store preview as an alert", () => {
     useJobStore.setState({
       draft: { items: [], namingTemplate: "photo_{n", outputDir: null },
+      firstPreview: "",
+      previewError: "invalid naming template: stray or malformed brace",
     });
     render(<OutputSettings />);
 
-    const alert = await screen.findByRole("alert");
+    const alert = screen.getByRole("alert");
     expect(alert.textContent ?? "").toMatch(/invalid naming template/i);
   });
 
-  it("clears the alert and restores the preview after a previously failing template becomes valid", async () => {
-    // Start with a bad template so the alert fires.
-    vi.mocked(previewOutputName).mockRejectedValue(
-      "invalid naming template: stray or malformed brace",
-    );
+  it("clears the alert and restores the preview after the store recovers", () => {
+    // Start in an error state so the alert fires.
     useJobStore.setState({
       draft: {
         items: [],
         namingTemplate: "photo_{n",
         outputDir: "~/Archives",
       },
+      firstPreview: "",
+      previewError: "invalid naming template: stray or malformed brace",
     });
     render(<OutputSettings />);
 
-    // Wait for the initial error alert to appear.
-    const alert = await screen.findByRole("alert");
+    const alert = screen.getByRole("alert");
     expect(alert.textContent ?? "").toMatch(/invalid naming template/i);
 
-    // Switch to a good template: the mock now resolves successfully.
-    vi.mocked(previewOutputName).mockResolvedValue("photo_001.zip");
+    // The store recovers: a good template resolves to a preview, error cleared.
     act(() => {
       useJobStore.setState((s) => ({
         draft: { ...s.draft, namingTemplate: "photo_{n:03}" },
+        firstPreview: "photo_001.zip",
+        previewError: null,
       }));
     });
 
-    // The alert must disappear and the resolved full path must appear.
-    await waitFor(() => {
-      expect(screen.queryByRole("alert")).toBeNull();
-    });
-    await screen.findByText("~/Archives/photo_001.zip");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("~/Archives/photo_001.zip")).toBeDefined();
   });
 
-  it("computes the preview from the current template via previewOutputName(seq=1)", async () => {
+  // Pinning regression (issue #78 step 1): OutputSettings shows the store's
+  // first preview joined with the directory, and re-renders when it changes.
+  it("renders the store firstPreview joined with the directory and tracks changes", () => {
     useJobStore.setState({
       draft: {
-        items: [],
-        namingTemplate: "img_{n:02}",
+        items: [{ path: "/a.rar", kind: "rar" }],
+        namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
       },
+      firstPreview: "photo_001.zip",
     });
     render(<OutputSettings />);
 
-    await waitFor(() => {
-      expect(vi.mocked(previewOutputName)).toHaveBeenCalledWith(
-        "img_{n:02}",
-        1,
-      );
+    expect(screen.getByText("~/Archives/photo_001.zip")).toBeDefined();
+
+    // When the store's firstPreview changes, the rendered hero follows.
+    act(() => {
+      useJobStore.setState({ firstPreview: "photo_999.zip" });
     });
+    expect(screen.getByText("~/Archives/photo_999.zip")).toBeDefined();
+    expect(screen.queryByText("~/Archives/photo_001.zip")).toBeNull();
   });
 
-  // Regression: when the template preview rejects and outputDir is set, the
+  // Regression: when the store preview errors and outputDir is set, the
   // component must not render the directory path alone (e.g. "~/Archives/")
   // in the full-path preview area. The alert itself is still shown; only
   // the isolated directory must be absent from the monospace preview span.
-  it("does not render directory-only path after a preview error with outputDir set", async () => {
-    vi.mocked(previewOutputName).mockRejectedValue(
-      "invalid naming template: stray or malformed brace",
-    );
+  it("does not render directory-only path after a preview error with outputDir set", () => {
     useJobStore.setState({
       draft: {
         items: [],
         namingTemplate: "photo_{n",
         outputDir: "~/Archives",
       },
+      firstPreview: "",
+      previewError: "invalid naming template: stray or malformed brace",
     });
     render(<OutputSettings />);
 
-    // Wait for the alert to appear to confirm the error path was reached.
-    const alert = await screen.findByRole("alert");
+    const alert = screen.getByRole("alert");
     expect(alert.textContent ?? "").toMatch(/invalid naming template/i);
 
     // The full-path preview span (font-mono) must not exist in the DOM.
-    // queryAllByText with the exact trailing-slash string checks the specific
-    // rendered output; the destination picker shows "~/Archives" without the
-    // slash so a queryByText for the slash-terminated form is unambiguous.
     expect(screen.queryByText("~/Archives/")).toBeNull();
   });
 
-  // Regression: while the preview is still loading (previewName === null), the
+  // Regression: while the preview is still loading (firstPreview === null), the
   // hero must render neither a full path nor a bare filename, so the directory
-  // is never shown in isolation during the debounce window.
+  // is never shown in isolation during the recompute window.
   it("does not render the hero path while the preview is still loading", () => {
-    // A pending promise keeps previewName null for the duration of the test.
-    vi.mocked(previewOutputName).mockReturnValue(new Promise<string>(() => {}));
     useJobStore.setState({
       draft: {
         items: [],
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
       },
+      firstPreview: null,
     });
     render(<OutputSettings />);
 
@@ -182,20 +178,18 @@ describe("OutputSettings", () => {
     expect(screen.queryByText("photo_001.zip")).toBeNull();
   });
 
-  // Regression: when the preview rejects and no destination is set, the hero
+  // Regression: when the preview errors and no destination is set, the hero
   // must not render the filename-only line; only the alert and the
   // destination-required hint remain.
-  it("does not render the filename-only hero after a preview error with no destination", async () => {
-    vi.mocked(previewOutputName).mockRejectedValue(
-      "invalid naming template: stray or malformed brace",
-    );
+  it("does not render the filename-only hero after a preview error with no destination", () => {
     useJobStore.setState({
       draft: { items: [], namingTemplate: "photo_{n", outputDir: null },
+      firstPreview: "",
+      previewError: "invalid naming template: stray or malformed brace",
     });
     render(<OutputSettings />);
 
-    // Wait for the alert to confirm the error path was reached.
-    const alert = await screen.findByRole("alert");
+    const alert = screen.getByRole("alert");
     expect(alert.textContent ?? "").toMatch(/invalid naming template/i);
 
     // The hint renders independently of the alert: both must appear together
@@ -209,17 +203,18 @@ describe("OutputSettings", () => {
 
   // The hero must show the full path with a leading arrow once a destination is
   // set; the arrow is absent in the filename-only (no-destination) state.
-  it("renders the hero arrow only when a destination joins the filename", async () => {
+  it("renders the hero arrow only when a destination joins the filename", () => {
     useJobStore.setState({
       draft: {
         items: [],
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
       },
+      firstPreview: "photo_001.zip",
     });
     render(<OutputSettings />);
 
-    await screen.findByText("~/Archives/photo_001.zip");
+    expect(screen.getByText("~/Archives/photo_001.zip")).toBeDefined();
     // The ArrowRight icon carries data-testid="hero-path-arrow"; this assertion
     // is specific to the arrow icon (not any arbitrary SVG in the tree).
     expect(screen.getByTestId("hero-path-arrow")).toBeDefined();
@@ -230,35 +225,19 @@ describe("OutputSettings", () => {
   // test would still pass, but if the condition were inverted (always rendered)
   // this test would fail. It pairs with the positive test above to guard both
   // directions of the conditional.
-  it("does not render the hero arrow when no destination is selected", async () => {
+  it("does not render the hero arrow when no destination is selected", () => {
     useJobStore.setState({
       draft: {
         items: [],
         namingTemplate: "photo_{n:03}",
         outputDir: null,
       },
+      firstPreview: "photo_001.zip",
     });
     render(<OutputSettings />);
 
-    // Wait for the preview to resolve so we know the hero has rendered.
-    await screen.findByText("photo_001.zip");
+    expect(screen.getByText("photo_001.zip")).toBeDefined();
     // The arrow must be absent in the filename-only state.
     expect(screen.queryByTestId("hero-path-arrow")).toBeNull();
-  });
-
-  // When the store has not pushed a namingTemplate yet (null), OutputSettings
-  // must fall back to DEFAULT_TEMPLATE when calling previewOutputName.
-  it("falls back to DEFAULT_TEMPLATE when store namingTemplate is null", async () => {
-    useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: "~/Archives" },
-    });
-    render(<OutputSettings />);
-
-    await waitFor(() => {
-      expect(vi.mocked(previewOutputName)).toHaveBeenCalledWith(
-        DEFAULT_TEMPLATE,
-        1,
-      );
-    });
   });
 });
