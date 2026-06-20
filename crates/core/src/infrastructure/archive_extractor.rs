@@ -4,6 +4,7 @@
 //! ASCII-case-insensitive so `.ZIP`/`.Rar` are accepted.
 
 use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
+use crate::domain::archive_format::ArchiveFormat;
 use crate::infrastructure::unrar_extractor::UnrarExtractor;
 use crate::infrastructure::zip_extractor::ZipExtractor;
 use std::path::Path;
@@ -24,14 +25,14 @@ impl ArchiveExtractor {
 
 impl Extractor for ArchiveExtractor {
     async fn extract(&self, src_archive: &Path) -> Result<Box<dyn ExtractedTree>, ExtractError> {
-        // TODO: keep this `"rar"`/`"zip"` extension list in sync with
-        // `SourceItem::classify` when a new format is added. The compiler enforces
-        // the domain side (an exhaustive `SourceItem` match) but NOT this router,
-        // so adding a format requires updating both places by hand.
-        match src_archive.extension().and_then(|e| e.to_str()) {
-            Some(e) if e.eq_ignore_ascii_case("rar") => self.rar.extract(src_archive).await,
-            Some(e) if e.eq_ignore_ascii_case("zip") => self.zip.extract(src_archive).await,
-            _ => Err(ExtractError::Backend(format!(
+        match src_archive
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(ArchiveFormat::from_extension)
+        {
+            Some(ArchiveFormat::Rar) => self.rar.extract(src_archive).await,
+            Some(ArchiveFormat::Zip) => self.zip.extract(src_archive).await,
+            None => Err(ExtractError::Backend(format!(
                 "unsupported archive: {}",
                 src_archive.display()
             ))),
