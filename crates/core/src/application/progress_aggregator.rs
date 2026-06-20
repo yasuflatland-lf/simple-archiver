@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::application::progress::{JobProgress, TaskProgressEntry};
-use crate::domain::archive_job::{ArchiveJob, JobError};
+use crate::domain::archive_job::{ArchiveJob, JobError, TaskOutcome};
 use crate::domain::archive_task::TaskId;
 use crate::domain::task_progress::TaskProgress;
-use crate::domain::task_status::{TaskEvent, TaskStatus};
+use crate::domain::task_status::TaskEvent;
 
 /// A message sent by a worker to the aggregator over the internal channel.
 pub(crate) enum WorkerMsg {
@@ -84,22 +84,21 @@ impl Aggregator {
         }
     }
 
-    /// Consume the aggregator and derive the summary from final task statuses.
+    /// Consume the aggregator and assemble the summary DTO from the domain's
+    /// per-task classification.
+    ///
+    /// The classification policy (which terminal status maps to which bucket, and
+    /// the non-terminal→failed reconciliation) lives in [`ArchiveJob::outcomes`];
+    /// this method is a thin map that fills the `JobSummary` buckets in job order.
     pub fn into_summary(self) -> JobSummary {
         let mut succeeded = Vec::new();
         let mut cancelled = Vec::new();
         let mut failed = Vec::new();
-        for t in self.job.tasks() {
-            match t.status() {
-                TaskStatus::Completed => succeeded.push(t.id()),
-                TaskStatus::Cancelled => cancelled.push(t.id()),
-                TaskStatus::Failed { reason } => failed.push((t.id(), reason.clone())),
-                other => failed.push((
-                    t.id(),
-                    // A task that never reached a terminal state (e.g. its worker panicked)
-                    // must still be accounted for, so the summary is always complete.
-                    format!("task did not reach a terminal state (status: {other:?})"),
-                )),
+        for outcome in self.job.outcomes() {
+            match outcome {
+                TaskOutcome::Succeeded(id) => succeeded.push(id),
+                TaskOutcome::Cancelled(id) => cancelled.push(id),
+                TaskOutcome::Failed { id, reason } => failed.push((id, reason)),
             }
         }
         JobSummary {

@@ -8,7 +8,7 @@ use crate::domain::naming_rule::NamingRule;
 use crate::domain::output_directory::OutputDirectory;
 use crate::domain::sequence_number::SequenceNumber;
 use crate::domain::source_item::SourceItem;
-use crate::domain::task_status::{IllegalTransition, TaskEvent};
+use crate::domain::task_status::{IllegalTransition, TaskEvent, TaskStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Errors
@@ -57,6 +57,30 @@ pub enum JobError {
     /// The event was rejected by the targeted task's state machine.
     #[error(transparent)]
     Illegal(#[from] IllegalTransition),
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TaskOutcome
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The terminal classification of a single task within a finished job.
+///
+/// This is the domain projection of a task's final [`TaskStatus`] onto the three
+/// buckets a run summary cares about: success, cancellation, and failure. It is a
+/// pure value type with full structural equality.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TaskOutcome {
+    /// The task completed successfully.
+    Succeeded(TaskId),
+    /// The task was cancelled before completion (not a failure).
+    Cancelled(TaskId),
+    /// The task failed, carrying its reason.
+    Failed {
+        /// The identity of the failed task.
+        id: TaskId,
+        /// The human-readable failure reason.
+        reason: String,
+    },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,6 +222,33 @@ impl ArchiveJob {
     /// reordering; a task's position does.
     pub fn tasks(&self) -> &[ArchiveTask] {
         &self.tasks
+    }
+
+    /// Classify every task into a terminal [`TaskOutcome`], in job order.
+    ///
+    /// This is the domain's run-summary policy: `Completed` is a success,
+    /// `Cancelled` is its own bucket (NOT a failure), and `Failed { reason }`
+    /// carries its reason. Non-terminal tasks (e.g. a worker that panicked before
+    /// emitting `Complete`/`Fail`) are reconciled as `Failed` with a synthesized
+    /// reason so the result is total — every task is always accounted for.
+    ///
+    /// Outcomes are returned in job/task order, matching [`ArchiveJob::tasks`].
+    pub fn outcomes(&self) -> Vec<TaskOutcome> {
+        self.tasks
+            .iter()
+            .map(|t| match t.status() {
+                TaskStatus::Completed => TaskOutcome::Succeeded(t.id()),
+                TaskStatus::Cancelled => TaskOutcome::Cancelled(t.id()),
+                TaskStatus::Failed { reason } => TaskOutcome::Failed {
+                    id: t.id(),
+                    reason: reason.clone(),
+                },
+                other => TaskOutcome::Failed {
+                    id: t.id(),
+                    reason: format!("task did not reach a terminal state (status: {other:?})"),
+                },
+            })
+            .collect()
     }
 
     /// Return the directory archives will be written to.
@@ -681,5 +732,67 @@ mod tests {
         let r = rule("file{n}");
         let job = ArchiveJob::plan(sources(1), r.clone(), out_dir()).unwrap();
         assert_eq!(job.naming_rule(), &r);
+    }
+
+    // ── outcomes: terminal classification ─────────────────────────────────────
+
+    #[test]
+    fn outcomes_classify_mixed_terminal_statuses_in_job_order() {
+        let mut job = ArchiveJob::plan(sources(3), rule("file{n}"), out_dir()).unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        // Drive task 0 -> Completed.
+        job.apply_event(ids[0], TaskEvent::StartCompressing)
+            .unwrap();
+        job.apply_event(ids[0], TaskEvent::Complete).unwrap();
+        // Drive task 1 -> Failed { reason: "boom" }.
+        job.apply_event(
+            ids[1],
+            TaskEvent::Fail {
+                reason: "boom".to_string(),
+            },
+        )
+        .unwrap();
+        // Drive task 2 -> Cancelled.
+        job.apply_event(ids[2], TaskEvent::Cancel).unwrap();
+
+        assert_eq!(
+            job.outcomes(),
+            vec![
+                TaskOutcome::Succeeded(ids[0]),
+                TaskOutcome::Failed {
+                    id: ids[1],
+                    reason: "boom".to_string(),
+                },
+                TaskOutcome::Cancelled(ids[2]),
+            ]
+        );
+    }
+
+    #[test]
+    fn outcomes_reconcile_non_terminal_task_as_failed_with_synthesized_reason() {
+        let mut job = ArchiveJob::plan(sources(2), rule("file{n}"), out_dir()).unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        // Task 0 reaches a terminal state; task 1 is left in Compressing
+        // (mirrors a worker that panicked before emitting Complete/Fail).
+        job.apply_event(ids[0], TaskEvent::StartCompressing)
+            .unwrap();
+        job.apply_event(ids[0], TaskEvent::Complete).unwrap();
+        job.apply_event(ids[1], TaskEvent::StartCompressing)
+            .unwrap();
+
+        let outcomes = job.outcomes();
+        assert_eq!(outcomes[0], TaskOutcome::Succeeded(ids[0]));
+        assert_eq!(
+            outcomes[1],
+            TaskOutcome::Failed {
+                id: ids[1],
+                reason: format!(
+                    "task did not reach a terminal state (status: {:?})",
+                    TaskStatus::Compressing
+                ),
+            }
+        );
     }
 }
