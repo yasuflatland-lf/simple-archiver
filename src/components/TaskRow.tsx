@@ -11,7 +11,7 @@ import {
   progressPercent,
 } from "@/lib/format";
 import { basename } from "@/lib/path";
-import { statusVisual } from "@/lib/status";
+import { statusVisual, taskOutcomeFor } from "@/lib/status";
 import { useJobStore } from "@/store/jobStore";
 
 // ---------------------------------------------------------------------------
@@ -72,17 +72,23 @@ function computeStatus(
     if (taskId === undefined) {
       return "Done";
     }
-    if (summary.succeeded.includes(taskId)) {
-      return statusVisual("succeeded").label;
+    // Delegate the summary → outcome rule to the shared lib/status helper so
+    // the membership-testing lives in exactly one place; this branch only maps
+    // the resolved outcome back to its rendered string.
+    const outcome = taskOutcomeFor(taskId, summary);
+    switch (outcome.kind) {
+      case "succeeded":
+        return statusVisual("succeeded").label;
+      case "cancelled":
+        return statusVisual("cancelled").label;
+      case "failed":
+        return `${statusVisual("failed").label}: ${outcome.reason}`;
+      default:
+        // `done` (id in no bucket) and `pending` (no summary) — neither is
+        // reachable here (summary is non-null and taskId is defined), but both
+        // map to the same "Done" string the original linear scan produced.
+        return "Done";
     }
-    if (summary.cancelled.includes(taskId)) {
-      return statusVisual("cancelled").label;
-    }
-    const failedEntry = summary.failed.find((f) => f.taskId === taskId);
-    if (failedEntry !== undefined) {
-      return `${statusVisual("failed").label}: ${failedEntry.reason}`;
-    }
-    return "Done";
   }
 
   return "Waiting";

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { statusVisual } from "./status";
+import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
+
+import { statusVisual, taskOutcomeFor } from "./status";
 
 describe("statusVisual", () => {
   it("maps succeeded to the unified 'Succeeded' label and the success tokens", () => {
@@ -25,5 +27,36 @@ describe("statusVisual", () => {
     expect(v.icon).toBe("✗");
     expect(v.className).toContain("bg-status-danger-subtle");
     expect(v.className).toContain("text-status-danger-foreground");
+  });
+});
+
+describe("taskOutcomeFor", () => {
+  const summary: JobSummaryDto = {
+    succeeded: [1, 2],
+    cancelled: [3],
+    failed: [{ taskId: 4, reason: "boom" }],
+  };
+
+  it("resolves a succeeded id to a succeeded outcome", () => {
+    expect(taskOutcomeFor(1, summary)).toEqual({ kind: "succeeded" });
+  });
+
+  it("resolves a cancelled id to a cancelled outcome", () => {
+    expect(taskOutcomeFor(3, summary)).toEqual({ kind: "cancelled" });
+  });
+
+  it("resolves a failed id to a failed outcome carrying its reason", () => {
+    expect(taskOutcomeFor(4, summary)).toEqual({
+      kind: "failed",
+      reason: "boom",
+    });
+  });
+
+  it("resolves an id in no bucket to a done outcome", () => {
+    expect(taskOutcomeFor(99, summary)).toEqual({ kind: "done" });
+  });
+
+  it("resolves to pending when there is no summary yet", () => {
+    expect(taskOutcomeFor(1, null)).toEqual({ kind: "pending" });
   });
 });
