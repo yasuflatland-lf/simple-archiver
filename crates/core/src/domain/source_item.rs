@@ -41,6 +41,19 @@ impl SourceItem {
             _ => Err(UnsupportedSourceItem(path)),
         }
     }
+
+    /// Returns `true` if this source item requires an extraction step before
+    /// compression. Archives (`RarFile`, `ZipFile`) extract first; a `Folder`
+    /// compresses directly.
+    ///
+    /// The exhaustive match ensures that adding a new variant is a compile error
+    /// until this method is updated.
+    pub fn requires_extraction(&self) -> bool {
+        match self {
+            SourceItem::RarFile(_) | SourceItem::ZipFile(_) => true,
+            SourceItem::Folder(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -229,5 +242,23 @@ mod tests {
             SourceItem::classify(p.clone(), true),
             Ok(SourceItem::Folder(p))
         );
+    }
+
+    #[test]
+    fn requires_extraction_is_true_for_rar() {
+        let item = SourceItem::RarFile(PathBuf::from("/a/b.rar"));
+        assert!(item.requires_extraction());
+    }
+
+    #[test]
+    fn requires_extraction_is_true_for_zip() {
+        let item = SourceItem::ZipFile(PathBuf::from("/a/b.zip"));
+        assert!(item.requires_extraction());
+    }
+
+    #[test]
+    fn requires_extraction_is_false_for_folder() {
+        let item = SourceItem::Folder(PathBuf::from("/a/b"));
+        assert!(!item.requires_extraction());
     }
 }
