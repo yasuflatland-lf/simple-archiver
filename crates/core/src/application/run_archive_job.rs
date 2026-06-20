@@ -79,6 +79,10 @@ impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
     }
 
     /// Execute `job` with a caller-owned cancellation token.
+    ///
+    /// Thin composition of three cohesive phases: spawn the bounded-parallel
+    /// workers, drive the single-writer aggregation loop, then join the workers
+    /// and produce the summary.
     pub async fn execute_with_cancellation<C: Clock, S: ProgressSink>(
         &self,
         job: ArchiveJob,
@@ -98,7 +102,30 @@ impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
             })
             .collect();
 
-        let (tx, mut rx) = mpsc::unbounded_channel::<WorkerMsg>();
+        let (tx, rx) = mpsc::unbounded_channel::<WorkerMsg>();
+        let handles = self.spawn_workers(work, tx, cancellation_token);
+
+        // Drive the aggregation loop, then join workers (compress outcomes are
+        // already captured as terminal events). A panicked worker yields a join
+        // error here; we ignore it because the task is still tallied as `failed`
+        // via `into_summary`'s state reconciliation (it never reached a terminal
+        // status), so no behavior change is needed.
+        let summary = drive_aggregation(job, clock, sink, rx).await;
+        for handle in handles {
+            let _ = handle.await;
+        }
+        summary
+    }
+
+    /// Spawn one bounded-parallel worker per work item, each holding a semaphore
+    /// permit for the whole task and reporting over `tx`. Drops the engine's own
+    /// sender so the channel closes once every worker finishes.
+    fn spawn_workers(
+        &self,
+        work: Vec<WorkItem>,
+        tx: mpsc::UnboundedSender<WorkerMsg>,
+        cancellation_token: CancellationToken,
+    ) -> Vec<tokio::task::JoinHandle<()>> {
         let semaphore = Arc::new(Semaphore::new(self.parallelism.get()));
 
         let mut handles = Vec::with_capacity(work.len());
@@ -116,37 +143,40 @@ impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
         }
         // Drop the engine's own sender so the channel closes once workers finish.
         drop(tx);
-
-        // Single-writer aggregation loop: runs on the caller's async task, never shared.
-        let mut aggregator = Aggregator::new(job, clock.now());
-        let mut eta = EtaTracker::new(ETA_WINDOW);
-        while let Some(msg) = rx.recv().await {
-            // `apply` runs unconditionally (it MUST still run in release). An `Err`
-            // means a worker emitted out-of-order events — an engine-ordering bug.
-            // In debug/test builds we fail loudly to catch it; in release we leave
-            // the task state unchanged (a no-op continue) and `into_summary`
-            // reconciles any non-terminal task to `failed`. Surfacing this via
-            // logging is deferred to a future logging-infrastructure PR.
-            let _outcome = aggregator.apply(msg);
-            debug_assert!(
-                _outcome.is_ok(),
-                "out-of-order worker event (engine-ordering bug): {_outcome:?}"
-            );
-            let now = clock.now();
-            let mut snapshot = aggregator.snapshot(now);
-            eta.enrich(&mut snapshot, now);
-            sink.report(snapshot);
-        }
-
-        // Join workers (compress outcomes are already captured as terminal events).
-        // A panicked worker yields a join error here; we ignore it because the
-        // task is still tallied as `failed` via `into_summary`'s state reconciliation
-        // (it never reached a terminal status), so no behavior change is needed.
-        for handle in handles {
-            let _ = handle.await;
-        }
-        aggregator.into_summary()
+        handles
     }
+}
+
+/// Single-writer aggregation loop: runs on the caller's async task, never shared.
+/// Receives worker messages, applies them to the `Aggregator`, then snapshots,
+/// enriches with ETA, and reports each step to the sink. Returns the final
+/// `JobSummary` once the channel closes (all senders dropped).
+async fn drive_aggregation<C: Clock, S: ProgressSink>(
+    job: ArchiveJob,
+    clock: &C,
+    sink: &S,
+    mut rx: mpsc::UnboundedReceiver<WorkerMsg>,
+) -> JobSummary {
+    let mut aggregator = Aggregator::new(job, clock.now());
+    let mut eta = EtaTracker::new(ETA_WINDOW);
+    while let Some(msg) = rx.recv().await {
+        // `apply` runs unconditionally (it MUST still run in release). An `Err`
+        // means a worker emitted out-of-order events — an engine-ordering bug.
+        // In debug/test builds we fail loudly to catch it; in release we leave
+        // the task state unchanged (a no-op continue) and `into_summary`
+        // reconciles any non-terminal task to `failed`. Surfacing this via
+        // logging is deferred to a future logging-infrastructure PR.
+        let _outcome = aggregator.apply(msg);
+        debug_assert!(
+            _outcome.is_ok(),
+            "out-of-order worker event (engine-ordering bug): {_outcome:?}"
+        );
+        let now = clock.now();
+        let mut snapshot = aggregator.snapshot(now);
+        eta.enrich(&mut snapshot, now);
+        sink.report(snapshot);
+    }
+    aggregator.into_summary()
 }
 
 /// Execute a single work item: resolve its source to a directory (extracting a
