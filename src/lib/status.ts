@@ -10,6 +10,8 @@
  * mapping in exactly one location.
  */
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
+import type { ProgressEvent } from "@/bindings/ProgressEvent";
+import { formatBytes } from "@/lib/format";
 
 // The three members MUST stay in sync with the keys of the backend `JobSummaryDto`
 // (`succeeded` | `cancelled` | `failed`). RunSummary/TaskList pass these as string
@@ -87,4 +89,81 @@ export function taskOutcomeFor(
     return { kind: "failed", reason: failedEntry.reason };
   }
   return { kind: "done" };
+}
+
+/**
+ * Compute the text display status for a single task at position `index`.
+ *
+ * Priority:
+ * 1. running=true  → bytes from perTask[index], else "Processing". NOTE: when a
+ *    per-task entry exists this returns a "<done> / <total> <unit>" string, but
+ *    the row renders the live progress bar (not text) whenever an entry exists,
+ *    so that bytes string is only displayed in the transient window where
+ *    `running` is true yet this row's per-task entry has not arrived — i.e. in
+ *    practice only the "Processing" fallback of this branch is ever shown.
+ * 2. summary≠null  → maps row `index` → taskId via taskIdByIndex[index], then
+ *    membership-tests that id against summary.succeeded / summary.cancelled /
+ *    summary.failed. This relies on the positional-alignment invariant:
+ *    taskIdByIndex is index-aligned with draft.items (position 0 in
+ *    taskIdByIndex corresponds to position 0 in draft.items, etc.).
+ * 3. default        → "Waiting"
+ *
+ * Pure: no React/Tauri. Lives here so the per-row task list selects a flat
+ * status string rather than the progress/summary/taskIdByIndex collections.
+ */
+export function computeStatus(
+  index: number,
+  running: boolean,
+  progress: ProgressEvent | null,
+  summary: JobSummaryDto | null,
+  taskIdByIndex: number[],
+): string {
+  if (running) {
+    const entry = progress?.perTask[index];
+    if (entry !== undefined) {
+      return formatBytes(entry.bytesDone, entry.bytesTotal);
+    }
+    return "Processing";
+  }
+
+  if (summary !== null) {
+    const taskId = taskIdByIndex[index];
+    if (taskId === undefined) {
+      return "Done";
+    }
+    // Delegate the summary → outcome rule to the shared taskOutcomeFor helper so
+    // the membership-testing lives in exactly one place; this branch only maps
+    // the resolved outcome back to its rendered string.
+    const outcome = taskOutcomeFor(taskId, summary);
+    switch (outcome.kind) {
+      case "succeeded":
+        return statusVisual("succeeded").label;
+      case "cancelled":
+        return statusVisual("cancelled").label;
+      case "failed":
+        return `${statusVisual("failed").label}: ${outcome.reason}`;
+      default:
+        // `done` (id in no bucket) and `pending` (no summary) — neither is
+        // reachable here (summary is non-null and taskId is defined), but both
+        // map to the same "Done" string the original linear scan produced.
+        return "Done";
+    }
+  }
+
+  return "Waiting";
+}
+
+/**
+ * Map a failed task id back to its output preview name via the positional
+ * alignment invariant (taskIdByIndex[i] <-> previewNames[i]); fall back to the
+ * raw id when alignment is unavailable. Pure: no React/Tauri.
+ */
+export function outputNameForTask(
+  taskId: number,
+  previewNames: string[],
+  taskIdByIndex: number[],
+): string {
+  const index = taskIdByIndex.indexOf(taskId);
+  const name = index >= 0 ? previewNames[index] : undefined;
+  return name ?? `task ${taskId}`;
 }

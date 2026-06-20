@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
+import type { ProgressEvent } from "@/bindings/ProgressEvent";
 
-import { statusVisual, taskOutcomeFor } from "./status";
+import {
+  computeStatus,
+  outputNameForTask,
+  statusVisual,
+  taskOutcomeFor,
+} from "./status";
 
 describe("statusVisual", () => {
   it("maps succeeded to the unified 'Succeeded' label and the success tokens", () => {
@@ -58,5 +64,91 @@ describe("taskOutcomeFor", () => {
 
   it("resolves to pending when there is no summary yet", () => {
     expect(taskOutcomeFor(1, null)).toEqual({ kind: "pending" });
+  });
+});
+
+describe("computeStatus", () => {
+  const progressWith = (perTask: ProgressEvent["perTask"]): ProgressEvent => ({
+    overall: { bytesDone: 0, bytesTotal: 0 },
+    overallEtaMs: null,
+    perTask,
+    elapsedMs: 0,
+  });
+
+  it("returns the human-scaled byte string while running with a per-task entry", () => {
+    const progress = progressWith([
+      { taskId: 10, bytesDone: 512, bytesTotal: 2048, etaMs: null },
+    ]);
+    expect(computeStatus(0, true, progress, null, [10])).toBe("0.5 / 2 KB");
+  });
+
+  it("returns 'Processing' while running before this row's per-task entry arrives", () => {
+    expect(computeStatus(0, true, null, null, [10])).toBe("Processing");
+    expect(computeStatus(1, true, progressWith([]), null, [10])).toBe(
+      "Processing",
+    );
+  });
+
+  it("maps a succeeded id to its label once finished", () => {
+    const summary: JobSummaryDto = {
+      succeeded: [10],
+      cancelled: [],
+      failed: [],
+    };
+    expect(computeStatus(0, false, null, summary, [10])).toBe("Succeeded");
+  });
+
+  it("maps a cancelled id to its label once finished", () => {
+    const summary: JobSummaryDto = {
+      succeeded: [],
+      cancelled: [10],
+      failed: [],
+    };
+    expect(computeStatus(0, false, null, summary, [10])).toBe("Cancelled");
+  });
+
+  it("maps a failed id to its label plus the verbatim reason", () => {
+    const summary: JobSummaryDto = {
+      succeeded: [],
+      cancelled: [],
+      failed: [{ taskId: 10, reason: "boom" }],
+    };
+    expect(computeStatus(0, false, null, summary, [10])).toBe("Failed: boom");
+  });
+
+  it("returns 'Done' when a summary exists but the row has no mapped task id", () => {
+    const summary: JobSummaryDto = {
+      succeeded: [],
+      cancelled: [],
+      failed: [],
+    };
+    expect(computeStatus(5, false, null, summary, [10])).toBe("Done");
+  });
+
+  it("returns 'Done' when a summary exists but the id is in no bucket", () => {
+    const summary: JobSummaryDto = {
+      succeeded: [],
+      cancelled: [],
+      failed: [],
+    };
+    expect(computeStatus(0, false, null, summary, [10])).toBe("Done");
+  });
+
+  it("returns 'Waiting' when not running and no summary yet", () => {
+    expect(computeStatus(0, false, null, null, [10])).toBe("Waiting");
+  });
+});
+
+describe("outputNameForTask", () => {
+  it("maps a task id to its output preview name via the positional invariant", () => {
+    expect(outputNameForTask(4, ["a.zip", "b.zip"], [3, 4])).toBe("b.zip");
+  });
+
+  it("falls back to a 'task <id>' label when the id is not aligned", () => {
+    expect(outputNameForTask(99, ["a.zip", "b.zip"], [3, 4])).toBe("task 99");
+  });
+
+  it("falls back when the aligned preview name is missing", () => {
+    expect(outputNameForTask(4, ["a.zip"], [3, 4])).toBe("task 4");
   });
 });
