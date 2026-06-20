@@ -25,9 +25,15 @@ Download the installer for your OS from the **[latest release](https://github.co
    because Apple cannot check it for malicious software"*, click **Done**
    (do **not** click *Move to Trash*).
 2. Open the Apple menu → **System Settings…** → **Privacy & Security**.
-3. Scroll down to the **Security** area. You will see a line like
-   *"simple-archiver_…dmg was blocked to protect your Mac."* Click the
-   **Open Anyway** button next to it.
+3. Scroll down to the **Security** section. macOS shows the blocked item with an
+   **Open Anyway** button on the right, like this:
+
+   > **"simple-archiver_…_universal.dmg" was blocked to protect your Mac.**  `[ Open Anyway ]`
+   >
+   > Apple could not verify "simple-archiver_…_universal.dmg" is free of malware that
+   > may harm your Mac or compromise your privacy.
+
+   Click the **Open Anyway** button on the right of that message.
 4. Click **Open Anyway** once more to confirm, then unlock with Touch ID or your
    Mac password.
 5. The `.dmg` opens. Drag the **simple-archiver** icon onto the **Applications**
