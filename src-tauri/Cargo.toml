@@ -39,7 +39,7 @@ tokio-util = "0.7"
 # Upstream dispatch2 does not set `#![recursion_limit]`, so we constrain the
 # transitive bitflags version here. Revisit when dispatch2 sets the limit or
 # bitflags fixes the recursive expansion.
-bitflags = "=2.8.0"
+bitflags = "=2.13.0"
 
 [package.metadata.cargo-machete]
 # These are reported as unused because they are never referenced directly in source:
