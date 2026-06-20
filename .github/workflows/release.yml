@@ -44,12 +44,64 @@ jobs:
         with:
           key: release-${{ matrix.platform }}
       - run: pnpm install --frozen-lockfile
+      # macOS-only: fail fast if signing secrets are missing, so we never
+      # publish an unsigned macOS release by accident. Secret values are never
+      # printed — only the names of any that are empty.
+      - name: Preflight macOS signing secrets
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${APPLE_CERTIFICATE:-}" ] && missing+=(APPLE_CERTIFICATE)
+          [ -z "${APPLE_CERTIFICATE_PASSWORD:-}" ] && missing+=(APPLE_CERTIFICATE_PASSWORD)
+          [ -z "${KEYCHAIN_PASSWORD:-}" ] && missing+=(KEYCHAIN_PASSWORD)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required macOS signing secrets: ${missing[*]}"
+            exit 1
+          fi
+          echo "All macOS signing secrets are present."
       - name: Build bundles
         id: tauri
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         with:
           # No tagName/releaseId: build only and expose artifactPaths; do not create or edit a release.
           args: ${{ matrix.args }}
+        env:
+          # macOS-only signing (build-time). Tauri imports APPLE_CERTIFICATE into a
+          # temporary keychain and signs the .app (and .dmg) during the build.
+          # Windows receives empty strings, which tauri-action ignores.
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: "${{ runner.os == 'macOS' && 'Developer ID Application: Simple Archiver' || '' }}"
+          KEYCHAIN_PASSWORD: ${{ runner.os == 'macOS' && secrets.KEYCHAIN_PASSWORD || '' }}
+      # macOS-only: verify the signature of the shipped artifacts, INCLUDING the
+      # .app embedded in the .dmg (mounted by the script). NOT spctl.
+      - name: Verify macOS signatures
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: |
+          set -euo pipefail
+          bundle_dir="src-tauri/target/universal-apple-darwin/release/bundle"
+          app="$(find "$bundle_dir/macos" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n1 || true)"
+          if [ -z "$app" ]; then
+            app="$(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | sed 's/\r$//' | grep -E '\.app$' | head -n1 || true)"
+          fi
+          dmg="$(find "$bundle_dir/dmg" -maxdepth 1 -name '*.dmg' -type f 2>/dev/null | head -n1 || true)"
+          if [ -z "$dmg" ]; then
+            dmg="$(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | sed 's/\r$//' | grep -E '\.dmg$' | head -n1 || true)"
+          fi
+          if [ -z "$app" ]; then
+            echo "::error::Could not locate the .app under $bundle_dir/macos or in artifactPaths"
+            exit 1
+          fi
+          ./scripts/macos/verify-macos-bundles.sh "$app" "$dmg"
       - name: Upload bundles to the release
         shell: bash
         env:
@@ -58,19 +110,24 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
           ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
         run: |
-          printf '%s' "$ARTIFACT_PATHS" \
-            | jq -r '.[]' \
-            | while IFS= read -r path; do
-                # Windows jq.exe emits CRLF, so each path keeps a trailing CR that
-                # breaks the file test and gh upload; strip it before anything else.
-                path="${path%$'\r'}"
-                # Normalize Windows backslash paths so Git Bash and gh both resolve them.
-                path="${path//\\//}"
-                # tauri lists the macOS .app bundle (a directory) next to the .dmg; upload regular files only.
-                if [ ! -f "$path" ]; then
-                  echo "Skipping non-file artifact: $path"
-                  continue
-                fi
-                echo "Uploading: $path"
-                gh release upload "$TAG" "$path" --clobber
-              done
+          set -euo pipefail
+          uploaded=0
+          while IFS= read -r path; do
+            # Windows jq.exe emits CRLF; strip the trailing CR before the file test.
+            path="${path%$'\r'}"
+            # Normalize Windows backslash paths so Git Bash and gh both resolve them.
+            path="${path//\\//}"
+            # tauri lists the .app bundle (a directory) next to the .dmg; upload regular files only.
+            if [ ! -f "$path" ]; then
+              echo "Skipping non-file artifact: $path"
+              continue
+            fi
+            echo "Uploading: $path"
+            gh release upload "$TAG" "$path" --clobber
+            uploaded=$((uploaded + 1))
+          done < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]')
+          if [ "$uploaded" -eq 0 ]; then
+            echo "::error::No bundle files were uploaded for $TAG"
+            exit 1
+          fi
+          echo "Uploaded $uploaded file(s) for $TAG"
