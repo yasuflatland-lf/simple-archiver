@@ -2,9 +2,10 @@
 
 use crate::application::compress_context::CompressContext;
 use crate::application::ports::{ArchiveError, Archiver};
+use crate::infrastructure::path_utils::{classified_components, PathPart};
 use async_zip::base::write::ZipFileWriter;
 use async_zip::{Compression, ZipEntryBuilder};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 /// Compresses directory trees into zip archives using `async_zip` with Deflate.
@@ -59,16 +60,7 @@ impl Archiver for ZipArchiver {
         let mut bytes_done: u64 = 0;
         for path in &files {
             if ctx.is_cancelled() {
-                // Cancel cleanup: finalize and drain the writer via `drain_to_disk`
-                // (close -> recover the file -> shutdown + sync_all) BEFORE removing
-                // it, so the common cancel path does not leave a partial zip racing
-                // the delete. Best-effort: if `close()` errors the file is dropped
-                // without an explicit drain and we still fall through to the removal
-                // (a rare, platform-dependent window; see `drain_to_disk`).
-                if let Ok(mut file) = writer.close().await.map(|w| w.into_inner()) {
-                    let _ = drain_to_disk(&mut file).await;
-                }
-                remove_partial_output(dest_zip).await;
+                close_and_remove(writer, dest_zip).await;
                 return Err(ArchiveError::Cancelled);
             }
 
@@ -83,16 +75,7 @@ impl Archiver for ZipArchiver {
             ctx.report(bytes_done, bytes_total);
 
             if ctx.is_cancelled() {
-                // Cancel cleanup: finalize and drain the writer via `drain_to_disk`
-                // (close -> recover the file -> shutdown + sync_all) BEFORE removing
-                // it, so the common cancel path does not leave a partial zip racing
-                // the delete. Best-effort: if `close()` errors the file is dropped
-                // without an explicit drain and we still fall through to the removal
-                // (a rare, platform-dependent window; see `drain_to_disk`).
-                if let Ok(mut file) = writer.close().await.map(|w| w.into_inner()) {
-                    let _ = drain_to_disk(&mut file).await;
-                }
-                remove_partial_output(dest_zip).await;
+                close_and_remove(writer, dest_zip).await;
                 return Err(ArchiveError::Cancelled);
             }
         }
@@ -119,6 +102,22 @@ impl Archiver for ZipArchiver {
         drain_to_disk(&mut file).await?;
         Ok(())
     }
+}
+
+/// Cancel cleanup shared by both cancel checkpoints: finalize and drain the
+/// writer via `drain_to_disk` (close -> recover the file -> shutdown + sync_all)
+/// BEFORE removing it, so the common cancel path does not leave a partial zip
+/// racing the delete. Best-effort: if `close()` errors the file is dropped
+/// without an explicit drain and we still fall through to the removal (a rare,
+/// platform-dependent window; see `drain_to_disk`).
+async fn close_and_remove(
+    writer: async_zip::tokio::write::ZipFileWriter<tokio::fs::File>,
+    dest_zip: &Path,
+) {
+    if let Ok(mut file) = writer.close().await.map(|w| w.into_inner()) {
+        let _ = drain_to_disk(&mut file).await;
+    }
+    remove_partial_output(dest_zip).await;
 }
 
 /// Flush and fsync a recovered zip file so all queued blocking writes complete
@@ -181,10 +180,11 @@ pub(crate) fn zip_entry_name(root: &Path, path: &Path) -> Result<String, Archive
             root.display()
         ))
     })?;
-    let name = relative
-        .components()
-        .filter_map(|component| match component {
-            Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+    // Policy: silently FILTER every non-normal component, keeping only normal
+    // segments joined with `/`.
+    let name = classified_components(relative)
+        .filter_map(|part| match part {
+            PathPart::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
             _ => None,
         })
         .collect::<Vec<_>>()

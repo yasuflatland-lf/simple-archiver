@@ -8,9 +8,10 @@
 //! absolute root, or a Windows drive/UNC prefix) rejects the whole extraction.
 
 use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
+use crate::infrastructure::path_utils::{classified_components, PathPart};
 use crate::infrastructure::temp_workspace::TempWorkspace;
 use async_zip::tokio::read::seek::ZipFileReader;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 /// Extracts zip archives into a temporary directory via `async_zip`.
 #[derive(Debug, Default)]
@@ -100,12 +101,14 @@ impl Extractor for ZipExtractor {
 /// absolute root, or a Windows drive/UNC prefix). Rejecting an unsafe name
 /// aborts the whole extraction so nothing escapes the workspace.
 fn safe_relative_path(name: &str) -> Result<Option<PathBuf>, ExtractError> {
+    // Policy: REJECT any non-normal component. `.` is dropped; everything else
+    // that is not a normal segment aborts the extraction (zip-slip guard).
     let mut rel = PathBuf::new();
-    for component in Path::new(name).components() {
-        match component {
-            Component::Normal(part) => rel.push(part),
-            Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+    for part in classified_components(Path::new(name)) {
+        match part {
+            PathPart::Normal(segment) => rel.push(segment),
+            PathPart::Ignorable => {}
+            PathPart::Unsafe => {
                 return Err(ExtractError::Backend(format!("unsafe entry path: {name}")));
             }
         }
