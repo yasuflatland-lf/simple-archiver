@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { formatEta, progressPercent, formatBytes } from "./format";
+import {
+  formatByteProgress,
+  formatBytes,
+  formatEta,
+  progressPercent,
+} from "./format";
 
 describe("formatEta", () => {
   it("returns an em dash for unknown (null) ETA", () => {
@@ -52,5 +57,21 @@ describe("formatBytes", () => {
   });
   it("clamps negative inputs to zero", () => {
     expect(formatBytes(-5, -10)).toBe("0 / 0 B");
+  });
+});
+
+describe("formatByteProgress", () => {
+  it("formats done and total as raw integers with a 'bytes' suffix", () => {
+    expect(formatByteProgress(512, 1024)).toBe("512 / 1024 bytes");
+  });
+
+  it("formats zero values", () => {
+    expect(formatByteProgress(0, 0)).toBe("0 / 0 bytes");
+  });
+
+  it("passes through large numbers without scaling", () => {
+    expect(formatByteProgress(13_002_342, 19_922_944)).toBe(
+      "13002342 / 19922944 bytes",
+    );
   });
 });

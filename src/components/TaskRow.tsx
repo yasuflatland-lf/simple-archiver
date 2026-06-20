@@ -4,7 +4,13 @@ import { useShallow } from "zustand/react/shallow";
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import { Progress } from "@/components/ui/progress";
-import { formatBytes, formatEta, progressPercent } from "@/lib/format";
+import {
+  formatByteProgress,
+  formatBytes,
+  formatEta,
+  progressPercent,
+} from "@/lib/format";
+import { basename } from "@/lib/path";
 import { statusVisual } from "@/lib/status";
 import { useJobStore } from "@/store/jobStore";
 
@@ -28,17 +34,6 @@ const REORDER_BUTTON_CLASS =
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Return the last path segment of a filesystem path, handling both forward-
- * slash (POSIX) and backslash (Windows) separators.
- */
-function basename(path: string): string {
-  const segments = path.split(/[/\\]/);
-  // Filter empties in case of trailing slashes, then take the last segment.
-  const nonEmpty = segments.filter((s) => s.length > 0);
-  return nonEmpty[nonEmpty.length - 1] ?? path;
-}
 
 /**
  * Compute the text display status for a single task at position `index`.
@@ -67,7 +62,7 @@ function computeStatus(
   if (running) {
     const entry = progress?.perTask[index];
     if (entry !== undefined) {
-      return `${entry.bytesDone} / ${entry.bytesTotal} bytes`;
+      return formatByteProgress(entry.bytesDone, entry.bytesTotal);
     }
     return "Processing";
   }
