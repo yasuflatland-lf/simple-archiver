@@ -7,7 +7,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(presentation::state::AppState::default())
         .invoke_handler(tauri::generate_handler![
-            presentation::commands::compress_folder,
             presentation::commands::preview_output_name,
             presentation::commands::add_items,
             presentation::commands::reorder,

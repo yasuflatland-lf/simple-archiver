@@ -25,7 +25,7 @@ The Rust backend is split across a **Cargo workspace** with two crates: a pure `
 
 ```
 presentation   src-tauri/src/presentation/ — Tauri commands, session state, DTO/event wiring
-               commands.rs  — nine Tauri commands (compress_folder, preview_output_name, add_items, reorder, set_naming_rule, clear_items, set_output_dir, run_job, cancel_job) + run_job_inner testability seam
+               commands.rs  — eight Tauri commands (preview_output_name, add_items, reorder, set_naming_rule, clear_items, set_output_dir, run_job, cancel_job) + run_job_inner testability seam
                state.rs     — JobDraft (mutable session draft) + RunState (single-active-job guard) + AppState (Tauri managed state)
                dto.rs       — wire-contract DTOs with serde + ts-rs bindings (ProgressEvent, DraftSnapshot, JobSummaryDto, …)
                events.rs    — ProgressEmitter trait seam + TauriEmitter (production) + RecordingEmitter (test double)

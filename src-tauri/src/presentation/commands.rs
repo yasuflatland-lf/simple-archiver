@@ -6,8 +6,6 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tokio_util::sync::CancellationToken;
 
-use simple_archiver_core::application::compress_context::CompressContext;
-use simple_archiver_core::application::ports::Archiver;
 use simple_archiver_core::application::run_archive_job::RunArchiveJob;
 use simple_archiver_core::domain::archive_job::ArchiveJob;
 use simple_archiver_core::domain::naming_rule::NamingRule;
@@ -20,22 +18,6 @@ use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 use crate::presentation::dto::{DraftSnapshot, JobSummaryDto};
 use crate::presentation::events::{EventSink, ProgressEmitter, TauriEmitter};
 use crate::presentation::state::{AppState, RunState};
-
-/// Compress the folder at `src` into a zip file at `out`.
-///
-/// Errors are surfaced to the frontend as a string so they cross the IPC
-/// boundary (the promise rejects with this message).
-#[tauri::command]
-pub async fn compress_folder(src: String, out: String) -> Result<(), String> {
-    ZipArchiver::new()
-        .compress(
-            Path::new(&src),
-            Path::new(&out),
-            &CompressContext::detached(),
-        )
-        .await
-        .map_err(|e| e.to_string())
-}
 
 /// Resolve `template` against `seq` and return the output filename.
 ///
