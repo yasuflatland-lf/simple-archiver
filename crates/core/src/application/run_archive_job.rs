@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::application::compress_context::{CompressContext, TaskProgressReport};
 use crate::application::eta_estimator::{EtaTracker, ETA_WINDOW};
-use crate::application::format_registry::FormatRegistry;
+use crate::application::format_registry::{FormatRegistry, Prepared};
 use crate::application::ports::{ArchiveError, Archiver, Clock, Extractor};
 use crate::application::progress::ProgressSink;
 use crate::application::progress_aggregator::{Aggregator, JobSummary, WorkerMsg};
@@ -159,20 +159,59 @@ async fn run_one<A: Archiver, E: Extractor>(
     tx: mpsc::UnboundedSender<WorkerMsg>,
     cancellation_token: CancellationToken,
 ) {
-    // Best-effort `Status` sends (here and below): every one of these carries a
-    // terminal/load-bearing event. A failed send means the aggregator already tore
-    // down during teardown; the dropped terminal status is then reconstructed by
-    // `into_summary`'s state reconciliation (a non-terminal task is classified from
-    // its final `TaskStatus`), so `succeeded + cancelled + failed` stays whole.
+    // Top-down pipeline: checkpoint -> extract -> compress -> emit terminal.
+    if cancel_before_start(&item, &tx, &cancellation_token) {
+        return;
+    }
+    let Some(prepared) = extract_phase(&item, registry, &tx).await else {
+        return;
+    };
+    let _ = tx.send(WorkerMsg::Status {
+        task: item.task,
+        event: TaskEvent::StartCompressing,
+    });
+    let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
+    let ctx = CompressContext::new(item.task, reporter, cancellation_token);
+    let event = map_archive_result(archiver.compress(prepared.dir(), &item.dest, &ctx).await);
+    let _ = tx.send(WorkerMsg::Status {
+        task: item.task,
+        event,
+    });
+    // `prepared` drops here — an extracted rar/zip's temp directory is removed.
+}
+
+/// Returns `true` and emits `Cancel` if the token is already tripped, so the
+/// caller can early-return before any extraction/compression starts.
+fn cancel_before_start(
+    item: &WorkItem,
+    tx: &mpsc::UnboundedSender<WorkerMsg>,
+    token: &CancellationToken,
+) -> bool {
+    // Best-effort `Status` sends (here and in the rest of the pipeline): every one
+    // of these carries a terminal/load-bearing event. A failed send means the
+    // aggregator already tore down during teardown; the dropped terminal status is
+    // then reconstructed by `into_summary`'s state reconciliation (a non-terminal
+    // task is classified from its final `TaskStatus`), so `succeeded + cancelled +
+    // failed` stays whole.
     // Not-started cancellation checkpoint: cancel before any extraction/compression.
-    if cancellation_token.is_cancelled() {
+    if token.is_cancelled() {
         let _ = tx.send(WorkerMsg::Status {
             task: item.task,
             event: TaskEvent::Cancel,
         });
-        return;
+        return true;
     }
+    false
+}
 
+/// Emits `StartExtracting` for sources that require extraction (folders skip it),
+/// then resolves the source to a prepared directory. On extract failure, emits
+/// `Fail` and returns `None` so the caller early-returns.
+async fn extract_phase<E: Extractor>(
+    item: &WorkItem,
+    registry: &FormatRegistry<E>,
+    tx: &mpsc::UnboundedSender<WorkerMsg>,
+) -> Option<Prepared> {
     // rar/zip files extract first; folders compress directly. Emit the extraction
     // status only for sources that actually extract, so the task walks the legal
     // Pending -> Extracting -> Compressing path (folders take the fast-path).
@@ -183,8 +222,8 @@ async fn run_one<A: Archiver, E: Extractor>(
         });
     }
 
-    let prepared = match registry.prepare(&item.source).await {
-        Ok(prepared) => prepared,
+    match registry.prepare(&item.source).await {
+        Ok(prepared) => Some(prepared),
         Err(e) => {
             let _ = tx.send(WorkerMsg::Status {
                 task: item.task,
@@ -192,28 +231,21 @@ async fn run_one<A: Archiver, E: Extractor>(
                     reason: e.to_string(),
                 },
             });
-            return;
+            None
         }
-    };
+    }
+}
 
-    let _ = tx.send(WorkerMsg::Status {
-        task: item.task,
-        event: TaskEvent::StartCompressing,
-    });
-    let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
-    let ctx = CompressContext::new(item.task, reporter, cancellation_token);
-    let event = match archiver.compress(prepared.dir(), &item.dest, &ctx).await {
+/// Maps a compress result to the terminal `TaskEvent`: `Ok -> Complete`,
+/// `Cancelled -> Cancel`, any other error -> `Fail { reason }`.
+fn map_archive_result(result: Result<(), ArchiveError>) -> TaskEvent {
+    match result {
         Ok(()) => TaskEvent::Complete,
         Err(ArchiveError::Cancelled) => TaskEvent::Cancel,
         Err(e) => TaskEvent::Fail {
             reason: e.to_string(),
         },
-    };
-    let _ = tx.send(WorkerMsg::Status {
-        task: item.task,
-        event,
-    });
-    // `prepared` drops here — an extracted rar/zip's temp directory is removed.
+    }
 }
 
 #[cfg(test)]
