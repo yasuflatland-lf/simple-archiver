@@ -72,14 +72,6 @@ impl TaskStatus {
             (from, event) => Err(IllegalTransition { from, event }),
         }
     }
-
-    /// Returns `true` when no further transitions are possible.
-    pub fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled
-        )
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -299,41 +291,6 @@ mod tests {
         for event in all_events() {
             assert_illegal(TaskStatus::Cancelled, event);
         }
-    }
-
-    // ── is_terminal ───────────────────────────────────────────────────────────
-
-    #[test]
-    fn pending_is_not_terminal() {
-        assert!(!TaskStatus::Pending.is_terminal());
-    }
-
-    #[test]
-    fn extracting_is_not_terminal() {
-        assert!(!TaskStatus::Extracting.is_terminal());
-    }
-
-    #[test]
-    fn compressing_is_not_terminal() {
-        assert!(!TaskStatus::Compressing.is_terminal());
-    }
-
-    #[test]
-    fn completed_is_terminal() {
-        assert!(TaskStatus::Completed.is_terminal());
-    }
-
-    #[test]
-    fn failed_is_terminal() {
-        assert!(TaskStatus::Failed {
-            reason: "err".to_string()
-        }
-        .is_terminal());
-    }
-
-    #[test]
-    fn cancelled_is_terminal() {
-        assert!(TaskStatus::Cancelled.is_terminal());
     }
 
     // ── IllegalTransition error message ──────────────────────────────────────
