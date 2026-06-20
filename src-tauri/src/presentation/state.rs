@@ -21,6 +21,22 @@ use crate::presentation::dto::{draft_item_from_source, DraftSnapshot};
 // JobDraft
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// A naming template that has already been validated by [`NamingRule::parse`].
+///
+/// Holds both the parsed [`NamingRule`] and the original `raw` string so the
+/// template is parsed exactly once: [`build`] reuses `rule` directly while
+/// [`snapshot`] reuses `raw` for the wire shape. `NamingRule` exposes no
+/// accessor to recover its source string, so the raw string is kept alongside.
+///
+/// [`build`]: JobDraft::build
+/// [`snapshot`]: JobDraft::snapshot
+struct ParsedTemplate {
+    /// The original, validated template string (needed for the snapshot).
+    raw: String,
+    /// The rule parsed from `raw`, reused by `build` without re-parsing.
+    rule: NamingRule,
+}
+
 /// Mutable draft of the next archive job, accumulated from UI interactions.
 ///
 /// The draft is built up incrementally: items are added, optionally reordered,
@@ -31,7 +47,7 @@ use crate::presentation::dto::{draft_item_from_source, DraftSnapshot};
 /// [`build`]: JobDraft::build
 pub struct JobDraft {
     items: Vec<SourceItem>,
-    template: Option<String>,
+    template: Option<ParsedTemplate>,
     out_dir: Option<PathBuf>,
 }
 
@@ -72,12 +88,18 @@ impl JobDraft {
 
     /// Set the naming template, validating it with [`NamingRule::parse`].
     ///
-    /// On success the validated template string is stored. On failure the
-    /// existing template (if any) is left unchanged and an error message is
-    /// returned.
+    /// On success the validated template string and its parsed [`NamingRule`]
+    /// are stored together so the template is parsed exactly once (reused later
+    /// by [`build`]). On failure the existing template (if any) is left
+    /// unchanged and an error message is returned.
+    ///
+    /// [`build`]: JobDraft::build
     pub fn set_template(&mut self, template: String) -> Result<(), String> {
-        NamingRule::parse(&template).map_err(|e| e.to_string())?;
-        self.template = Some(template);
+        let rule = NamingRule::parse(&template).map_err(|e| e.to_string())?;
+        self.template = Some(ParsedTemplate {
+            raw: template,
+            rule,
+        });
         Ok(())
     }
 
@@ -98,7 +120,7 @@ impl JobDraft {
     pub fn snapshot(&self) -> DraftSnapshot {
         DraftSnapshot {
             items: self.items.iter().map(draft_item_from_source).collect(),
-            naming_template: self.template.clone(),
+            naming_template: self.template.as_ref().map(|t| t.raw.clone()),
             output_dir: self
                 .out_dir
                 .as_ref()
@@ -113,7 +135,7 @@ impl JobDraft {
     pub fn build(&self) -> Result<ArchiveJob, String> {
         let template = self
             .template
-            .as_deref()
+            .as_ref()
             .ok_or_else(|| "naming rule not set".to_string())?;
 
         let out_dir = self
@@ -121,11 +143,11 @@ impl JobDraft {
             .as_ref()
             .ok_or_else(|| "output directory not set".to_string())?;
 
-        let rule = NamingRule::parse(template).map_err(|e| e.to_string())?;
-
+        // Reuse the rule parsed in `set_template`; the template is never
+        // re-parsed here.
         ArchiveJob::plan(
             self.items.clone(),
-            rule,
+            template.rule.clone(),
             OutputDirectory::new(out_dir.clone()),
         )
         .map_err(|e| e.to_string())
@@ -337,6 +359,27 @@ mod tests {
             .expect("valid template should be accepted");
         let snap = draft.snapshot();
         assert_eq!(snap.naming_template, Some("photo_{n:03}".to_string()));
+    }
+
+    /// A valid template is accepted, surfaces verbatim in the snapshot, and lets
+    /// `build` succeed — exercising the stored parsed rule end to end so the
+    /// template is parsed exactly once.
+    #[test]
+    fn set_template_valid_appears_in_snapshot_and_build_succeeds() {
+        let mut draft = JobDraft::new();
+        draft.add_items(vec![SourceItem::RarFile(PathBuf::from("/a.rar"))]);
+        draft
+            .set_template("photo_{n:03}".to_string())
+            .expect("valid template should be accepted");
+        draft.set_out_dir(PathBuf::from("/out"));
+
+        let snap = draft.snapshot();
+        assert_eq!(snap.naming_template, Some("photo_{n:03}".to_string()));
+
+        let job = draft
+            .build()
+            .expect("draft with a valid template should plan OK");
+        assert_eq!(job.tasks().len(), 1, "job should have one task per item");
     }
 
     /// An empty-string template is rejected and `snapshot().naming_template` stays
