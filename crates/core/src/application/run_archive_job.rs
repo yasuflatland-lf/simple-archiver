@@ -176,8 +176,7 @@ async fn run_one<A: Archiver, E: Extractor>(
     // rar/zip files extract first; folders compress directly. Emit the extraction
     // status only for sources that actually extract, so the task walks the legal
     // Pending -> Extracting -> Compressing path (folders take the fast-path).
-    let needs_extract = matches!(item.source, SourceItem::RarFile(_) | SourceItem::ZipFile(_));
-    if needs_extract {
+    if item.source.requires_extraction() {
         let _ = tx.send(WorkerMsg::Status {
             task: item.task,
             event: TaskEvent::StartExtracting,
