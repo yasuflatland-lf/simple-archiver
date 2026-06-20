@@ -2,5 +2,6 @@
 
 pub mod commands;
 pub mod dto;
+pub(crate) mod dto_map;
 pub mod events;
 pub mod state;
