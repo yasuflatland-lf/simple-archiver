@@ -39,6 +39,17 @@ Download a prebuilt installer from the [latest release](https://github.com/yasuf
 
 Installers are currently **unsigned**, so macOS Gatekeeper / Windows SmartScreen will warn on first launch — open it from the right-click *Open* menu (macOS) or *More info → Run anyway* (Windows).
 
+### macOS: first launch (self-signed build)
+
+The macOS app is **self-signed**, not notarized by Apple, so Gatekeeper shows a
+warning on first launch. To open it:
+
+1. In Finder, **right-click** the app and choose **Open**, then confirm; or
+2. Remove the quarantine attribute:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/simple-archiver.app
+   ```
+
 ## Getting started (from source)
 
 Prerequisites: a Rust toolchain, Node.js, and pnpm. The toolchain versions are pinned via [`mise.toml`](mise.toml) (run `mise install` to get them), and the Tauri prerequisites for your OS are listed in the [Tauri docs](https://v2.tauri.app/start/prerequisites/).
