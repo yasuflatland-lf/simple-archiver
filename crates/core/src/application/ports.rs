@@ -147,10 +147,7 @@ mod tests {
         fn assert_placer<P: super::Placer>() {}
         // FsPlacer (infrastructure) will satisfy this; here we only prove the
         // trait + error type compile and that PlaceError Displays as expected.
-        let err = super::PlaceError::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "boom",
-        ));
+        let err = super::PlaceError::Io(std::io::Error::other("boom"));
         assert_eq!(err.to_string(), "I/O error: boom");
         let _ = assert_placer::<Noop>;
     }

@@ -7,6 +7,7 @@ use simple_archiver_core::application::run_archive_job::RunArchiveJob;
 use simple_archiver_core::domain::naming_rule::NamingRule;
 use simple_archiver_core::domain::output_directory::OutputDirectory;
 use simple_archiver_core::domain::source_item::SourceItem;
+use simple_archiver_core::infrastructure::fs_placer::FsPlacer;
 use simple_archiver_core::infrastructure::system_clock::SystemClock;
 use simple_archiver_core::infrastructure::unrar_extractor::UnrarExtractor;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
@@ -35,6 +36,7 @@ async fn rar_is_extracted_and_recompressed_to_zip() {
     let engine = RunArchiveJob::with_default_parallelism(
         Arc::new(ZipArchiver::new()),
         Arc::new(UnrarExtractor::new()),
+        Arc::new(FsPlacer::new()),
     );
     let summary = engine.execute(job, &SystemClock::new(), &NullSink).await;
 
@@ -80,6 +82,7 @@ async fn mixed_folder_and_rar_both_produce_zips() {
     let engine = RunArchiveJob::with_default_parallelism(
         Arc::new(ZipArchiver::new()),
         Arc::new(UnrarExtractor::new()),
+        Arc::new(FsPlacer::new()),
     );
     let summary = engine.execute(job, &SystemClock::new(), &NullSink).await;
 

@@ -24,7 +24,7 @@ impl Placer for FsPlacer {
         // Blocking std::fs work off the async runtime; flatten JoinError into Io.
         tokio::task::spawn_blocking(move || place_blocking(&src, &desired))
             .await
-            .map_err(|e| PlaceError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?
+            .map_err(|e| PlaceError::Io(std::io::Error::other(e)))?
     }
 }
 

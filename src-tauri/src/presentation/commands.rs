@@ -12,6 +12,7 @@ use simple_archiver_core::domain::naming_rule::NamingRule;
 use simple_archiver_core::domain::sequence_number::SequenceNumber;
 use simple_archiver_core::domain::source_item::SourceItem;
 use simple_archiver_core::infrastructure::archive_extractor::ArchiveExtractor;
+use simple_archiver_core::infrastructure::fs_placer::FsPlacer;
 use simple_archiver_core::infrastructure::system_clock::SystemClock;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 
@@ -125,6 +126,7 @@ pub async fn run_job_inner(
     let engine = RunArchiveJob::with_default_parallelism(
         Arc::new(ZipArchiver::new()),
         Arc::new(ArchiveExtractor::new()),
+        Arc::new(FsPlacer::new()),
     );
     let clock = SystemClock::new();
     let sink = EventSink::new(emitter);
