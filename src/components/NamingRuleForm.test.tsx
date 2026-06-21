@@ -26,6 +26,36 @@ describe("NamingRuleForm", () => {
     expect(input.value).toBe(DEFAULT_TEMPLATE);
   });
 
+  it("seeds the input from a non-default store template", () => {
+    // Seed the store as if a prior session / test restored a custom template.
+    act(() => {
+      useJobStore.setState((s) => ({
+        draft: { ...s.draft, namingTemplate: "stored_{n}" },
+      }));
+    });
+
+    render(<NamingRuleForm />);
+
+    const input = screen.getByLabelText(/name/i) as HTMLInputElement;
+    expect(input.value).toBe("stored_{n}");
+  });
+
+  it("syncs the input when the store template changes from outside the form", () => {
+    render(<NamingRuleForm />);
+
+    const input = screen.getByLabelText(/name/i) as HTMLInputElement;
+    expect(input.value).toBe(DEFAULT_TEMPLATE);
+
+    // An external store update (not a keystroke) must flow into the field.
+    act(() => {
+      useJobStore.setState((s) => ({
+        draft: { ...s.draft, namingTemplate: "external_{n}" },
+      }));
+    });
+
+    expect(input.value).toBe("external_{n}");
+  });
+
   it("does not render an inline preview line (preview moved to OutputSettings)", () => {
     render(<NamingRuleForm />);
 
