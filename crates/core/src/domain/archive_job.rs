@@ -3,7 +3,8 @@
 use std::collections::HashSet;
 
 use crate::domain::archive_task::{ArchiveTask, TaskId};
-use crate::domain::file_name::{NameError, OutputFileName};
+use crate::domain::file_name::{FileStem, NameError, OutputFileName};
+use crate::domain::output_mode::OutputMode;
 use crate::domain::naming_rule::NamingRule;
 use crate::domain::output_directory::OutputDirectory;
 use crate::domain::sequence_number::SequenceNumber;
@@ -115,6 +116,7 @@ pub struct ArchiveJob {
     tasks: Vec<ArchiveTask>,
     rule: NamingRule,
     out_dir: OutputDirectory,
+    mode: OutputMode,
 }
 
 impl ArchiveJob {
@@ -168,6 +170,59 @@ impl ArchiveJob {
             tasks,
             rule,
             out_dir,
+            mode: OutputMode::Zip,
+        })
+    }
+
+    /// Plan a Folder-mode (extraction) job from `items`.
+    ///
+    /// Unlike [`plan`], there is no naming rule: each task's output directory is
+    /// named after the source (see [`SourceItem::output_stem`]). The task's
+    /// `output_name` here is an internal `.zip`-suffixed label, used only by the
+    /// shared [`check_unique`] guard; the execution engine derives the real
+    /// folder path from the source, not from this label.
+    ///
+    /// Returns [`PlanError::Empty`] for no items, [`PlanError::Resolve`] when a
+    /// source's base name is not a valid cross-platform filename, and
+    /// [`PlanError::DuplicateName`] when two sources share a base name.
+    ///
+    /// [`plan`]: ArchiveJob::plan
+    /// [`check_unique`]: ArchiveJob::check_unique
+    pub fn plan_extract(
+        items: Vec<SourceItem>,
+        out_dir: OutputDirectory,
+    ) -> Result<Self, PlanError> {
+        if items.is_empty() {
+            return Err(PlanError::Empty);
+        }
+
+        let mut names: Vec<OutputFileName> = Vec::with_capacity(items.len());
+        for (i, item) in items.iter().enumerate() {
+            let seq = seq_index(i);
+            let stem = FileStem::new(&item.output_stem())
+                .map_err(|source| PlanError::Resolve { seq, source })?;
+            names.push(OutputFileName::from_stem(stem));
+        }
+
+        Self::check_unique(&names)?;
+
+        // Folder mode has no naming rule; store a stable identity rule so the
+        // struct invariant (a rule is always present) holds without affecting
+        // behavior. `plan_extract` never resolves names through it.
+        let rule = NamingRule::parse("{n}").expect("'{n}' is a valid template");
+
+        let tasks = items
+            .into_iter()
+            .zip(names)
+            .enumerate()
+            .map(|(i, (source, name))| ArchiveTask::new(TaskId::new(seq_index(i)), source, name))
+            .collect();
+
+        Ok(ArchiveJob {
+            tasks,
+            rule,
+            out_dir,
+            mode: OutputMode::Folder,
         })
     }
 
@@ -249,6 +304,11 @@ impl ArchiveJob {
                 },
             })
             .collect()
+    }
+
+    /// Return this job's output mode (re-zip vs extract-to-folder).
+    pub fn output_mode(&self) -> OutputMode {
+        self.mode
     }
 
     /// Return the directory archives will be written to.
@@ -766,6 +826,55 @@ mod tests {
                 },
                 TaskOutcome::Cancelled(ids[2]),
             ]
+        );
+    }
+
+    // ── plan output mode ──────────────────────────────────────────────────────
+
+    #[test]
+    fn plan_sets_zip_output_mode() {
+        let job = ArchiveJob::plan(sources(1), rule("file{n}"), out_dir()).unwrap();
+        assert_eq!(job.output_mode(), crate::domain::output_mode::OutputMode::Zip);
+    }
+
+    #[test]
+    fn plan_extract_sets_folder_mode_and_one_task_per_item() {
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("/a/foo.rar")),
+            SourceItem::ZipFile(PathBuf::from("/a/bar.zip")),
+        ];
+        let job = ArchiveJob::plan_extract(items, out_dir()).unwrap();
+        assert_eq!(
+            job.output_mode(),
+            crate::domain::output_mode::OutputMode::Folder
+        );
+        assert_eq!(job.tasks().len(), 2);
+        // Every task starts Pending, exactly like plan().
+        for t in job.tasks() {
+            assert_eq!(t.status(), &TaskStatus::Pending);
+        }
+    }
+
+    #[test]
+    fn plan_extract_rejects_empty() {
+        assert_eq!(
+            ArchiveJob::plan_extract(Vec::new(), out_dir()),
+            Err(PlanError::Empty)
+        );
+    }
+
+    #[test]
+    fn plan_extract_rejects_two_sources_with_the_same_base_name() {
+        // foo.rar and foo.zip both want folder "foo" → duplicate.
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("/a/foo.rar")),
+            SourceItem::ZipFile(PathBuf::from("/b/foo.zip")),
+        ];
+        assert_eq!(
+            ArchiveJob::plan_extract(items, out_dir()),
+            Err(PlanError::DuplicateName {
+                name: "foo.zip".to_string()
+            })
         );
     }
 
