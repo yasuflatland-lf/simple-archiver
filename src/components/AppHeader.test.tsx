@@ -1,48 +1,29 @@
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
-
-import { ThemeProvider } from "@/components/theme-provider";
-import { stubMatchMedia } from "@/test/stub-match-media";
-
-beforeEach(() => {
-  stubMatchMedia(false);
-});
+import { describe, expect, it } from "vitest";
 
 import { AppHeader } from "./AppHeader";
 
-// ModeToggle reads the theme context, so wrap in the provider.
-function renderHeader() {
-  render(
-    <ThemeProvider>
-      <AppHeader />
-    </ThemeProvider>,
-  );
-}
-
 describe("AppHeader", () => {
   it("renders the app title", () => {
-    renderHeader();
+    render(<AppHeader />);
     expect(screen.getByText("simple-archiver")).toBeTruthy();
   });
 
-  it("renders the theme toggle", () => {
-    renderHeader();
-    expect(screen.getByRole("button", { name: /toggle theme/i })).toBeTruthy();
-  });
-
   it("titles via the heading token, not a raw color", () => {
-    renderHeader();
+    render(<AppHeader />);
     const title = screen.getByText("simple-archiver");
     expect(title.className).toContain("text-heading");
   });
 
   it("renders the app logo image, not an emoji placeholder", () => {
-    const { container } = render(
-      <ThemeProvider>
-        <AppHeader />
-      </ThemeProvider>,
-    );
+    const { container } = render(<AppHeader />);
     const logo = container.querySelector("img");
     expect(logo?.getAttribute("src")).toBe("/logo.png");
+  });
+
+  it("renders no theme toggle button", () => {
+    // The app follows the OS color scheme; there is no manual toggle.
+    render(<AppHeader />);
+    expect(screen.queryByRole("button", { name: /theme/i })).toBeNull();
   });
 });
