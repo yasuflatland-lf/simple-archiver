@@ -723,6 +723,49 @@ describe("TaskList pointer reorder", () => {
 
     expect(reorder).not.toHaveBeenCalled();
   });
+
+  // Task-3 regression: aria-roledescription, grab cursor, and conditional touch-none.
+
+  it("marks every body row with aria-roledescription='draggable item'", () => {
+    setItems(3);
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    for (const row of rows) {
+      expect(row.getAttribute("aria-roledescription")).toBe("draggable item");
+    }
+  });
+
+  it("applies cursor-grab at rest and never touch-none before a drag starts", () => {
+    setItems(3);
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    for (const row of rows) {
+      // cursor-grab must be present at rest (dnd.enabled=true, no active drag).
+      expect(row.className).toContain("cursor-grab");
+      // touch-none must NOT appear at rest — it must only be applied mid-drag.
+      expect(row.className).not.toContain("touch-none");
+    }
+  });
+
+  it("applies cursor-grabbing, touch-none, and select-none on all rows while a drag is active", () => {
+    setItems(3);
+    render(<TaskList />);
+
+    // Start a drag from the grip of row 0 to arm isDraggingAny on every row.
+    fireEvent.pointerDown(handle(0));
+
+    const rows = bodyRows();
+    for (const row of rows) {
+      // Mid-drag: cursor switches to grabbing.
+      expect(row.className).toContain("cursor-grabbing");
+      // touch-none suppresses touch-scroll only while dragging.
+      expect(row.className).toContain("touch-none");
+      // select-none prevents text selection mid-drag.
+      expect(row.className).toContain("select-none");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
