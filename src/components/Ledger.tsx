@@ -1,4 +1,4 @@
-import { ArrowUpRight, Copy, FolderOpen } from "lucide-react";
+import { ArrowUpRight, Copy, Eraser, FolderOpen } from "lucide-react";
 
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import type { TaskResultDto } from "@/bindings/TaskResultDto";
@@ -136,6 +136,7 @@ export function Ledger() {
   const progress = useJobStore((s) => s.progress);
   const items = useJobStore((s) => s.draft.items);
   const outputDir = useJobStore((s) => s.draft.outputDir);
+  const clearResults = useJobStore((s) => s.clearResults);
 
   if (summary === null) return null;
 
@@ -173,18 +174,33 @@ export function Ledger() {
           ))}
         </div>
 
-        {/* Guarded on outputDir so it never opens a null path. */}
-        {outputDir !== null && (
+        <div className="flex items-center gap-2">
+          {/* Guarded on outputDir so it never opens a null path. */}
+          {outputDir !== null && (
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Open folder"
+              onClick={() => runOrReportError(() => openPath(outputDir))}
+            >
+              <FolderOpen aria-hidden="true" />
+              Open folder
+            </Button>
+          )}
+
+          {/* Clear folds the Ledger back to the drop zone and pins the residual
+              chip; it never deletes files on disk. The chip's Undo is the undo
+              affordance, so there is no confirm dialog. */}
           <Button
             variant="outline"
             size="sm"
-            aria-label="Open folder"
-            onClick={() => runOrReportError(() => openPath(outputDir))}
+            aria-label="Clear results"
+            onClick={() => runOrReportError(() => clearResults())}
           >
-            <FolderOpen aria-hidden="true" />
-            Open folder
+            <Eraser aria-hidden="true" />
+            Clear
           </Button>
-        )}
+        </div>
       </div>
 
       {/* One row per task, in job order. */}

@@ -34,6 +34,20 @@ describe("ConfirmDialog – open state", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
   });
 
+  it("stretches the dialog panel across the full viewport so its content is centered", () => {
+    // Regression: a native <dialog open> defaults to `width/height: fit-content`
+    // (and Tailwind Preflight zeroes its margin), so without explicit full-size
+    // utilities the flex container collapses to the card and pins it to the
+    // top-left corner. The dialog must fill the viewport for `items-center
+    // justify-center` to center the card on screen.
+    render(<ConfirmDialog {...baseProps} open={true} />);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.className).toContain("h-full");
+    expect(dialog.className).toContain("w-full");
+    expect(dialog.className).toContain("items-center");
+    expect(dialog.className).toContain("justify-center");
+  });
+
   it("does not render description element when description prop is omitted", () => {
     const { title, confirmLabel, cancelLabel, onConfirm, onCancel } = baseProps;
     render(
