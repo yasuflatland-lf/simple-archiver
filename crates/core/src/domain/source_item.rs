@@ -58,6 +58,29 @@ impl SourceItem {
             SourceItem::Folder(_) => false,
         }
     }
+
+    /// The base name used to name an extraction's output directory.
+    ///
+    /// Archives use their file stem (`foo.rar` → `foo`); a folder uses its last
+    /// path component. Falls back to a lossy conversion so a non-UTF-8 name still
+    /// yields a usable string. Returns `"archive"` only in the degenerate case of
+    /// a path with no final component (e.g. `/`).
+    pub fn output_stem(&self) -> String {
+        let path = match self {
+            SourceItem::RarFile(p) | SourceItem::ZipFile(p) => return stem_of(p),
+            SourceItem::Folder(p) => p,
+        };
+        path.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "archive".to_string())
+    }
+}
+
+/// The file stem of `path` as a lossy `String`, falling back to `"archive"`.
+fn stem_of(path: &std::path::Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "archive".to_string())
 }
 
 #[cfg(test)]
@@ -264,5 +287,23 @@ mod tests {
     fn requires_extraction_is_false_for_folder() {
         let item = SourceItem::Folder(PathBuf::from("/a/b"));
         assert!(!item.requires_extraction());
+    }
+
+    #[test]
+    fn output_stem_of_rar_is_file_stem() {
+        let item = SourceItem::RarFile(PathBuf::from("/a/イクサガミ.rar"));
+        assert_eq!(item.output_stem(), "イクサガミ");
+    }
+
+    #[test]
+    fn output_stem_of_zip_is_file_stem() {
+        let item = SourceItem::ZipFile(PathBuf::from("/a/photos.zip"));
+        assert_eq!(item.output_stem(), "photos");
+    }
+
+    #[test]
+    fn output_stem_of_folder_is_last_component() {
+        let item = SourceItem::Folder(PathBuf::from("/a/b/my_folder"));
+        assert_eq!(item.output_stem(), "my_folder");
     }
 }
