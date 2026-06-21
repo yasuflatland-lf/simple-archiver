@@ -1,7 +1,9 @@
+import { GripVertical } from "lucide-react";
 import { memo } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import type { SourceKind } from "@/bindings/SourceKind";
+import { useReorderRow } from "@/components/reorder-dnd";
 import { Progress } from "@/components/ui/progress";
 import { formatBytes, formatEta, progressPercent } from "@/lib/format";
 import { basename } from "@/lib/path";
@@ -87,14 +89,39 @@ function TaskRowImpl({ index }: TaskRowProps) {
     }),
   );
 
+  // Drag-and-drop reorder wiring. The dragged/drop-target flags re-render this
+  // row during an active drag only; a drag never overlaps a running job, so
+  // this does not interact with the per-tick render isolation above.
+  const dnd = useReorderRow(index);
+
   if (!row.exists) return null;
 
   // Build the live label as one string so JSX whitespace folding / prettier
   // reflow cannot strip the right-align padding spaces formatBytes emits.
   const liveLabel = `${formatBytes(row.liveBytesDone ?? 0, row.liveBytesTotal ?? 0)} · ETA ${formatEta(row.liveEtaMs)}`;
 
+  // Drag affordances: grab cursor while draggable, dim the row being dragged,
+  // and highlight the row the pointer is currently over as the drop target.
+  const rowClassName = [
+    "border-b border-border/50 transition-colors",
+    dnd.draggable && "cursor-grab active:cursor-grabbing",
+    dnd.isDragging ? "opacity-40" : "hover:bg-muted/30",
+    dnd.isOver && "bg-primary/10",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+    <tr
+      draggable={dnd.draggable}
+      onDragStart={dnd.onDragStart}
+      onDragOver={dnd.onDragOver}
+      onDrop={dnd.onDrop}
+      onDragEnd={dnd.onDragEnd}
+      data-dragging={dnd.isDragging || undefined}
+      data-drop-target={dnd.isOver || undefined}
+      className={rowClassName}
+    >
       {/* Sequence number */}
       <td className="py-2 pr-3 text-muted-foreground font-mono">{index + 1}</td>
 
@@ -140,9 +167,15 @@ function TaskRowImpl({ index }: TaskRowProps) {
         )}
       </td>
 
-      {/* Reorder buttons */}
+      {/* Reorder: drag handle affordance + keyboard-accessible up/down buttons */}
       <td className="py-2">
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
+          <GripVertical
+            aria-hidden
+            className={`size-4 shrink-0 text-muted-foreground/60 ${
+              dnd.draggable ? "cursor-grab" : "opacity-30"
+            }`}
+          />
           <button
             type="button"
             aria-label="Move up"
