@@ -35,9 +35,9 @@ const NEW_BATCH_CONFIG: ResetDialogConfig = {
  * the store's reset() so the user never accidentally clears the queue.
  *
  * Copy is summary-aware: "Clear" while a batch is being assembled, "New batch"
- * once a run summary is present. This action used to live in the StatusBar
- * footer; it now sits beside the Run control in the left rail so the queue's two
- * verbs (reset vs run) share one row.
+ * once a run summary is present. It now sits at the left of the queue toolbar in
+ * the right canvas (the ghost variant keeps it visually subordinate to the
+ * outline Add buttons sharing that row and the brand Run in the left rail).
  *
  * It is fully self-contained (no props): it reads its visibility and the reset
  * action from the store, so it is a drop-in wherever the run row is composed.
@@ -78,7 +78,7 @@ export function ResetButton() {
     <>
       <Button
         type="button"
-        variant="outline"
+        variant="ghost"
         size="sm"
         onClick={handleResetClick}
       >
