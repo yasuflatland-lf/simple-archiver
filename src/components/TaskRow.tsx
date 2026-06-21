@@ -1,3 +1,4 @@
+import { Trash2 } from "lucide-react";
 import { memo } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -24,6 +25,12 @@ const KIND_BADGE_COLORS: Record<SourceKind, string> = {
 // Styling shared by both reorder buttons (Move up / Move down).
 const REORDER_BUTTON_CLASS =
   "rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors";
+
+// The delete button reuses REORDER_BUTTON_CLASS for size/weight parity with its
+// column mates, but its danger color appears only on hover so a resting row
+// stays calm. The extra left margin sets it apart from "Move down" to reduce
+// mis-clicks.
+const DELETE_BUTTON_CLASS = `${REORDER_BUTTON_CLASS} ml-1.5 hover:text-status-danger-foreground`;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -74,6 +81,8 @@ function TaskRowImpl({ index }: TaskRowProps) {
         // The action reference is stable across renders, so it is safe to
         // return directly for shallow comparison.
         reorder: s.reorder,
+        // Same stability guarantee as `reorder`, safe for the shallow compare.
+        removeItem: s.removeItem,
         // Compute the text status here so the selector exposes a flat string
         // rather than the progress/summary/taskIdByIndex collections.
         status: computeStatus(
@@ -140,9 +149,9 @@ function TaskRowImpl({ index }: TaskRowProps) {
         )}
       </td>
 
-      {/* Reorder buttons */}
+      {/* Actions: reorder buttons + delete */}
       <td className="py-2">
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
           <button
             type="button"
             aria-label="Move up"
@@ -160,6 +169,18 @@ function TaskRowImpl({ index }: TaskRowProps) {
             className={REORDER_BUTTON_CLASS}
           >
             ▼
+          </button>
+          {/* Delete: removes this single row. Disabled while running because
+              dropping a row mid-run would desync the positional progress
+              arrays. Enabled even when it is the only remaining row. */}
+          <button
+            type="button"
+            aria-label={`Remove ${basename(row.path)} from queue`}
+            disabled={row.running}
+            onClick={() => row.removeItem(index)}
+            className={DELETE_BUTTON_CLASS}
+          >
+            <Trash2 aria-hidden="true" className="size-4" />
           </button>
         </div>
       </td>

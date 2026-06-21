@@ -106,6 +106,8 @@ export interface JobState {
   addItems: (paths: string[]) => Promise<void>;
   /** Move the draft item at `from` to `to`, then recompute previews. */
   reorder: (from: number, to: number) => Promise<void>;
+  /** Remove the draft item at `index`, then recompute previews. */
+  removeItem: (index: number) => Promise<void>;
   /** Set the naming template, then recompute previews. */
   setNamingRule: (template: string) => Promise<void>;
   /** Set the sequence start number (may be 0), then recompute previews. */
@@ -187,6 +189,16 @@ export const useJobStore = create<JobState>()((set, get) => ({
   reorder: async (from, to) => {
     try {
       const draft = await archive.reorder(from, to);
+      set(draftEdit(draft));
+      await get().recomputePreviews();
+    } catch (reason) {
+      set({ error: messageFromReason(reason) });
+    }
+  },
+
+  removeItem: async (index) => {
+    try {
+      const draft = await archive.removeItem(index);
       set(draftEdit(draft));
       await get().recomputePreviews();
     } catch (reason) {

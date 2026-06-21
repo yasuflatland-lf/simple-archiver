@@ -98,6 +98,21 @@ impl JobDraft {
         Ok(())
     }
 
+    /// Remove the item at `index` (0-based).
+    ///
+    /// Returns an error message if the index is out of range. Leaves the
+    /// template, start number, and output settings untouched.
+    pub fn remove_item(&mut self, index: usize) -> Result<(), String> {
+        let len = self.items.len();
+        if index >= len {
+            return Err(format!(
+                "remove_item: index {index} is out of range (len = {len})"
+            ));
+        }
+        self.items.remove(index);
+        Ok(())
+    }
+
     /// Set the naming template, validating it with [`NamingRule::parse`].
     ///
     /// On success the validated template string and its parsed [`NamingRule`]
@@ -400,6 +415,87 @@ mod tests {
         assert!(
             err.contains("from"),
             "error on empty draft should mention `from`: {err}"
+        );
+    }
+
+    // ── remove_item ───────────────────────────────────────────────────────────
+
+    /// Removing a middle item shifts the rest down to close the gap.
+    #[test]
+    fn remove_item_in_range_shifts_remaining() {
+        let mut draft = JobDraft::new();
+        draft.add_items(vec![
+            SourceItem::Folder(PathBuf::from("/first")),
+            SourceItem::Folder(PathBuf::from("/second")),
+            SourceItem::Folder(PathBuf::from("/third")),
+        ]);
+        // Remove the middle item at index 1.
+        draft.remove_item(1).expect("remove_item should succeed");
+        let snap = draft.snapshot();
+        assert_eq!(snap.items.len(), 2);
+        assert_eq!(snap.items[0].path, "/first");
+        assert_eq!(snap.items[1].path, "/third");
+    }
+
+    /// An index that equals the length is out of range; the error message
+    /// mentions both the index and the length.
+    #[test]
+    fn remove_item_out_of_range_returns_err() {
+        let mut draft = JobDraft::new();
+        draft.add_items(vec![SourceItem::Folder(PathBuf::from("/a"))]);
+        let result = draft.remove_item(1); // len is 1, index 1 is OOB
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains('1'), "error should mention the index: {msg}");
+        assert!(
+            msg.contains("len"),
+            "error should mention the length: {msg}"
+        );
+    }
+
+    /// Removing an item preserves the naming template, start number, and output
+    /// directory that were already configured.
+    #[test]
+    fn remove_item_preserves_template_start_and_out_dir() {
+        let mut draft = JobDraft::new();
+        draft.add_items(vec![
+            SourceItem::RarFile(PathBuf::from("/a.rar")),
+            SourceItem::Folder(PathBuf::from("/b")),
+        ]);
+        draft
+            .set_template("photo_{n:03}".to_string())
+            .expect("valid template should be accepted");
+        draft.set_start_number(5);
+        draft.set_out_dir(PathBuf::from("/output"));
+
+        draft.remove_item(0).expect("remove_item should succeed");
+
+        let snap = draft.snapshot();
+        assert_eq!(snap.items.len(), 1, "one item must remain after remove");
+        assert_eq!(
+            snap.naming_template,
+            Some("photo_{n:03}".to_string()),
+            "naming_template must be preserved"
+        );
+        assert_eq!(snap.start_number, 5, "start_number must be preserved");
+        assert_eq!(
+            snap.output_dir,
+            Some("/output".to_string()),
+            "output_dir must be preserved"
+        );
+    }
+
+    /// Removing the only item leaves `items` empty.
+    #[test]
+    fn remove_item_removing_only_item_leaves_empty() {
+        let mut draft = JobDraft::new();
+        draft.add_items(vec![SourceItem::Folder(PathBuf::from("/only"))]);
+        draft.remove_item(0).expect("remove_item should succeed");
+        let snap = draft.snapshot();
+        assert_eq!(
+            snap.items.len(),
+            0,
+            "items must be empty after removing only"
         );
     }
 

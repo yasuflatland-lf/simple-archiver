@@ -8,6 +8,7 @@ import type { ProgressEvent } from "@/bindings/ProgressEvent";
 vi.mock("@/lib/archive", () => ({
   addItems: vi.fn(),
   reorder: vi.fn(),
+  removeItem: vi.fn(),
   setNamingRule: vi.fn(),
   setStartNumber: vi.fn(),
   setOutputDir: vi.fn(),
@@ -224,6 +225,75 @@ describe("reorder", () => {
     mockArchive.reorder.mockRejectedValue(new Error("bad index"));
 
     await useJobStore.getState().reorder(9, 0);
+
+    expect(useJobStore.getState().error).toBe("bad index");
+    expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);
+  });
+});
+
+describe("removeItem", () => {
+  it("calls archive.removeItem with the index and replaces the draft", async () => {
+    const draft = makeDraft(2);
+    mockArchive.removeItem.mockResolvedValue(draft);
+
+    await useJobStore.getState().removeItem(1);
+
+    expect(mockArchive.removeItem).toHaveBeenCalledWith(1);
+    expect(useJobStore.getState().draft).toEqual(draft);
+  });
+
+  it("recomputes previews so the # sequence and names shift up", async () => {
+    // Removing a row renumbers every row below it, so the store must recompute
+    // previews against the new, shorter item list (start + i for each item).
+    const draft = makeDraft(2, "photo_{n:03}");
+    mockArchive.removeItem.mockResolvedValue(draft);
+    mockArchive.previewOutputName.mockImplementation((_template, seq) =>
+      Promise.resolve(`photo_${String(seq).padStart(3, "0")}.zip`),
+    );
+
+    await useJobStore.getState().removeItem(0);
+
+    // One call per remaining item, sequential from the start number.
+    expect(useJobStore.getState().previewNames).toEqual([
+      "photo_001.zip",
+      "photo_002.zip",
+    ]);
+  });
+
+  it("clears stale finished-job result state on success", async () => {
+    // Like reorder, removing a row invalidates the positionally-aligned verdicts
+    // (summary/progress/taskIdByIndex) from any prior finished job.
+    const summary: JobSummaryDto = {
+      succeeded: [10],
+      cancelled: [],
+      failed: [{ taskId: 11, reason: "boom" }],
+      results: [],
+    };
+    const progress: ProgressEvent = {
+      overall: { bytesDone: 100, bytesTotal: 100 },
+      perTask: [
+        { taskId: 10, bytesDone: 50, bytesTotal: 50, etaMs: null },
+        { taskId: 11, bytesDone: 50, bytesTotal: 50, etaMs: null },
+      ],
+      elapsedMs: 5,
+      overallEtaMs: null,
+    };
+    useJobStore.setState({ summary, progress, taskIdByIndex: [10, 11] });
+
+    const draft = makeDraft(1, null);
+    mockArchive.removeItem.mockResolvedValue(draft);
+
+    await useJobStore.getState().removeItem(0);
+
+    expect(useJobStore.getState().summary).toBeNull();
+    expect(useJobStore.getState().progress).toBeNull();
+    expect(useJobStore.getState().taskIdByIndex).toEqual([]);
+  });
+
+  it("sets error and leaves the draft unchanged on failure", async () => {
+    mockArchive.removeItem.mockRejectedValue(new Error("bad index"));
+
+    await useJobStore.getState().removeItem(9);
 
     expect(useJobStore.getState().error).toBe("bad index");
     expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);

@@ -27,6 +27,14 @@ export function reorder(from: number, to: number): Promise<DraftSnapshot> {
 }
 
 /**
+ * Remove the draft item at `index`.
+ * Returns the updated draft snapshot.
+ */
+export function removeItem(index: number): Promise<DraftSnapshot> {
+  return invoke<DraftSnapshot>("remove_item", { index });
+}
+
+/**
  * Set the naming-rule template used when generating output filenames.
  * Returns the updated draft snapshot.
  */
