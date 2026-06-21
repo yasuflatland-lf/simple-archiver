@@ -27,9 +27,13 @@ const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
 /**
  * Format a byte pair as "<done> / <total> <unit>", choosing the unit from the
- * total so both numbers share one scale (e.g. "12.4 / 19 MB"). Bytes render as
- * whole numbers; larger units keep one decimal. Pure formatting only — the
- * backend owns all progress truth.
+ * total so both numbers share one scale (e.g. "12.4 / 19.0 MB"). Bytes render
+ * as whole numbers; larger units ALWAYS keep exactly one decimal (so a whole
+ * "19" MB renders "19.0"), giving done and total the same shape. `done` is then
+ * right-aligned to the width of `total` with leading spaces, so for a fixed
+ * total the returned string keeps a constant width as `done` grows — the live
+ * progress label never jitters tick to tick. Pure formatting only — the backend
+ * owns all progress truth.
  */
 export function formatBytes(done: number, total: number): string {
   // Byte counts are non-negative by construction; clamp defensively so this
@@ -46,9 +50,12 @@ export function formatBytes(done: number, total: number): string {
   }
   const render = (n: number) => {
     const scaled = n / 1024 ** unitIndex;
-    return unitIndex === 0
-      ? String(Math.round(scaled))
-      : (Math.round(scaled * 10) / 10).toString();
+    return unitIndex === 0 ? String(Math.round(scaled)) : scaled.toFixed(1);
   };
-  return `${render(done)} / ${render(total)} ${BYTE_UNITS[unitIndex]}`;
+  const doneStr = render(done);
+  const totalStr = render(total);
+  // Right-align done to the total's width; total is always the widest possible
+  // value for this unit, so done never overflows and the column stays fixed.
+  const paddedDone = doneStr.padStart(totalStr.length);
+  return `${paddedDone} / ${totalStr} ${BYTE_UNITS[unitIndex]}`;
 }

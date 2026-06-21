@@ -89,6 +89,10 @@ function TaskRowImpl({ index }: TaskRowProps) {
 
   if (!row.exists) return null;
 
+  // Build the live label as one string so JSX whitespace folding / prettier
+  // reflow cannot strip the right-align padding spaces formatBytes emits.
+  const liveLabel = `${formatBytes(row.liveBytesDone ?? 0, row.liveBytesTotal ?? 0)} · ETA ${formatEta(row.liveEtaMs)}`;
+
   return (
     <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors">
       {/* Sequence number */}
@@ -124,9 +128,11 @@ function TaskRowImpl({ index }: TaskRowProps) {
                 row.liveBytesTotal ?? 0,
               )}
             />
-            <span className="text-xs">
-              {formatBytes(row.liveBytesDone ?? 0, row.liveBytesTotal ?? 0)} ·
-              ETA {formatEta(row.liveEtaMs)}
+            {/* Monospace + whitespace-pre give every glyph (including the
+                right-align padding spaces from formatBytes) a constant width,
+                so the line does not jitter per tick as done grows. */}
+            <span className="text-xs font-mono whitespace-pre">
+              {liveLabel}
             </span>
           </div>
         ) : (

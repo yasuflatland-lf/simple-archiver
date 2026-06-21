@@ -79,7 +79,7 @@ describe("computeStatus", () => {
     const progress = progressWith([
       { taskId: 10, bytesDone: 512, bytesTotal: 2048, etaMs: null },
     ]);
-    expect(computeStatus(0, true, progress, null, [10])).toBe("0.5 / 2 KB");
+    expect(computeStatus(0, true, progress, null, [10])).toBe("0.5 / 2.0 KB");
   });
 
   it("returns 'Processing' while running before this row's per-task entry arrives", () => {
