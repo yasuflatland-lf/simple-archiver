@@ -430,8 +430,9 @@ mod tests {
         }
     }
 
-    /// A fake placer: records each (had_src_dir, dest) it is asked to place and
-    /// always "succeeds", creating the dest dir so the path is real.
+    /// A fake placer: records each dest it is asked to place and always succeeds
+    /// (returns the desired path). The engine test only checks that place was
+    /// called with the right destination paths; it does not create on-disk state.
     struct FakePlacer {
         placed: Arc<Mutex<Vec<std::path::PathBuf>>>,
     }

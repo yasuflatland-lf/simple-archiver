@@ -873,6 +873,8 @@ mod tests {
             SourceItem::RarFile(PathBuf::from("/a/foo.rar")),
             SourceItem::ZipFile(PathBuf::from("/b/foo.zip")),
         ];
+        // `name` is the internal `.zip`-suffixed label the uniqueness guard compares;
+        // Folder mode produces no `.zip` — the folder would be named `foo`.
         assert_eq!(
             ArchiveJob::plan_extract(items, out_dir()),
             Err(PlanError::DuplicateName {

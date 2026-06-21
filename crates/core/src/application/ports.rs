@@ -1,6 +1,6 @@
 //! Output ports for the application layer.
 //!
-//! Defines the `Archiver` and `Clock` ports used by the execution engine.
+//! Defines the `Archiver`, `Extractor`, `Placer`, and `Clock` ports used by the execution engine.
 //! `Archiver::compress` takes a `CompressContext` for per-task byte-progress
 //! reporting; `Clock` lets the engine run against a controllable time source
 //! in tests. `ArchiveError::Cancelled` is returned when the caller cancels
