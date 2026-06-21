@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_RAIL_WIDTH,
-  MAX_RAIL_WIDTH,
   MIN_RAIL_WIDTH,
   RAIL_WIDTH_STORAGE_KEY,
 } from "@/lib/rail-width";
@@ -69,15 +68,22 @@ describe("usePaneResize", () => {
     expect(result.current.railWidth).toBe(DEFAULT_RAIL_WIDTH + 60);
   });
 
-  it("clamps the width while dragging past the maximum", () => {
+  it("expands past the former fixed maximum when no canvas bound applies", () => {
+    // With no measured container the rail follows the pointer freely. The old
+    // build capped this at 560px; the rail now widens to the right unbounded.
     const { result } = renderHook(() => usePaneResize());
     act(() => {
       result.current.separatorProps.onPointerDown(pointerEvent(0));
     });
     act(() => {
-      result.current.separatorProps.onPointerMove(pointerEvent(5000));
+      result.current.separatorProps.onPointerMove(pointerEvent(900));
     });
-    expect(result.current.railWidth).toBe(MAX_RAIL_WIDTH);
+    expect(result.current.railWidth).toBe(DEFAULT_RAIL_WIDTH + 900);
+  });
+
+  it("exposes a container ref to attach to the resizable body", () => {
+    const { result } = renderHook(() => usePaneResize());
+    expect(result.current.containerRef.current).toBeNull();
   });
 
   it("clamps the width while dragging past the minimum", () => {
