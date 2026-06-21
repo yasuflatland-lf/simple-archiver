@@ -33,6 +33,10 @@ export function OutputModeToggle() {
           <button
             key={opt.value}
             type="button"
+            // A segmented toggle of buttons in a radiogroup is the intended
+            // pattern here (a native radio input cannot host the segmented
+            // visual treatment); keep the explicit ARIA role.
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="radio"
             aria-checked={selected}
             onClick={() => choose(opt.value)}

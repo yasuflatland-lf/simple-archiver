@@ -32,6 +32,29 @@ describe("OutputSettings", () => {
     useJobStore.setState({ setNamingRule: vi.fn() });
   });
 
+  it("hides the Name field and shows the extraction note in Folder mode", () => {
+    useJobStore.setState((s) => ({
+      draft: {
+        ...s.draft,
+        outputMode: "folder",
+        outputDir: "/Users/me/Downloads",
+      },
+    }));
+
+    render(<OutputSettings />);
+
+    expect(screen.queryByLabelText("Name")).toBeNull();
+    expect(screen.getByText(/each archive .* its own folder/i)).toBeDefined();
+  });
+
+  it("shows the Name field in zip mode", () => {
+    useJobStore.setState((s) => ({
+      draft: { ...s.draft, outputMode: "zip" },
+    }));
+    render(<OutputSettings />);
+    expect(screen.getByLabelText("Name")).toBeDefined();
+  });
+
   it("renders the OUTPUT group heading and Destination/Name child headings", () => {
     render(<OutputSettings />);
 

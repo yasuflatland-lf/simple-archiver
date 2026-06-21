@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react";
 
 import { NamingRuleForm } from "@/components/NamingRuleForm";
 import { OutputDirPicker } from "@/components/OutputDirPicker";
+import { OutputModeToggle } from "@/components/OutputModeToggle";
 import { joinOutputPath } from "@/lib/path";
 import { selectFirstPreview, useJobStore } from "@/store/jobStore";
 
@@ -29,6 +30,7 @@ import { selectFirstPreview, useJobStore } from "@/store/jobStore";
  */
 export function OutputSettings() {
   const outputDir = useJobStore((s) => s.draft.outputDir);
+  const outputMode = useJobStore((s) => s.draft.outputMode);
 
   // The single source of preview truth. firstPreview is tri-state:
   //   null  = still loading (a recompute is pending / in flight),
@@ -41,25 +43,34 @@ export function OutputSettings() {
   // unless a preview resolution actually failed.
   const error = useJobStore((s) => s.previewError) ?? "";
 
-  // The hero path is only shown when previewName is a non-empty string. Both
-  // null (still loading) and "" (the store's error path) suppress it, so the
-  // output directory is never displayed in isolation, which would mislead the
-  // user about the actual destination. joinOutputPath already returns the bare
-  // filename when outputDir is null, so the same value drives both the full
-  // path (destination set) and the filename-only hero (no destination).
-  const heroPath = previewName ? joinOutputPath(outputDir, previewName) : null;
+  // Zip mode joins the destination with the previewed filename; Folder mode
+  // shows a representative per-archive folder path. heroPath stays null until a
+  // preview resolves (zip) so the directory is never shown in isolation. In
+  // folder mode the filename preview is irrelevant (no re-zip), so the hero
+  // shows the destination with a representative per-archive folder placeholder.
+  const heroPath =
+    outputMode === "folder"
+      ? outputDir
+        ? `${joinOutputPath(outputDir, "")}▸ <archive name>/`
+        : null
+      : previewName
+        ? joinOutputPath(outputDir, previewName)
+        : null;
 
   return (
     <section className="flex flex-col gap-3 rounded-md border border-border p-4">
-      <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
-        OUTPUT
-      </span>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
+          OUTPUT
+        </span>
+        <OutputModeToggle />
+      </div>
 
       {/* Hero: the full landing path is the focal point of the group. It is
           only shown once the preview filename has resolved, so the user never
           sees the destination directory in isolation (which would mislead). The
           leading arrow only appears once a destination joins the filename into a
-          full path. */}
+          full path. heroPath is mode-aware. */}
       <div className="flex flex-col gap-1">
         {heroPath !== null ? (
           <p className="flex items-center gap-2 truncate text-base">
@@ -80,7 +91,7 @@ export function OutputSettings() {
             Select a destination to preview the full path.
           </p>
         ) : null}
-        {error ? (
+        {outputMode === "zip" && error ? (
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>
@@ -92,10 +103,19 @@ export function OutputSettings() {
           OutputDirPicker contributes three cells (label, path, Choose); the
           Choose button lands in the third/right column. NamingRuleForm
           contributes two cells (label, input) with the input spanning the
-          control + action columns. */}
+          control + action columns. In folder mode the Name field is irrelevant
+          (each archive is extracted into its own folder), so it is replaced by
+          an extraction note spanning the full grid width. */}
       <div className="grid grid-cols-[max-content_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2.5">
         <OutputDirPicker />
-        <NamingRuleForm />
+        {outputMode === "zip" ? (
+          <NamingRuleForm />
+        ) : (
+          <p className="col-span-3 text-xs text-muted-foreground">
+            Each archive is extracted into its own folder named after the
+            archive.
+          </p>
+        )}
       </div>
     </section>
   );
