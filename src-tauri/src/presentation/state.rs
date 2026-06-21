@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use simple_archiver_core::domain::archive_job::ArchiveJob;
 use simple_archiver_core::domain::naming_rule::NamingRule;
 use simple_archiver_core::domain::output_directory::OutputDirectory;
+use simple_archiver_core::domain::output_mode::OutputMode;
 use simple_archiver_core::domain::source_item::SourceItem;
 
 use crate::presentation::dto::{draft_item_from_source, DraftSnapshot};
@@ -49,6 +50,7 @@ pub struct JobDraft {
     items: Vec<SourceItem>,
     template: Option<ParsedTemplate>,
     out_dir: Option<PathBuf>,
+    output_mode: OutputMode,
 }
 
 impl JobDraft {
@@ -58,6 +60,7 @@ impl JobDraft {
             items: Vec::new(),
             template: None,
             out_dir: None,
+            output_mode: OutputMode::default(), // Zip
         }
     }
 
@@ -116,6 +119,11 @@ impl JobDraft {
         self.out_dir = Some(dir);
     }
 
+    /// Set the output mode (re-zip vs extract-to-folder).
+    pub fn set_output_mode(&mut self, mode: OutputMode) {
+        self.output_mode = mode;
+    }
+
     /// Return a serialisable snapshot of the current draft for the frontend.
     pub fn snapshot(&self) -> DraftSnapshot {
         DraftSnapshot {
@@ -130,27 +138,45 @@ impl JobDraft {
 
     /// Validate the draft and plan an [`ArchiveJob`].
     ///
-    /// Returns an error string if the template or output directory is missing,
-    /// if there are no items, or if [`ArchiveJob::plan`] fails.
+    /// Branches on [`output_mode`]:
+    /// - [`OutputMode::Zip`]: requires both a naming template and an output
+    ///   directory, then calls [`ArchiveJob::plan`].
+    /// - [`OutputMode::Folder`]: requires only an output directory (no template),
+    ///   then calls [`ArchiveJob::plan_extract`].
+    ///
+    /// Returns an error string if required fields are missing, if there are no
+    /// items, or if the underlying plan call fails.
+    ///
+    /// [`output_mode`]: JobDraft::output_mode
     pub fn build(&self) -> Result<ArchiveJob, String> {
-        let template = self
-            .template
-            .as_ref()
-            .ok_or_else(|| "naming rule not set".to_string())?;
-
         let out_dir = self
             .out_dir
             .as_ref()
             .ok_or_else(|| "output directory not set".to_string())?;
 
-        // Reuse the rule parsed in `set_template`; the template is never
-        // re-parsed here.
-        ArchiveJob::plan(
-            self.items.clone(),
-            template.rule.clone(),
-            OutputDirectory::new(out_dir.clone()),
-        )
-        .map_err(|e| e.to_string())
+        match self.output_mode {
+            OutputMode::Zip => {
+                let template = self
+                    .template
+                    .as_ref()
+                    .ok_or_else(|| "naming rule not set".to_string())?;
+                // Reuse the rule parsed in `set_template`; the template is
+                // never re-parsed here.
+                ArchiveJob::plan(
+                    self.items.clone(),
+                    template.rule.clone(),
+                    OutputDirectory::new(out_dir.clone()),
+                )
+                .map_err(|e| e.to_string())
+            }
+            OutputMode::Folder => {
+                ArchiveJob::plan_extract(
+                    self.items.clone(),
+                    OutputDirectory::new(out_dir.clone()),
+                )
+                .map_err(|e| e.to_string())
+            }
+        }
     }
 }
 
@@ -513,6 +539,47 @@ mod tests {
             Some("/output".to_string()),
             "output_dir must be preserved"
         );
+    }
+
+    // ── set_output_mode / build branching ────────────────────────────────────
+
+    /// A fresh draft defaults to Zip mode; `build` without a template must fail.
+    #[test]
+    fn default_draft_is_zip_mode() {
+        let draft = JobDraft::new();
+        // build still requires a template in Zip mode.
+        let mut d = draft;
+        d.add_items(vec![SourceItem::RarFile(PathBuf::from("/a.rar"))]);
+        d.set_out_dir(PathBuf::from("/out"));
+        assert!(
+            d.build().is_err(),
+            "Zip mode without a template must not build"
+        );
+    }
+
+    /// In Folder mode a naming template is not required; items + out_dir suffice.
+    #[test]
+    fn folder_mode_builds_without_a_template() {
+        let mut draft = JobDraft::new();
+        draft.set_output_mode(OutputMode::Folder);
+        draft.add_items(vec![SourceItem::RarFile(PathBuf::from("/in/a.rar"))]);
+        draft.set_out_dir(PathBuf::from("/out"));
+
+        let job = draft
+            .build()
+            .expect("Folder mode needs no template, only items + out dir");
+        assert_eq!(job.output_mode(), OutputMode::Folder);
+        assert_eq!(job.tasks().len(), 1);
+    }
+
+    /// In Folder mode the output directory is still mandatory.
+    #[test]
+    fn folder_mode_still_requires_output_dir() {
+        let mut draft = JobDraft::new();
+        draft.set_output_mode(OutputMode::Folder);
+        draft.add_items(vec![SourceItem::RarFile(PathBuf::from("/in/a.rar"))]);
+        let err = draft.build().expect_err("missing out dir must fail");
+        assert!(err.contains("output directory not set"), "got: {err}");
     }
 
     // ── RunState ──────────────────────────────────────────────────────────────
