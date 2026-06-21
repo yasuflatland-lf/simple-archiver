@@ -32,7 +32,8 @@ interface AppShellProps {
  * and shows the col-resize cursor across both panes.
  */
 export function AppShell({ rail, banner, statusBar, children }: AppShellProps) {
-  const { railWidth, isDragging, separatorProps } = usePaneResize();
+  const { railWidth, isDragging, containerRef, separatorProps } =
+    usePaneResize();
   return (
     <div
       data-testid="app-shell"
@@ -47,6 +48,7 @@ export function AppShell({ rail, banner, statusBar, children }: AppShellProps) {
         </div>
       ) : null}
       <div
+        ref={containerRef}
         data-testid="app-body"
         className={cn(
           "flex min-h-0 flex-1 flex-row overflow-hidden",

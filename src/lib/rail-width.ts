@@ -7,17 +7,45 @@ export const DEFAULT_RAIL_WIDTH = 320;
 /** Minimum left-rail width in px — keeps the setup controls from collapsing. */
 export const MIN_RAIL_WIDTH = 240;
 
-/** Maximum left-rail width in px — keeps the right canvas usable. */
-export const MAX_RAIL_WIDTH = 560;
+/**
+ * Minimum width in px reserved for the right canvas. The rail can widen freely
+ * to the right until the canvas would shrink below this, so the queue stays
+ * usable on any window width instead of being capped at a fixed rail width.
+ */
+export const MIN_CANVAS_WIDTH = 360;
 
 /**
- * Clamp an arbitrary width to the [MIN, MAX] range and round it to a whole
- * pixel. A non-finite input (NaN) falls back to the default; ±Infinity clamps
- * to the corresponding bound via Math.min/Math.max.
+ * The largest left-rail width that still leaves {@link MIN_CANVAS_WIDTH} for the
+ * right canvas, given the live container (body) and separator widths in px.
+ *
+ * Returns +Infinity when the container is unmeasured (width <= 0) — e.g. an
+ * unlaid-out shell, or jsdom before layout — so the rail is never clamped to a
+ * degenerate value before the real geometry is known.
  */
-export function clampRailWidth(width: number): number {
-  if (Number.isNaN(width)) return DEFAULT_RAIL_WIDTH;
-  return Math.min(MAX_RAIL_WIDTH, Math.max(MIN_RAIL_WIDTH, Math.round(width)));
+export function railWidthMaxFor(
+  containerWidth: number,
+  separatorWidth: number,
+): number {
+  if (!(containerWidth > 0)) return Number.POSITIVE_INFINITY;
+  return containerWidth - separatorWidth - MIN_CANVAS_WIDTH;
+}
+
+/**
+ * Clamp an arbitrary width to [MIN_RAIL_WIDTH, maxWidth] and round it to a whole
+ * pixel. `maxWidth` defaults to +Infinity (no ceiling) so a width set on a roomy
+ * window survives a persistence round-trip; callers that know the live geometry
+ * pass a {@link railWidthMaxFor} value to keep the canvas usable. The ceiling
+ * can never fall below the floor, so even a very narrow container yields a width
+ * >= MIN_RAIL_WIDTH. A non-finite width (NaN/±Infinity) falls back to the
+ * default.
+ */
+export function clampRailWidth(
+  width: number,
+  maxWidth: number = Number.POSITIVE_INFINITY,
+): number {
+  if (!Number.isFinite(width)) return DEFAULT_RAIL_WIDTH;
+  const ceiling = Math.max(MIN_RAIL_WIDTH, maxWidth);
+  return Math.min(ceiling, Math.max(MIN_RAIL_WIDTH, Math.round(width)));
 }
 
 /**
@@ -43,9 +71,11 @@ export function loadPersistedRailWidth(): number {
 }
 
 /**
- * Persist the rail width to localStorage, clamped to the valid range so a
- * corrupt out-of-range value can never be stored. Never throws (storage may be
- * disabled).
+ * Persist the rail width to localStorage, clamped to at least MIN_RAIL_WIDTH so
+ * a corrupt below-minimum value can never be stored. No upper bound is applied
+ * here (it depends on the live window size); an over-wide stored value is
+ * corrected against the canvas-min bound once the shell lays out. Never throws
+ * (storage may be disabled).
  */
 export function persistRailWidth(width: number): void {
   try {

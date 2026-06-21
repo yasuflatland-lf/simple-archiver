@@ -1,14 +1,25 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_RAIL_WIDTH, RAIL_WIDTH_STORAGE_KEY } from "@/lib/rail-width";
 
 import { AppShell } from "./AppShell";
 
+/** Override an element's measured width so the canvas-min clamp can be tested. */
+function mockWidth(element: Element, width: number) {
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    width,
+  } as DOMRect);
+}
+
 describe("AppShell", () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   function renderShell(banner?: ReactNode) {
@@ -101,6 +112,44 @@ describe("AppShell", () => {
     expect(screen.getByTestId("rail-pane").style.width).toBe(
       `${DEFAULT_RAIL_WIDTH + 80}px`,
     );
+  });
+
+  it("lets the separator drag the rail past the former fixed cap", () => {
+    // Regression: the rail used to stop at 560px. With no measured container it
+    // now follows the pointer to the right unbounded.
+    renderShell();
+    const separator = screen.getByRole("separator");
+    fireEvent.pointerDown(separator, { clientX: 100, buttons: 1 });
+    fireEvent.pointerMove(separator, { clientX: 700, buttons: 1 });
+    expect(screen.getByTestId("rail-pane").style.width).toBe(
+      `${DEFAULT_RAIL_WIDTH + 600}px`,
+    );
+  });
+
+  it("stops the rail so the canvas keeps its minimum width", () => {
+    renderShell();
+    const body = screen.getByTestId("app-body");
+    const separator = screen.getByRole("separator");
+    mockWidth(body, 1000);
+    mockWidth(separator, 6);
+    fireEvent.pointerDown(separator, { clientX: 0, buttons: 1 });
+    fireEvent.pointerMove(separator, { clientX: 5000, buttons: 1 });
+    // 1000 container - 6 separator - 360 canvas-min = 634px.
+    expect(screen.getByTestId("rail-pane").style.width).toBe("634px");
+  });
+
+  it("re-clamps the rail when the window shrinks below its width", () => {
+    localStorage.setItem(RAIL_WIDTH_STORAGE_KEY, "900");
+    renderShell();
+    // Restored at its persisted width while the shell is still unmeasured.
+    expect(screen.getByTestId("rail-pane").style.width).toBe("900px");
+    mockWidth(screen.getByTestId("app-body"), 700);
+    mockWidth(screen.getByRole("separator"), 6);
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    // 700 - 6 - 360 = 334px.
+    expect(screen.getByTestId("rail-pane").style.width).toBe("334px");
   });
 
   it("resets the rail width on double-clicking the separator", () => {
