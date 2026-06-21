@@ -857,8 +857,7 @@ mod tests {
             SourceItem::RarFile(PathBuf::from("/a/foo.rar")),
             SourceItem::ZipFile(PathBuf::from("/a/bar.zip")),
         ];
-        let job =
-            ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default()).unwrap();
+        let job = ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default()).unwrap();
         assert_eq!(
             job.output_mode(),
             crate::domain::output_mode::OutputMode::Folder
@@ -879,8 +878,7 @@ mod tests {
     #[test]
     fn plan_extract_stores_the_given_conflict_policy() {
         let items = vec![SourceItem::RarFile(PathBuf::from("/a/foo.rar"))];
-        let job =
-            ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::Overwrite).unwrap();
+        let job = ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::Overwrite).unwrap();
         assert_eq!(job.conflict_policy(), ConflictPolicy::Overwrite);
     }
 

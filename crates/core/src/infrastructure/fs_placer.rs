@@ -39,7 +39,11 @@ impl Placer for FsPlacer {
 /// - `AutoRename`: pick the first non-colliding name and copy.
 /// - `Skip`: if the destination already exists, return it untouched (no copy).
 /// - `Overwrite`: remove an existing destination, then copy into the original path.
-fn place_blocking(src: &Path, desired: &Path, policy: ConflictPolicy) -> Result<PathBuf, PlaceError> {
+fn place_blocking(
+    src: &Path,
+    desired: &Path,
+    policy: ConflictPolicy,
+) -> Result<PathBuf, PlaceError> {
     match policy {
         ConflictPolicy::AutoRename => {
             let dest = non_colliding(desired);

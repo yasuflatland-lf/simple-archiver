@@ -239,7 +239,14 @@ async fn run_one<A: Archiver, E: Extractor, P: Placer>(
             map_archive_result(archiver.compress(prepared.dir(), &item.dest, &ctx).await)
         }
         OutputMode::Folder => {
-            map_place_result(placer.place(prepared.dir(), &item.dest, item.policy).await)
+            // A folder source has no archive to extract in Folder mode, so there
+            // is nothing to place: terminate as a skip (Complete with no
+            // placement) instead of copying the source folder (spec §11 default).
+            if matches!(item.source, SourceItem::Folder(_)) {
+                TaskEvent::Complete
+            } else {
+                map_place_result(placer.place(prepared.dir(), &item.dest, item.policy).await)
+            }
         }
     };
     let _ = tx.send(WorkerMsg::Status {
@@ -1043,5 +1050,48 @@ mod tests {
             placed,
             vec![PathBuf::from("/out/a"), PathBuf::from("/out/b")]
         );
+    }
+
+    #[tokio::test]
+    async fn folder_mode_skips_folder_sources_without_placing() {
+        // A Folder source has nothing to extract in Folder mode: only the zip is
+        // placed; the folder source produces no output directory.
+        let items = vec![
+            SourceItem::Folder(PathBuf::from("/in/some_dir")),
+            SourceItem::ZipFile(PathBuf::from("/in/b.zip")),
+        ];
+        let job = ArchiveJob::plan_extract(
+            items,
+            OutputDirectory::new(PathBuf::from("/out")),
+            ConflictPolicy::default(),
+        )
+        .unwrap();
+        let expected: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        let placer = Arc::new(FakePlacer::new());
+        let placed = placer.placed.clone();
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(FakeExtractor::new()),
+            placer,
+            nz(2),
+        );
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        // Both tasks succeed: the zip via extract -> place, the folder as a skip
+        // (a terminal Complete with no placement).
+        let mut succeeded = summary.succeeded.clone();
+        succeeded.sort_by_key(|i| i.get());
+        let mut want = expected.clone();
+        want.sort_by_key(|i| i.get());
+        assert_eq!(succeeded, want);
+        assert!(summary.failed.is_empty());
+
+        // Only the zip source produced an output directory; the folder did not.
+        let placed = placed.lock().unwrap().clone();
+        assert_eq!(placed, vec![PathBuf::from("/out/b")]);
     }
 }
