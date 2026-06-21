@@ -24,6 +24,7 @@ describe("TaskRow", () => {
         items: [{ path: "/home/user/archive.rar", kind: "rar" }],
         namingTemplate: null,
         outputDir: null,
+        outputMode: "zip",
       },
       previewNames: ["out_001.zip"],
     });
@@ -40,6 +41,7 @@ describe("TaskRow", () => {
         items: [{ path: "/home/user/archive.zip", kind: "zip" as const }],
         namingTemplate: null,
         outputDir: null,
+        outputMode: "zip",
       },
       previewNames: ["out_001.zip"],
     });
@@ -58,6 +60,7 @@ describe("TaskRow", () => {
         items: [{ path: "/a.rar", kind: "rar" }],
         namingTemplate: null,
         outputDir: null,
+        outputMode: "zip",
       },
       previewNames: ["out1.zip"],
       running: true,

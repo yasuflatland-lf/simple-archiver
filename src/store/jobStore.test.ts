@@ -45,6 +45,7 @@ function makeDraft(
     })),
     namingTemplate,
     outputDir,
+    outputMode: "zip",
   };
 }
 
@@ -52,6 +53,7 @@ const INITIAL_DRAFT: DraftSnapshot = {
   items: [],
   namingTemplate: null,
   outputDir: null,
+  outputMode: "zip",
 };
 
 beforeEach(() => {
@@ -324,7 +326,12 @@ describe("recomputePreviews", () => {
     // single hero preview (seq 1) still resolves so the OUTPUT group renders.
     mockArchive.previewOutputName.mockResolvedValue("photo_001.zip");
     useJobStore.setState({
-      draft: { items: [], namingTemplate: "photo_{n}", outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: "photo_{n}",
+        outputDir: null,
+        outputMode: "zip",
+      },
       error: "stale error",
     });
 
@@ -358,6 +365,7 @@ describe("recomputePreviews", () => {
         items: makeDraft(1).items,
         namingTemplate: "a",
         outputDir: null,
+        outputMode: "zip",
       },
     });
     const runA = useJobStore.getState().recomputePreviews();
@@ -370,6 +378,7 @@ describe("recomputePreviews", () => {
         items: makeDraft(1).items,
         namingTemplate: "b",
         outputDir: null,
+        outputMode: "zip",
       },
     });
     const runB = useJobStore.getState().recomputePreviews();
@@ -521,6 +530,7 @@ describe("reset", () => {
       items: [],
       namingTemplate: "photo_{n}",
       outputDir: "/out",
+      outputMode: "zip",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 
@@ -539,6 +549,7 @@ describe("reset", () => {
       items: [],
       namingTemplate: "photo_{n}",
       outputDir: "/out",
+      outputMode: "zip",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 
@@ -578,6 +589,7 @@ describe("reset", () => {
       items: [],
       namingTemplate: "photo_{n}",
       outputDir: "/out",
+      outputMode: "zip",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 
@@ -618,6 +630,7 @@ describe("reset", () => {
       items: [],
       namingTemplate: "photo_{n}",
       outputDir: "/out",
+      outputMode: "zip",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 

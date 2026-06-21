@@ -7,7 +7,7 @@ import type { TaskProgressDto } from "./TaskProgressDto";
  */
 export type ProgressEvent = {
   /**
-   * Summed byte counters across every task.
+   * Byte counters summed across all per-task entries (derived from `JobProgress::overall`).
    */
   overall: ProgressCounts;
   /**

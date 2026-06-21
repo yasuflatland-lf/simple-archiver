@@ -27,7 +27,12 @@ describe("OutputDirPicker", () => {
 
   it("renders the current outputDir when set", () => {
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: "/my/output" },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: "/my/output",
+        outputMode: "zip",
+      },
     });
     render(<OutputDirPicker />);
 
@@ -37,7 +42,12 @@ describe("OutputDirPicker", () => {
   it("renders the (not set) empty state with a Required badge when outputDir is null", () => {
     // resetJobStore already sets outputDir: null, but be explicit.
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
     });
     render(<OutputDirPicker />);
 
@@ -48,7 +58,12 @@ describe("OutputDirPicker", () => {
 
   it("does not render the Required badge once a destination is set", () => {
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: "/my/output" },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: "/my/output",
+        outputMode: "zip",
+      },
     });
     render(<OutputDirPicker />);
 

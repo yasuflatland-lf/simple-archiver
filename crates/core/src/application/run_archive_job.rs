@@ -12,11 +12,12 @@ use tokio_util::sync::CancellationToken;
 use crate::application::compress_context::{CompressContext, TaskProgressReport};
 use crate::application::eta_estimator::{EtaTracker, ETA_WINDOW};
 use crate::application::format_registry::{FormatRegistry, Prepared};
-use crate::application::ports::{ArchiveError, Archiver, Clock, Extractor};
+use crate::application::ports::{ArchiveError, Archiver, Clock, Extractor, PlaceError, Placer};
 use crate::application::progress::ProgressSink;
 use crate::application::progress_aggregator::{Aggregator, JobSummary, WorkerMsg};
 use crate::domain::archive_job::ArchiveJob;
 use crate::domain::archive_task::TaskId;
+use crate::domain::output_mode::OutputMode;
 use crate::domain::source_item::SourceItem;
 use crate::domain::task_progress::TaskProgress;
 use crate::domain::task_status::TaskEvent;
@@ -38,31 +39,40 @@ struct WorkItem {
     task: TaskId,
     source: SourceItem,
     dest: PathBuf,
+    mode: OutputMode,
 }
 
 /// Runs an `ArchiveJob` with up to N concurrent workers.
-pub struct RunArchiveJob<A: Archiver, E: Extractor> {
+pub struct RunArchiveJob<A: Archiver, E: Extractor, P: Placer> {
     archiver: Arc<A>,
     registry: FormatRegistry<E>,
+    placer: Arc<P>,
     parallelism: NonZeroUsize,
 }
 
-impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
+impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArchiveJob<A, E, P> {
     /// Build an engine with an explicit parallelism limit.
-    pub fn new(archiver: Arc<A>, extractor: Arc<E>, parallelism: NonZeroUsize) -> Self {
+    pub fn new(
+        archiver: Arc<A>,
+        extractor: Arc<E>,
+        placer: Arc<P>,
+        parallelism: NonZeroUsize,
+    ) -> Self {
         Self {
             archiver,
             registry: FormatRegistry::new(extractor),
+            placer,
             parallelism,
         }
     }
 
     /// Build an engine using `available_parallelism` (falling back to 1).
-    pub fn with_default_parallelism(archiver: Arc<A>, extractor: Arc<E>) -> Self {
+    pub fn with_default_parallelism(archiver: Arc<A>, extractor: Arc<E>, placer: Arc<P>) -> Self {
         let parallelism = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
         Self {
             archiver,
             registry: FormatRegistry::new(extractor),
+            placer,
             parallelism,
         }
     }
@@ -92,13 +102,21 @@ impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
     ) -> JobSummary {
         // Extract an immutable work list before the job moves into the aggregator.
         let out_dir = job.output_directory().path().to_path_buf();
+        let mode = job.output_mode();
         let work: Vec<WorkItem> = job
             .tasks()
             .iter()
-            .map(|t| WorkItem {
-                task: t.id(),
-                source: t.source().clone(),
-                dest: out_dir.join(t.output_name().as_str()),
+            .map(|t| {
+                let dest = match mode {
+                    OutputMode::Zip => out_dir.join(t.output_name().as_str()),
+                    OutputMode::Folder => out_dir.join(t.source().output_stem()),
+                };
+                WorkItem {
+                    task: t.id(),
+                    source: t.source().clone(),
+                    dest,
+                    mode,
+                }
             })
             .collect();
 
@@ -132,13 +150,22 @@ impl<A: Archiver + 'static, E: Extractor + 'static> RunArchiveJob<A, E> {
         for item in work {
             let archiver = self.archiver.clone();
             let registry = self.registry.clone();
+            let placer = self.placer.clone();
             let semaphore = semaphore.clone();
             let tx = tx.clone();
             let cancellation_token = cancellation_token.clone();
             handles.push(tokio::spawn(async move {
                 // Bounded concurrency: hold a permit for the whole task.
                 let _permit = semaphore.acquire_owned().await.expect("semaphore open");
-                run_one(archiver.as_ref(), &registry, item, tx, cancellation_token).await;
+                run_one(
+                    archiver.as_ref(),
+                    &registry,
+                    placer.as_ref(),
+                    item,
+                    tx,
+                    cancellation_token,
+                )
+                .await;
             }));
         }
         // Drop the engine's own sender so the channel closes once workers finish.
@@ -179,30 +206,36 @@ async fn drive_aggregation<C: Clock, S: ProgressSink>(
     aggregator.into_summary()
 }
 
-/// Execute a single work item: resolve its source to a directory (extracting a
-/// rar/zip into a temp guard), then compress that directory. Sends status +
-/// progress over `tx`.
-async fn run_one<A: Archiver, E: Extractor>(
+/// Execute a single work item: checkpoint → extract → write → emit terminal.
+/// The "write" phase is compression (Zip) or placement (Folder).
+async fn run_one<A: Archiver, E: Extractor, P: Placer>(
     archiver: &A,
     registry: &FormatRegistry<E>,
+    placer: &P,
     item: WorkItem,
     tx: mpsc::UnboundedSender<WorkerMsg>,
     cancellation_token: CancellationToken,
 ) {
-    // Top-down pipeline: checkpoint -> extract -> compress -> emit terminal.
     if cancel_before_start(&item, &tx, &cancellation_token) {
         return;
     }
     let Some(prepared) = extract_phase(&item, registry, &tx).await else {
         return;
     };
+    // `StartCompressing` doubles as "start writing output" for both modes so the
+    // existing Pending→Extracting→Compressing→Completed state machine is reused.
     let _ = tx.send(WorkerMsg::Status {
         task: item.task,
         event: TaskEvent::StartCompressing,
     });
-    let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
-    let ctx = CompressContext::new(item.task, reporter, cancellation_token);
-    let event = map_archive_result(archiver.compress(prepared.dir(), &item.dest, &ctx).await);
+    let event = match item.mode {
+        OutputMode::Zip => {
+            let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
+            let ctx = CompressContext::new(item.task, reporter, cancellation_token);
+            map_archive_result(archiver.compress(prepared.dir(), &item.dest, &ctx).await)
+        }
+        OutputMode::Folder => map_place_result(placer.place(prepared.dir(), &item.dest).await),
+    };
     let _ = tx.send(WorkerMsg::Status {
         task: item.task,
         event,
@@ -278,10 +311,21 @@ fn map_archive_result(result: Result<(), ArchiveError>) -> TaskEvent {
     }
 }
 
+/// Maps a place result to the terminal `TaskEvent`: `Ok -> Complete`, else `Fail`.
+fn map_place_result(result: Result<PathBuf, PlaceError>) -> TaskEvent {
+    match result {
+        Ok(_) => TaskEvent::Complete,
+        Err(e) => TaskEvent::Fail {
+            reason: e.to_string(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::application::ports::{ArchiveError, ExtractError, ExtractedTree, Extractor};
+    use crate::application::ports::{PlaceError, Placer};
     use crate::application::progress::{JobProgress, ProgressSink};
     use crate::domain::naming_rule::NamingRule;
     use crate::domain::output_directory::OutputDirectory;
@@ -386,6 +430,31 @@ mod tests {
         }
     }
 
+    /// A fake placer: records each dest it is asked to place and always succeeds
+    /// (returns the desired path). The engine test only checks that place was
+    /// called with the right destination paths; it does not create on-disk state.
+    struct FakePlacer {
+        placed: Arc<Mutex<Vec<std::path::PathBuf>>>,
+    }
+    impl FakePlacer {
+        fn new() -> Self {
+            Self {
+                placed: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
+    impl Placer for FakePlacer {
+        async fn place(
+            &self,
+            src_tree: &Path,
+            desired_dest: &Path,
+        ) -> Result<std::path::PathBuf, PlaceError> {
+            assert!(src_tree.is_dir(), "placer receives a real extracted dir");
+            self.placed.lock().unwrap().push(desired_dest.to_path_buf());
+            Ok(desired_dest.to_path_buf())
+        }
+    }
+
     #[derive(Default)]
     struct RecordingSink(Mutex<Vec<JobProgress>>);
     impl ProgressSink for RecordingSink {
@@ -423,7 +492,12 @@ mod tests {
         let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let fake = Arc::new(FakeArchiver::new());
         let calls = fake.call_count();
-        let engine = RunArchiveJob::new(fake, Arc::new(FakeExtractor::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            fake,
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let cancel = CancellationToken::new();
@@ -450,7 +524,12 @@ mod tests {
         let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let extractor = Arc::new(FakeExtractor::new());
         let calls = extractor.calls.clone();
-        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            extractor,
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let cancel = CancellationToken::new();
@@ -480,6 +559,7 @@ mod tests {
         let engine = RunArchiveJob::new(
             Arc::new(FakeArchiver::new()),
             Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
             nz(2),
         );
         let sink = RecordingSink::default();
@@ -497,7 +577,12 @@ mod tests {
         let id: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let mut fake = FakeArchiver::new();
         fake.fail_names.insert("f2.zip".to_string());
-        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(fake),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = engine.execute(job, &clock, &sink).await;
@@ -519,7 +604,12 @@ mod tests {
         let id: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let mut fake = FakeArchiver::new();
         fake.cancel_names.insert("f2.zip".to_string());
-        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(fake),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -588,7 +678,12 @@ mod tests {
         // parallelism 2 so the target can be in `compress` (awaiting the sibling)
         // while the sibling runs to completion; `Notify::notify_one` is sticky, so
         // the order in which the two enter `compress` does not matter.
-        let engine = RunArchiveJob::new(archiver, Arc::new(FakeExtractor::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            archiver,
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -627,7 +722,12 @@ mod tests {
 
         let extractor = Arc::new(FakeExtractor::new());
         let calls = extractor.calls.clone();
-        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            extractor,
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -665,7 +765,12 @@ mod tests {
 
         let extractor = Arc::new(FakeExtractor::new());
         let calls = extractor.calls.clone();
-        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            extractor,
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -706,6 +811,7 @@ mod tests {
         let engine = RunArchiveJob::new(
             Arc::new(FakeArchiver::new()),
             Arc::new(fake_extractor),
+            Arc::new(FakePlacer::new()),
             nz(2),
         );
         let sink = RecordingSink::default();
@@ -738,6 +844,7 @@ mod tests {
         let engine = RunArchiveJob::new(
             Arc::new(FakeArchiver::new()),
             Arc::new(fake_extractor),
+            Arc::new(FakePlacer::new()),
             nz(2),
         );
         let sink = RecordingSink::default();
@@ -758,6 +865,7 @@ mod tests {
         let engine = RunArchiveJob::new(
             Arc::new(FakeArchiver::new()),
             Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
             nz(2),
         );
         let sink = RecordingSink::default();
@@ -780,7 +888,12 @@ mod tests {
         let mut fake = FakeArchiver::new();
         fake.barrier = Some(barrier.clone());
         let max_live = fake.max_live.clone();
-        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(fake),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         // A Barrier(2) only releases if both workers are inside compress at once;
@@ -805,7 +918,12 @@ mod tests {
         let mut fake = FakeArchiver::new();
         fake.barrier = Some(barrier.clone());
         let max_live = fake.max_live.clone();
-        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(fake),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = tokio::time::timeout(
@@ -851,6 +969,7 @@ mod tests {
         let engine = RunArchiveJob::new(
             Arc::new(FakeArchiver::new()),
             Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
             nz(2),
         );
         let sink = RecordingSink::default();
@@ -870,6 +989,48 @@ mod tests {
                 .iter()
                 .any(|s| s.per_task.iter().any(|e| e.eta.is_some())),
             "at least one snapshot must carry a per-task ETA once throughput is known"
+        );
+    }
+
+    #[tokio::test]
+    async fn folder_mode_extracts_and_places_each_archive_by_name() {
+        // Two archives → two placements at /out/a and /out/b (no compress calls).
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("/in/a.rar")),
+            SourceItem::ZipFile(PathBuf::from("/in/b.zip")),
+        ];
+        let job =
+            ArchiveJob::plan_extract(items, OutputDirectory::new(PathBuf::from("/out"))).unwrap();
+        let expected: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        let archiver = Arc::new(FakeArchiver::new());
+        let archiver_calls = archiver.call_count();
+        let placer = Arc::new(FakePlacer::new());
+        let placed = placer.placed.clone();
+        let engine = RunArchiveJob::new(archiver, Arc::new(FakeExtractor::new()), placer, nz(2));
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        // Both tasks succeed via extract → place (Compressing reused as the write
+        // phase), and the archiver's compress() is never called in Folder mode.
+        let mut succeeded = summary.succeeded.clone();
+        succeeded.sort_by_key(|i| i.get());
+        let mut want = expected.clone();
+        want.sort_by_key(|i| i.get());
+        assert_eq!(succeeded, want);
+        assert_eq!(
+            archiver_calls.load(Ordering::SeqCst),
+            0,
+            "no compression in Folder mode"
+        );
+
+        let mut placed = placed.lock().unwrap().clone();
+        placed.sort();
+        assert_eq!(
+            placed,
+            vec![PathBuf::from("/out/a"), PathBuf::from("/out/b")]
         );
     }
 }

@@ -169,6 +169,7 @@ describe("App", () => {
         items: [{ path: "/a.rar", kind: "rar" }],
         namingTemplate: "photo_{n:03}",
         outputDir: "/out",
+        outputMode: "zip",
       },
     });
 
@@ -252,7 +253,12 @@ describe("App", () => {
       // Seed an existing destination so the mount effect bails before
       // resolving the default. Merged into a single setState call.
       useJobStore.setState({
-        draft: { items: [], namingTemplate: null, outputDir: "/already/set" },
+        draft: {
+          items: [],
+          namingTemplate: null,
+          outputDir: "/already/set",
+          outputMode: "zip",
+        },
         setOutputDir: setOutputDirSpy,
       });
 
@@ -310,7 +316,12 @@ describe("App", () => {
       // pending. The post-await store re-check must keep this value intact.
       act(() => {
         useJobStore.setState({
-          draft: { items: [], namingTemplate: null, outputDir: "/user/picked" },
+          draft: {
+            items: [],
+            namingTemplate: null,
+            outputDir: "/user/picked",
+            outputMode: "zip",
+          },
         });
       });
 

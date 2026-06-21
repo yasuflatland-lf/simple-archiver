@@ -35,7 +35,12 @@ function runReasonText(run: HTMLElement): string | null {
 describe("RunControls – button visibility", () => {
   it("shows only Run when not running", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -47,7 +52,12 @@ describe("RunControls – button visibility", () => {
 
   it("shows only Cancel when running", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: true,
       error: null,
       summary: null,
@@ -61,7 +71,12 @@ describe("RunControls – button visibility", () => {
 describe("RunControls – Run disabled reasons (accessible)", () => {
   it("marks Run aria-disabled and describes the no-items reason", () => {
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -75,7 +90,12 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
 
   it("describes the no-output-dir reason when items present but outputDir null", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -90,7 +110,12 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
 
   it("is not aria-disabled and has no reason when ready", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -107,7 +132,12 @@ describe("RunControls – Run action guard", () => {
   it("does NOT call runJob when Run is clicked while disabled (no items)", async () => {
     const runJob = vi.fn();
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -122,7 +152,12 @@ describe("RunControls – Run action guard", () => {
   it("calls runJob when ready", async () => {
     const runJob = vi.fn();
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -137,7 +172,12 @@ describe("RunControls – Run action guard", () => {
   it("does NOT call runJob when Enter is pressed while Run is disabled", async () => {
     const runJob = vi.fn();
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -153,7 +193,12 @@ describe("RunControls – Run action guard", () => {
 
   it("keeps Run focusable while disabled (aria-disabled, not native disabled)", () => {
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -168,7 +213,12 @@ describe("RunControls – Run action guard", () => {
   it("does NOT call runJob when disabled for the no-output-dir reason", async () => {
     const runJob = vi.fn();
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -186,7 +236,12 @@ describe("RunControls – Run action guard", () => {
     // condition fires).
     const runJob = vi.fn();
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -202,7 +257,12 @@ describe("RunControls – Run action guard", () => {
 describe("RunControls – ReadinessChip", () => {
   it("shows 'Add files' chip when idle with no items", () => {
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -213,7 +273,12 @@ describe("RunControls – ReadinessChip", () => {
 
   it("shows 'Choose a destination' chip when idle with items but no outputDir", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -224,7 +289,12 @@ describe("RunControls – ReadinessChip", () => {
 
   it("shows 'Ready' chip with success styling when idle and ready", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -240,7 +310,12 @@ describe("RunControls – ReadinessChip", () => {
 
   it("does NOT render the readiness chip when running (Cancel state)", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: true,
       error: null,
       summary: null,
@@ -255,7 +330,12 @@ describe("RunControls – ReadinessChip", () => {
 describe("RunControls – Cancel button", () => {
   it("does not render Cancel when not running", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: false,
       error: null,
       summary: null,
@@ -267,7 +347,12 @@ describe("RunControls – Cancel button", () => {
   it("renders Cancel and calls cancelJob when running", async () => {
     const cancelJob = vi.fn();
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: "/out" },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+      },
       running: true,
       error: null,
       summary: null,

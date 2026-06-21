@@ -12,6 +12,7 @@ pub fn run() {
             presentation::commands::reorder,
             presentation::commands::set_naming_rule,
             presentation::commands::set_output_dir,
+            presentation::commands::set_output_mode,
             presentation::commands::clear_items,
             presentation::commands::run_job,
             presentation::commands::cancel_job
