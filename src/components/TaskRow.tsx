@@ -1,17 +1,11 @@
 import { memo } from "react";
 import { useShallow } from "zustand/react/shallow";
 
-import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
-import type { ProgressEvent } from "@/bindings/ProgressEvent";
+import type { SourceKind } from "@/bindings/SourceKind";
 import { Progress } from "@/components/ui/progress";
-import {
-  formatByteProgress,
-  formatBytes,
-  formatEta,
-  progressPercent,
-} from "@/lib/format";
+import { formatBytes, formatEta, progressPercent } from "@/lib/format";
 import { basename } from "@/lib/path";
-import { statusVisual, taskOutcomeFor } from "@/lib/status";
+import { computeStatus } from "@/lib/status";
 import { useJobStore } from "@/store/jobStore";
 
 // ---------------------------------------------------------------------------
@@ -21,78 +15,15 @@ import { useJobStore } from "@/store/jobStore";
 // Base styling shared by every kind badge; the per-kind colors are appended.
 const KIND_BADGE_BASE =
   "inline-block rounded px-1.5 py-0.5 text-xs font-medium";
-const KIND_BADGE_COLORS = {
+const KIND_BADGE_COLORS: Record<SourceKind, string> = {
   folder: "bg-category-folder-subtle text-category-folder-foreground",
   rar: "bg-category-archive-subtle text-category-archive-foreground",
   zip: "bg-category-archive-subtle text-category-archive-foreground",
-} as const;
+};
 
 // Styling shared by both reorder buttons (Move up / Move down).
 const REORDER_BUTTON_CLASS =
   "rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Compute the text display status for a single task at position `index`.
- *
- * Priority:
- * 1. running=true  → bytes from perTask[index], else "Processing". NOTE: when a
- *    per-task entry exists this returns a "<done> / <total> bytes" string, but
- *    the row renders the live progress bar (not text) whenever an entry exists,
- *    so that bytes string is only displayed in the transient window where
- *    `running` is true yet this row's per-task entry has not arrived — i.e. in
- *    practice only the "Processing" fallback of this branch is ever shown.
- * 2. summary≠null  → maps row `index` → taskId via taskIdByIndex[index], then
- *    membership-tests that id against summary.succeeded / summary.cancelled /
- *    summary.failed. This relies on the positional-alignment invariant:
- *    taskIdByIndex is index-aligned with draft.items (position 0 in
- *    taskIdByIndex corresponds to position 0 in draft.items, etc.).
- * 3. default        → "Waiting"
- */
-function computeStatus(
-  index: number,
-  running: boolean,
-  progress: ProgressEvent | null,
-  summary: JobSummaryDto | null,
-  taskIdByIndex: number[],
-): string {
-  if (running) {
-    const entry = progress?.perTask[index];
-    if (entry !== undefined) {
-      return formatByteProgress(entry.bytesDone, entry.bytesTotal);
-    }
-    return "Processing";
-  }
-
-  if (summary !== null) {
-    const taskId = taskIdByIndex[index];
-    if (taskId === undefined) {
-      return "Done";
-    }
-    // Delegate the summary → outcome rule to the shared lib/status helper so
-    // the membership-testing lives in exactly one place; this branch only maps
-    // the resolved outcome back to its rendered string.
-    const outcome = taskOutcomeFor(taskId, summary);
-    switch (outcome.kind) {
-      case "succeeded":
-        return statusVisual("succeeded").label;
-      case "cancelled":
-        return statusVisual("cancelled").label;
-      case "failed":
-        return `${statusVisual("failed").label}: ${outcome.reason}`;
-      default:
-        // `done` (id in no bucket) and `pending` (no summary) — neither is
-        // reachable here (summary is non-null and taskId is defined), but both
-        // map to the same "Done" string the original linear scan produced.
-        return "Done";
-    }
-  }
-
-  return "Waiting";
-}
 
 // ---------------------------------------------------------------------------
 // Component

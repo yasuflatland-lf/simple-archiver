@@ -1,18 +1,5 @@
-import { statusVisual } from "@/lib/status";
+import { outputNameForTask, statusVisual } from "@/lib/status";
 import { useJobStore } from "@/store/jobStore";
-
-// Map a failed task id back to its output preview name via the positional
-// alignment invariant (taskIdByIndex[i] <-> previewNames[i]); fall back to the
-// raw id when alignment is unavailable.
-function outputNameForTask(
-  taskId: number,
-  previewNames: string[],
-  taskIdByIndex: number[],
-): string {
-  const index = taskIdByIndex.indexOf(taskId);
-  const name = index >= 0 ? previewNames[index] : undefined;
-  return name ?? `task ${taskId}`;
-}
 
 /**
  * RunSummary is the completion panel shown after a job finishes. It is a pure
