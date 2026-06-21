@@ -1,25 +1,9 @@
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubMatchMedia } from "@/test/stub-match-media";
 
-import { ThemeProvider, useTheme } from "./theme-provider";
-
-function Probe() {
-  const { theme, setTheme } = useTheme();
-  return (
-    <div>
-      <span data-testid="theme">{theme}</span>
-      <button type="button" onClick={() => setTheme("dark")}>
-        to-dark
-      </button>
-      <button type="button" onClick={() => setTheme("light")}>
-        to-light
-      </button>
-    </div>
-  );
-}
+import { ThemeProvider } from "./theme-provider";
 
 beforeEach(() => {
   localStorage.clear();
@@ -32,65 +16,54 @@ afterEach(() => {
 });
 
 describe("ThemeProvider", () => {
-  it("defaults to system and applies the OS dark preference", () => {
+  it("applies the OS dark preference to <html>", () => {
     stubMatchMedia(true);
     render(
       <ThemeProvider>
-        <Probe />
+        <div />
       </ThemeProvider>,
     );
-    expect(screen.getByTestId("theme").textContent).toBe("system");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("light")).toBe(false);
   });
 
-  it("adds .dark and persists when switched to dark", async () => {
-    const user = userEvent.setup();
+  it("applies the OS light preference to <html>", () => {
+    stubMatchMedia(false);
     render(
       <ThemeProvider>
-        <Probe />
+        <div />
       </ThemeProvider>,
     );
-    await user.click(screen.getByRole("button", { name: "to-dark" }));
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
-    expect(localStorage.getItem("simple-archiver-theme")).toBe("dark");
-  });
-
-  it("removes .dark when switched to light", async () => {
-    const user = userEvent.setup();
-    render(
-      <ThemeProvider defaultTheme="dark">
-        <Probe />
-      </ThemeProvider>,
-    );
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
-    await user.click(screen.getByRole("button", { name: "to-light" }));
+    expect(document.documentElement.classList.contains("light")).toBe(true);
     expect(document.documentElement.classList.contains("dark")).toBe(false);
   });
 
-  it("restores the persisted theme on remount", () => {
+  it("ignores any previously persisted theme and follows the OS", () => {
+    // A stale choice from an older app version must not override the OS.
     localStorage.setItem("simple-archiver-theme", "dark");
+    stubMatchMedia(false);
     render(
       <ThemeProvider>
-        <Probe />
+        <div />
       </ThemeProvider>,
     );
-    expect(screen.getByTestId("theme").textContent).toBe("dark");
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
   });
 
-  it("falls back to the default when the persisted value is not a valid theme", () => {
-    localStorage.setItem("simple-archiver-theme", "auto");
+  it("removes a stale class before applying the resolved one", () => {
+    document.documentElement.classList.add("dark");
+    stubMatchMedia(false);
     render(
       <ThemeProvider>
-        <Probe />
+        <div />
       </ThemeProvider>,
     );
-    expect(screen.getByTestId("theme").textContent).toBe("system");
-    expect(document.documentElement.classList.contains("auto")).toBe(false);
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
     expect(document.documentElement.classList.contains("light")).toBe(true);
   });
 
-  it("re-applies the resolved class when the OS preference changes in system mode", () => {
+  it("re-applies the resolved class when the OS preference changes", () => {
     const handlers: Array<() => void> = [];
     const media = {
       matches: false,
@@ -107,11 +80,11 @@ describe("ThemeProvider", () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(media));
     render(
       <ThemeProvider>
-        <Probe />
+        <div />
       </ThemeProvider>,
     );
     expect(document.documentElement.classList.contains("light")).toBe(true);
-    // Simulate the OS switching to dark while the user stays on "system".
+    // The OS switches to dark; the app must follow without any user action.
     media.matches = true;
     for (const cb of handlers) cb();
     expect(document.documentElement.classList.contains("dark")).toBe(true);
