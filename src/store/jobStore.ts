@@ -48,7 +48,7 @@ export interface JobState {
    * effective template (the draft template, or DEFAULT_TEMPLATE before one has
    * been pushed) at sequence 1. Independent of draft.items so the OUTPUT group
    * shows a representative filename even with an empty queue. This is the single
-   * source of truth for OutputSettings' full-path hero — it does not run its own
+   * source of truth for the left rail's full-path hero — it does not run its own
    * preview pipeline. Tri-state mirroring the old component-local convention:
    *   null  = loading (a recompute is pending / in flight),
    *   ""    = the preview could not be resolved (error path),
@@ -335,7 +335,7 @@ export function resetJobStore(): void {
 
 /**
  * Select the single hero preview filename for the OUTPUT group. This is the one
- * source of preview truth OutputSettings reads (it no longer runs its own
+ * source of preview truth the left rail reads (it no longer runs its own
  * debounced previewOutputName pipeline). Tri-state: null = loading, "" = error,
  * <str> = resolved filename.
  */

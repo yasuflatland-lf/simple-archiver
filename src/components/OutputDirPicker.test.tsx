@@ -77,13 +77,13 @@ describe("OutputDirPicker", () => {
     expect(screen.queryByText("(not set)")).toBeNull();
   });
 
-  it("invokes the directory picker when the Choose button is clicked", async () => {
+  it("invokes the directory picker when the Change button is clicked", async () => {
     vi.mocked(pickDirectory).mockResolvedValue(null);
     const user = userEvent.setup();
 
     render(<OutputDirPicker />);
 
-    await user.click(screen.getByRole("button", { name: /choose/i }));
+    await user.click(screen.getByRole("button", { name: /change/i }));
 
     await waitFor(() => {
       expect(vi.mocked(pickDirectory)).toHaveBeenCalled();
@@ -98,7 +98,7 @@ describe("OutputDirPicker", () => {
 
     render(<OutputDirPicker />);
 
-    await user.click(screen.getByRole("button", { name: /choose/i }));
+    await user.click(screen.getByRole("button", { name: /change/i }));
 
     await waitFor(() => {
       expect(setOutputDir).toHaveBeenCalledWith("/picked/dir");
@@ -113,7 +113,7 @@ describe("OutputDirPicker", () => {
 
     render(<OutputDirPicker />);
 
-    await user.click(screen.getByRole("button", { name: /choose/i }));
+    await user.click(screen.getByRole("button", { name: /change/i }));
 
     await waitFor(() => {
       expect(vi.mocked(pickDirectory)).toHaveBeenCalled();
@@ -130,7 +130,7 @@ describe("OutputDirPicker", () => {
 
     render(<OutputDirPicker />);
 
-    await user.click(screen.getByRole("button", { name: /choose/i }));
+    await user.click(screen.getByRole("button", { name: /change/i }));
 
     await waitFor(() => {
       expect(useJobStore.getState().error).toBe("disk fail");

@@ -53,7 +53,9 @@ describe("StatusBar", () => {
     expect(screen.getByText(/1 item queued/i)).toBeTruthy();
   });
 
-  it("shows the overall progress bar while running", () => {
+  // The visible aggregate progress bar moved to the right canvas; the slim
+  // footer must NOT render it anymore.
+  it("does not render the overall progress bar in the footer while running", () => {
     useJobStore.setState({
       progress: {
         overall: { bytesDone: 5, bytesTotal: 10 },
@@ -63,7 +65,7 @@ describe("StatusBar", () => {
       },
     });
     render(<StatusBar />);
-    expect(screen.getByRole("progressbar")).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
   it("announces the mode-aware verb while a folder job runs", () => {
@@ -110,13 +112,14 @@ describe("StatusBar", () => {
     expect(screen.getByText(/archived 2/i)).toBeTruthy();
   });
 
-  it("shows the results summary when a job has finished", () => {
+  // The run summary moved to the right canvas; the slim footer must NOT render
+  // it anymore (no role="status" panel in the footer).
+  it("does not render the run summary panel in the footer when a job has finished", () => {
     useJobStore.setState({
       summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
     });
     render(<StatusBar />);
-    // RunSummary (PR10) renders with role="status".
-    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
 

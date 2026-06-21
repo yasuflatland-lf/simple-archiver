@@ -36,8 +36,9 @@ interface AddSourceButtonsProps {
 }
 
 /**
- * The two browse fallbacks for adding sources: a rar/zip-filtered file picker and a
- * folder picker. Rendered by EmptyQueue (always) and by the SetupToolbar action bar (only when the queue has items).
+ * The two browse fallbacks for adding sources: a rar/zip-filtered file picker and
+ * a folder picker. Rendered by EmptyQueue (the empty-state drop zone in the right
+ * canvas) as the keyboard / no-drag fallback for adding sources.
  */
 export function AddSourceButtons({ size = "sm" }: AddSourceButtonsProps) {
   return (

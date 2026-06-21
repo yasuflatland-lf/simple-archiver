@@ -3,10 +3,9 @@ import { useEffect } from "react";
 import "./App.css";
 import { AppShell } from "@/components/AppShell";
 import { DropOverlay } from "@/components/DropOverlay";
-import { EmptyQueue } from "@/components/EmptyQueue";
-import { SetupToolbar } from "@/components/SetupToolbar";
+import { LeftRail } from "@/components/LeftRail";
+import { RightCanvas } from "@/components/RightCanvas";
 import { StatusBar } from "@/components/StatusBar";
-import { TaskList } from "@/components/TaskList";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { subscribeProgress } from "@/lib/archive";
 import { resolveInitialOutputDir } from "@/lib/output-dir-default";
@@ -14,7 +13,6 @@ import { useJobStore } from "@/store/jobStore";
 
 function App() {
   const error = useJobStore((s) => s.error);
-  const hasItems = useJobStore((s) => s.draft.items.length > 0);
   // Single OS drag-drop subscription for the whole app; drives DropOverlay.
   const { isDragging } = useFileDrop();
 
@@ -94,12 +92,8 @@ function App() {
 
   return (
     <>
-      <AppShell
-        toolbar={<SetupToolbar />}
-        banner={banner}
-        statusBar={<StatusBar />}
-      >
-        {hasItems ? <TaskList /> : <EmptyQueue />}
+      <AppShell rail={<LeftRail />} banner={banner} statusBar={<StatusBar />}>
+        <RightCanvas />
       </AppShell>
       <DropOverlay visible={isDragging} />
     </>

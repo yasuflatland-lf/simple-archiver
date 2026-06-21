@@ -1,8 +1,6 @@
 import { RotateCcw } from "lucide-react";
 import * as React from "react";
 
-import { OverallProgress } from "@/components/OverallProgress";
-import { RunSummary } from "@/components/RunSummary";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { verbForMode } from "@/lib/wording";
@@ -33,12 +31,15 @@ const NEW_BATCH_CONFIG: ResetDialogConfig = {
 };
 
 /**
- * The footer (AppShell's `statusBar` slot): the post-run observation zone.
- * While a job runs, `OverallProgress` shows the aggregate bar + ETA; once it
- * finishes, `RunSummary` shows the Succeeded/Failed/Cancelled projection. When
- * idle (no progress, no summary) the left slot shows a quiet hint so the footer
- * is never empty chrome. OverallProgress and RunSummary each keep their own
- * internal null-guards for when they are mounted but their store slice is null.
+ * The slim status footer (AppShell's `statusBar` slot). It is a quiet status
+ * line plus the queue Reset/Clear action. The aggregate progress bar and the
+ * run summary no longer live here — they render in the right canvas (the
+ * morphing work area), so the footer stays slim.
+ *
+ * The left slot shows a quiet hint: a Ready/queued-count line when idle, and an
+ * sr-only mode-aware live announcement ("extracted N" / "archived N") while a
+ * job is in flight so screen-reader users hear progress that matches the
+ * finished RunSummary copy.
  *
  * The right slot holds a Reset button that is visible when there are queued
  * items and no job is running. It opens a ConfirmDialog before calling the
@@ -78,32 +79,25 @@ export function StatusBar() {
     setDialogOpen(false);
   }
 
-  const leftContent =
-    !hasProgress && !hasSummary ? (
-      <p className="text-xs text-muted-foreground">
-        {itemCount === 0
-          ? "Ready — add files or folders to begin."
-          : `${itemCount} item${itemCount === 1 ? "" : "s"} queued`}
-      </p>
-    ) : (
-      <div className="flex flex-col gap-2">
-        {/* While a job is in flight (progress, no summary yet) announce the
-            mode-aware action so screen-reader users hear "extracted"/"archived"
-            consistent with the finished RunSummary copy. */}
-        {hasProgress && !hasSummary ? (
-          <p className="sr-only" aria-live="polite">
-            {verb} {itemCount}
-          </p>
-        ) : null}
-        <OverallProgress />
-        <RunSummary />
-      </div>
-    );
-
   return (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">{leftContent}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          {/* While a job is in flight (progress, no summary yet) announce the
+              mode-aware action so screen-reader users hear "extracted"/"archived"
+              consistent with the finished RunSummary copy. The visible aggregate
+              bar lives in the canvas; this footer only carries the sr-only line. */}
+          {hasProgress && !hasSummary ? (
+            <p className="sr-only" aria-live="polite">
+              {verb} {itemCount}
+            </p>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            {itemCount === 0
+              ? "Ready — add files or folders to begin."
+              : `${itemCount} item${itemCount === 1 ? "" : "s"} queued`}
+          </p>
+        </div>
         {/* Reset slot — fixed height to avoid footer reflow when it appears/disappears. */}
         <div className="flex h-8 shrink-0 items-center">
           {showReset && (
