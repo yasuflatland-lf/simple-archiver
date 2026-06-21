@@ -34,7 +34,7 @@ export function TaskList() {
             <th className="pb-2 pr-3">Source</th>
             <th className="pb-2 pr-3">Output</th>
             <th className="pb-2 pr-3">Status</th>
-            <th className="pb-2">Reorder</th>
+            <th className="pb-2">Actions</th>
           </tr>
         </thead>
         <tbody>

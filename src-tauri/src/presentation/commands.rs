@@ -80,6 +80,14 @@ pub fn reorder(
     Ok(draft.snapshot())
 }
 
+/// Remove the draft item at `index`, returning the new snapshot.
+#[tauri::command]
+pub fn remove_item(state: State<'_, AppState>, index: usize) -> Result<DraftSnapshot, String> {
+    let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+    draft.remove_item(index)?;
+    Ok(draft.snapshot())
+}
+
 /// Set the draft's naming template, returning the new snapshot.
 #[tauri::command]
 pub fn set_naming_rule(
