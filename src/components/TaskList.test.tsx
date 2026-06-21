@@ -766,6 +766,59 @@ describe("TaskList pointer reorder", () => {
       expect(row.className).toContain("select-none");
     }
   });
+
+  // Task-4 regression: interior bottom-half coalesces to next row's top edge
+  // (single-line-per-gap invariant), and pointercancel backstop resets drag.
+
+  it("bottom-half hover on an interior row draws a top line on the NEXT row (single-line-per-gap invariant)", () => {
+    // The insertion-gap logic maps gap g to row[g]'s top edge for interior gaps,
+    // and to the last row's bottom edge for the trailing gap only.
+    // Hovering the bottom half of an interior row (rows[1]) yields gap = 2, which
+    // must render as rows[2].data-drop-edge="top" — NOT a bottom line on rows[1].
+    // This test fails if the implementation draws "bottom" on rows[1] instead of
+    // coalescing to the equivalent "top" on rows[2].
+    setItems(3);
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    stubRect(rows[1], 20);
+
+    fireEvent.pointerDown(handle(0));
+    // Bottom half of interior row 1 -> gap = 1 + 1 = 2.
+    fireEvent.pointerMove(rows[1], { clientY: bottomHalf(20) });
+
+    // Gap 2 is interior (not the trailing gap), so it renders as rows[2]'s top edge.
+    expect(rows[2].getAttribute("data-drop-edge")).toBe("top");
+    // rows[1] must carry no insertion line (it is the hovered row, not the gap marker).
+    expect(rows[1].getAttribute("data-drop-edge")).toBeNull();
+    // rows[0] is the dragged row — never shows an edge.
+    expect(rows[0].getAttribute("data-drop-edge")).toBeNull();
+  });
+
+  it("pointercancel mid-drag clears dragging and drop-edge state", () => {
+    // The window-level pointercancel listener in ReorderDndProvider is the backstop
+    // for OS-interrupt scenarios (e.g. incoming call, focus loss on mobile).
+    // This test fails if that listener is absent or does not call reset().
+    setItems(3);
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    stubRect(rows[2], 40);
+    fireEvent.pointerDown(handle(0));
+    fireEvent.pointerMove(rows[2], { clientY: topHalf(40) });
+
+    // Verify drag is active before cancelling.
+    expect(rows[0].getAttribute("data-dragging")).toBe("true");
+    expect(rows[2].getAttribute("data-drop-edge")).toBe("top");
+
+    // Simulate an OS-level pointer cancel (bubbles up to window).
+    fireEvent.pointerCancel(document.body);
+
+    const after = bodyRows();
+    // Both dragging and drop-edge flags must be cleared after cancel.
+    expect(after[0].getAttribute("data-dragging")).toBeNull();
+    expect(after[2].getAttribute("data-drop-edge")).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
