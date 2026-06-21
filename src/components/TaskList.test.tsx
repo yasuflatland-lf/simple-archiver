@@ -509,6 +509,27 @@ describe("TaskList pointer reorder", () => {
     return screen.getByTestId(`reorder-handle-${index}`);
   }
 
+  // jsdom has no layout, so getBoundingClientRect returns zeros. Stub a row's rect
+  // so the pointer-Y vs midpoint math (insert-above vs insert-below) is exercised.
+  function stubRect(row: HTMLElement, top: number, height = 20) {
+    row.getBoundingClientRect = () =>
+      ({
+        top,
+        height,
+        bottom: top + height,
+        left: 0,
+        right: 0,
+        width: 0,
+        x: 0,
+        y: top,
+        toJSON() {},
+      }) as DOMRect;
+  }
+  // Pointer Y in the TOP half of a row whose rect starts at `top`.
+  const topHalf = (top: number) => top + 4;
+  // Pointer Y in the BOTTOM half of a row whose rect starts at `top`.
+  const bottomHalf = (top: number) => top + 16;
+
   it("exposes an enabled drag handle for each item row when idle", () => {
     setItems(3);
     render(<TaskList />);
@@ -518,28 +539,32 @@ describe("TaskList pointer reorder", () => {
     }
   });
 
-  it("calls reorder(from, to) when a row is dragged onto a lower row", () => {
+  it("reorders a row downward when dropped on the lower half of a lower row", () => {
     const reorder = vi.fn().mockResolvedValue(undefined);
     setItems(3, { reorder });
     render(<TaskList />);
 
     const rows = bodyRows();
+    stubRect(rows[2], 40);
     fireEvent.pointerDown(handle(0));
-    fireEvent.pointerMove(rows[2]);
-    fireEvent.pointerUp(rows[2]);
+    // Bottom half of the last row -> gap = 3 (after last). from=0 -> to=2.
+    fireEvent.pointerMove(rows[2], { clientY: bottomHalf(40) });
+    fireEvent.pointerUp(rows[2], { clientY: bottomHalf(40) });
 
     expect(reorder).toHaveBeenCalledWith(0, 2);
   });
 
-  it("calls reorder(from, to) when a row is dragged onto a higher row", () => {
+  it("reorders a row upward when dropped on the upper half of a higher row", () => {
     const reorder = vi.fn().mockResolvedValue(undefined);
     setItems(3, { reorder });
     render(<TaskList />);
 
     const rows = bodyRows();
+    stubRect(rows[0], 0);
     fireEvent.pointerDown(handle(2));
-    fireEvent.pointerMove(rows[0]);
-    fireEvent.pointerUp(rows[0]);
+    // Top half of the first row -> gap = 0. from=2, gap<=from -> to=0.
+    fireEvent.pointerMove(rows[0], { clientY: topHalf(0) });
+    fireEvent.pointerUp(rows[0], { clientY: topHalf(0) });
 
     expect(reorder).toHaveBeenCalledWith(2, 0);
   });
@@ -556,17 +581,29 @@ describe("TaskList pointer reorder", () => {
     expect(reorder).not.toHaveBeenCalled();
   });
 
-  it("marks the hovered row as the drop target while dragging another row", () => {
+  it("shows a top drop-line on the row whose upper half is hovered", () => {
     setItems(3);
     render(<TaskList />);
 
     const rows = bodyRows();
+    stubRect(rows[2], 40);
     fireEvent.pointerDown(handle(0));
-    fireEvent.pointerMove(rows[2]);
+    fireEvent.pointerMove(rows[2], { clientY: topHalf(40) });
 
-    expect(rows[2].getAttribute("data-drop-target")).toBe("true");
-    expect(rows[0].getAttribute("data-drop-target")).toBeNull();
+    expect(rows[2].getAttribute("data-drop-edge")).toBe("top");
     expect(rows[0].getAttribute("data-dragging")).toBe("true");
+  });
+
+  it("shows a bottom drop-line on the last row when its lower half is hovered", () => {
+    setItems(3);
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    stubRect(rows[2], 40);
+    fireEvent.pointerDown(handle(0));
+    fireEvent.pointerMove(rows[2], { clientY: bottomHalf(40) });
+
+    expect(rows[2].getAttribute("data-drop-edge")).toBe("bottom");
   });
 
   it("clears the drag state when the pointer is released off the rows", () => {
@@ -574,14 +611,14 @@ describe("TaskList pointer reorder", () => {
     render(<TaskList />);
 
     const rows = bodyRows();
+    stubRect(rows[2], 40);
     fireEvent.pointerDown(handle(0));
-    fireEvent.pointerMove(rows[2]);
-    // Release outside any row (e.g. on the surrounding page chrome).
+    fireEvent.pointerMove(rows[2], { clientY: topHalf(40) });
     fireEvent.pointerUp(document.body);
 
     const after = bodyRows();
     expect(after[0].getAttribute("data-dragging")).toBeNull();
-    expect(after[2].getAttribute("data-drop-target")).toBeNull();
+    expect(after[2].getAttribute("data-drop-edge")).toBeNull();
   });
 
   it("does not reorder while a job is running", () => {

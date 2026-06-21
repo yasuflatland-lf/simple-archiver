@@ -108,13 +108,16 @@ function TaskRowImpl({ index }: TaskRowProps) {
   // reflow cannot strip the right-align padding spaces formatBytes emits.
   const liveLabel = `${formatBytes(row.liveBytesDone ?? 0, row.liveBytesTotal ?? 0)} · ETA ${formatEta(row.liveEtaMs)}`;
 
-  // Drag affordances: dim the row being dragged and highlight the row the
-  // pointer is currently over as the drop target. The grab cursor lives on the
-  // grip handle (the only element that starts a drag), not the whole row.
+  // Drag affordances: dim the row being dragged; draw a 2px insertion line on the
+  // edge where the row would land. A box-shadow (not a real element) avoids table
+  // layout shift. The grab cursor lives on the grip; the whole-row drag cursor is
+  // added in the row-body task.
   const rowClassName = [
     "border-b border-border/50 transition-colors",
     dnd.isDragging ? "opacity-40" : "hover:bg-muted/30",
-    dnd.isOver && "bg-primary/10",
+    dnd.dropEdge === "top" && "shadow-[inset_0_2px_0_0_var(--color-primary)]",
+    dnd.dropEdge === "bottom" &&
+      "shadow-[inset_0_-2px_0_0_var(--color-primary)]",
     // Suppress text selection across the list while any row is being dragged.
     dnd.isDraggingAny && "select-none",
   ]
@@ -125,7 +128,7 @@ function TaskRowImpl({ index }: TaskRowProps) {
     <tr
       {...dnd.rowProps}
       data-dragging={dnd.isDragging || undefined}
-      data-drop-target={dnd.isOver || undefined}
+      data-drop-edge={dnd.dropEdge ?? undefined}
       className={rowClassName}
     >
       {/* Drag column: the grip is the explicit reorder signifier. Pointer-based (not
