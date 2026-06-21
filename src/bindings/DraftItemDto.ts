@@ -4,13 +4,12 @@ import type { SourceKind } from "./SourceKind";
 /**
  * A single draft item: its path and what kind of source it is.
  */
-export type DraftItemDto = {
-  /**
-   * The item's filesystem path (lossy UTF-8).
-   */
-  path: string;
-  /**
-   * Whether the item is a folder, a rar, or a zip.
-   */
-  kind: SourceKind;
-};
+export type DraftItemDto = { 
+/**
+ * The item's filesystem path (lossy UTF-8).
+ */
+path: string, 
+/**
+ * Whether the item is a folder, a rar, or a zip.
+ */
+kind: SourceKind, };

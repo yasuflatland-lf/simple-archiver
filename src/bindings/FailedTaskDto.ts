@@ -3,13 +3,12 @@
 /**
  * A failed task paired with its human-readable reason.
  */
-export type FailedTaskDto = {
-  /**
-   * The raw task id.
-   */
-  taskId: number;
-  /**
-   * Why the task failed.
-   */
-  reason: string;
-};
+export type FailedTaskDto = { 
+/**
+ * The raw task id.
+ */
+taskId: number, 
+/**
+ * Why the task failed.
+ */
+reason: string, };

@@ -16,7 +16,8 @@ use simple_archiver_core::infrastructure::fs_placer::FsPlacer;
 use simple_archiver_core::infrastructure::system_clock::SystemClock;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 
-use crate::presentation::dto::{DraftSnapshot, JobSummaryDto};
+use crate::presentation::dto::{DraftSnapshot, JobSummaryDto, OutputMode};
+use crate::presentation::dto_map::output_mode_to_domain;
 use crate::presentation::events::{EventSink, ProgressEmitter, TauriEmitter};
 use crate::presentation::state::{AppState, RunState};
 
@@ -94,6 +95,17 @@ pub fn set_naming_rule(
 pub fn clear_items(state: State<'_, AppState>) -> Result<DraftSnapshot, String> {
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.clear_items();
+    Ok(draft.snapshot())
+}
+
+/// Set the draft's output mode (re-zip vs extract-to-folder), returning the snapshot.
+#[tauri::command]
+pub fn set_output_mode(
+    state: State<'_, AppState>,
+    mode: OutputMode,
+) -> Result<DraftSnapshot, String> {
+    let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+    draft.set_output_mode(output_mode_to_domain(mode));
     Ok(draft.snapshot())
 }
 
@@ -402,6 +414,28 @@ mod tests {
             .try_start(CancellationToken::new())
             .expect_err("a second claim must be rejected while a job runs");
         assert_eq!(err, "a job is already running");
+    }
+
+    // ── set_output_mode command ───────────────────────────────────────────────
+
+    use crate::presentation::dto::OutputMode;
+
+    #[test]
+    fn set_output_mode_folder_lets_draft_build_without_template() {
+        let state = AppState::default();
+        {
+            let mut draft = state.draft.lock().unwrap();
+            // Mirror the command body: map the wire mode and set it.
+            draft.set_output_mode(
+                crate::presentation::dto_map::output_mode_to_domain(OutputMode::Folder),
+            );
+            draft.add_items(vec![SourceItem::RarFile(PathBuf::from("/in/a.rar"))]);
+            draft.set_out_dir(PathBuf::from("/out"));
+        }
+        let draft = state.draft.lock().unwrap();
+        let snap = draft.snapshot();
+        assert_eq!(snap.output_mode, OutputMode::Folder);
+        assert!(draft.build().is_ok(), "Folder build needs no template");
     }
 
     /// `cancel_job` semantics at the token level: `request_cancel` on the stored

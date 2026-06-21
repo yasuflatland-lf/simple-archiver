@@ -7,7 +7,7 @@
 //! into `src/bindings/` (see the `export_to` attribute); the serde-shape tests
 //! below are the Rust half of the contract and guard against silent drift.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 // Re-export the draft mapping helper from `dto_map` so callers resolve it via
@@ -148,7 +148,7 @@ pub enum SourceKind {
 }
 
 /// The batch output mode chosen in the UI.
-#[derive(Serialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub enum OutputMode {

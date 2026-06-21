@@ -73,8 +73,6 @@ impl From<JobSummary> for JobSummaryDto {
 }
 
 /// Map the wire output mode to the domain output mode.
-// Provided for upcoming command handlers; unused until the set_output_mode command lands.
-#[allow(dead_code)]
 pub(crate) fn output_mode_to_domain(mode: OutputModeDto) -> DomainOutputMode {
     match mode {
         OutputModeDto::Zip => DomainOutputMode::Zip,
