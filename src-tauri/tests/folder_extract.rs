@@ -3,6 +3,7 @@
 use tokio_util::sync::CancellationToken;
 
 use simple_archiver_core::domain::archive_job::ArchiveJob;
+use simple_archiver_core::domain::conflict_policy::ConflictPolicy;
 use simple_archiver_core::domain::output_directory::OutputDirectory;
 use simple_archiver_core::domain::source_item::SourceItem;
 
@@ -36,6 +37,7 @@ async fn folder_mode_extracts_zip_into_named_subfolder() {
     let job = ArchiveJob::plan_extract(
         vec![SourceItem::ZipFile(zip_path)],
         OutputDirectory::new(out.path().to_path_buf()),
+        ConflictPolicy::default(),
     )
     .unwrap();
 

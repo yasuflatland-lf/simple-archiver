@@ -5,6 +5,7 @@
 pub mod archive_format;
 pub mod archive_job;
 pub mod archive_task;
+pub mod conflict_policy;
 pub mod file_name;
 pub mod naming_rule;
 pub mod output_directory;
