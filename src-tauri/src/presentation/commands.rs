@@ -27,7 +27,8 @@ use crate::presentation::state::{AppState, RunState};
 /// boundary (the promise rejects with this message).
 #[tauri::command]
 pub fn preview_output_name(template: String, seq: u32) -> Result<String, String> {
-    let seq = SequenceNumber::new(seq).map_err(|e| e.to_string())?;
+    // Every u32 sequence number is valid, including 0 (start-from-0 numbering).
+    let seq = SequenceNumber::new(seq);
     let rule = NamingRule::parse(&template).map_err(|e| e.to_string())?;
     let name = rule.resolve(seq).map_err(|e| e.to_string())?;
     Ok(name.as_str().to_string())
@@ -84,6 +85,17 @@ pub fn set_naming_rule(
 ) -> Result<DraftSnapshot, String> {
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.set_template(template)?;
+    Ok(draft.snapshot())
+}
+
+/// Set the draft's sequence start number, returning the new snapshot.
+///
+/// `start` may be `0`. Only Zip mode renders filenames from it; Folder mode
+/// ignores it.
+#[tauri::command]
+pub fn set_start_number(state: State<'_, AppState>, start: u32) -> Result<DraftSnapshot, String> {
+    let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+    draft.set_start_number(start);
     Ok(draft.snapshot())
 }
 
@@ -255,9 +267,14 @@ mod tests {
     }
 
     #[test]
-    fn preview_rejects_zero_sequence() {
-        let err = preview_output_name("{n}".to_string(), 0).unwrap_err();
-        assert_eq!(err, "sequence number must be 1 or greater");
+    fn preview_renders_zero_sequence() {
+        // Start-from-0 numbering: seq 0 is valid and renders the bare/zero-filled
+        // number rather than being rejected.
+        assert_eq!(preview_output_name("{n}".to_string(), 0).unwrap(), "0.zip");
+        assert_eq!(
+            preview_output_name("{n:02}".to_string(), 0).unwrap(),
+            "00.zip"
+        );
     }
 
     #[test]

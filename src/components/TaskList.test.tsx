@@ -35,6 +35,7 @@ describe("TaskList rendering", () => {
           { path: "/tmp/photos", kind: "folder" },
         ],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -69,6 +70,7 @@ describe("TaskList rendering", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -88,6 +90,7 @@ describe("TaskList rendering", () => {
       draft: {
         items: [{ path: "/tmp/test.rar", kind: "rar" }],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -116,6 +119,7 @@ describe("TaskList reorder buttons", () => {
       draft: {
         items: makeItems(3),
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -151,6 +155,7 @@ describe("TaskList reorder buttons", () => {
       draft: {
         items: makeItems(3),
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -174,6 +179,7 @@ describe("TaskList reorder buttons", () => {
       draft: {
         items: makeItems(3),
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -202,6 +208,7 @@ describe("TaskList status", () => {
       draft: {
         items: makeItems(2),
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -222,6 +229,7 @@ describe("TaskList status", () => {
       draft: {
         items: makeItems(2),
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -253,6 +261,7 @@ describe("TaskList status", () => {
       draft: {
         items: makeItems(2),
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -278,6 +287,7 @@ describe("TaskList status", () => {
       draft: {
         items: makeItems(3),
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -305,6 +315,7 @@ describe("TaskList status", () => {
       draft: {
         items: makeItems(1),
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -336,6 +347,7 @@ describe("TaskList progress", () => {
       draft: {
         items: [{ path: "/tmp/a.rar", kind: "rar" }],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -361,6 +373,7 @@ describe("TaskList progress", () => {
       draft: {
         items: [{ path: "/tmp/a.rar", kind: "rar" }],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -381,6 +394,7 @@ describe("TaskList progress", () => {
       draft: {
         items: makeItems(3),
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -411,6 +425,7 @@ describe("TaskList progress", () => {
       draft: {
         items: [{ path: "/tmp/a.rar", kind: "rar" }],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",

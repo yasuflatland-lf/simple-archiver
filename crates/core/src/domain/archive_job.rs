@@ -29,7 +29,7 @@ pub enum PlanError {
     /// [`NameError`]. This is intended.
     #[error("could not resolve a name for item #{seq}: {source}")]
     Resolve {
-        /// The 1-based sequence number of the offending item.
+        /// The sequence number of the offending item (`start + index`).
         seq: u32,
         /// The underlying naming failure.
         source: NameError,
@@ -39,6 +39,18 @@ pub enum PlanError {
     DuplicateName {
         /// The colliding filename.
         name: String,
+    },
+    /// The requested numbering range would exceed `u32::MAX`.
+    ///
+    /// Numbering starts at `start` and runs for `count` items, so the highest
+    /// sequence number is `start + count - 1`. When that would exceed `u32::MAX`
+    /// the job is rejected rather than wrapping or panicking.
+    #[error("numbering from {start} for {count} items exceeds u32::MAX")]
+    SequenceOverflow {
+        /// The requested starting sequence number.
+        start: u32,
+        /// The number of items to number.
+        count: usize,
     },
 }
 
@@ -89,15 +101,22 @@ pub enum TaskOutcome {
 // ArchiveJob
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Convert a 0-based item index to a 1-based `u32` sequence number.
+/// Convert a 0-based item index to a `u32`, asserting it does not truncate.
 ///
 /// Uses `try_from` rather than `as` to make the "no truncation" intent explicit.
 /// Any realistic job fits within `u32::MAX` items — allocating that many items
 /// would exhaust memory first.
-fn seq_index(i: usize) -> u32 {
+fn index_as_u32(i: usize) -> u32 {
     u32::try_from(i)
         .expect("job item count fits in u32; allocating that many items exhausts memory first")
-        + 1
+}
+
+/// Convert a 0-based item index to a 1-based `u32` task id.
+///
+/// `TaskId` is a stable per-task identity that is always 1-based, independent of
+/// the naming start number used to render output filenames.
+fn seq_index(i: usize) -> u32 {
+    index_as_u32(i) + 1
 }
 
 /// The aggregate root coordinating a batch of [`ArchiveTask`]s.
@@ -106,9 +125,11 @@ fn seq_index(i: usize) -> u32 {
 /// their output names, and the [`OutputDirectory`] they will be written to.
 ///
 /// **Position/identity invariant:** the task at position `p` always holds the
-/// name `rule.resolve(p + 1)`. This is established by [`ArchiveJob::plan`] and
-/// preserved by every reorder: names are position-derived and stay with the
-/// position, while each task's id and status travel with the task.
+/// name `rule.resolve(start + p)`, where `start` is the numbering start passed to
+/// [`ArchiveJob::plan_with_start`] (1 for [`ArchiveJob::plan`]). This is
+/// established at plan time and preserved by every reorder: names are
+/// position-derived and stay with the position, while each task's id and status
+/// travel with the task.
 ///
 /// `ArchiveJob` is a value type with full structural equality: it derives both
 /// `PartialEq` and `Eq`.
@@ -122,32 +143,59 @@ pub struct ArchiveJob {
 }
 
 impl ArchiveJob {
-    /// Plan a new job from `items`, deriving each task's output name from `rule`.
+    /// Plan a new job numbering items from 1.
     ///
-    /// Items are numbered 1-based in the order given: item at index `i` gets
-    /// `TaskId(i + 1)`, its output name `rule.resolve(SequenceNumber::new(i + 1))`,
-    /// and starts `Pending`. The `SequenceNumber` is a transient
-    /// argument to name resolution — it is derived from position and is NOT stored
-    /// on the task.
+    /// Equivalent to [`plan_with_start`] with `start = 1`: item at index `i` gets
+    /// `TaskId(i + 1)` and output name `rule.resolve(i + 1)`.
     ///
-    /// Returns [`PlanError::Empty`] when `items` is empty, [`PlanError::Resolve`]
-    /// when the rule cannot produce a valid name for some item, and
-    /// [`PlanError::DuplicateName`] when two items collide (a defensive guard;
-    /// see [`ArchiveJob::check_unique`]).
+    /// [`plan_with_start`]: ArchiveJob::plan_with_start
     pub fn plan(
         items: Vec<SourceItem>,
         rule: NamingRule,
         out_dir: OutputDirectory,
     ) -> Result<Self, PlanError> {
+        Self::plan_with_start(items, rule, out_dir, 1)
+    }
+
+    /// Plan a new job numbering items from `start`, deriving each task's output
+    /// name from `rule`.
+    ///
+    /// Item at index `i` is numbered `start + i` for naming, and keeps the
+    /// 1-based `TaskId(i + 1)` as its stable identity (independent of `start`).
+    /// The `SequenceNumber` is a transient argument to name resolution — it is
+    /// derived from position and is NOT stored on the task. `start` may be `0`.
+    ///
+    /// Returns [`PlanError::Empty`] when `items` is empty,
+    /// [`PlanError::SequenceOverflow`] when the numbering range
+    /// `start ..= start + count - 1` would exceed `u32::MAX`, [`PlanError::Resolve`]
+    /// when the rule cannot produce a valid name for some item, and
+    /// [`PlanError::DuplicateName`] when two items collide (a defensive guard;
+    /// see [`ArchiveJob::check_unique`]).
+    pub fn plan_with_start(
+        items: Vec<SourceItem>,
+        rule: NamingRule,
+        out_dir: OutputDirectory,
+        start: u32,
+    ) -> Result<Self, PlanError> {
         if items.is_empty() {
             return Err(PlanError::Empty);
         }
 
+        // Guard the whole numbering range up front so per-item addition cannot
+        // overflow u32. The highest sequence number is `start + (count - 1)`.
+        let count = items.len();
+        let last_offset = index_as_u32(count - 1);
+        start
+            .checked_add(last_offset)
+            .ok_or(PlanError::SequenceOverflow { start, count })?;
+
         // Resolve a name for every item, propagating the first resolution error.
-        let mut names: Vec<OutputFileName> = Vec::with_capacity(items.len());
-        for i in 0..items.len() {
-            let seq_n = seq_index(i);
-            let seq = SequenceNumber::new(seq_n).expect("seq_n >= 1 because i is 0-based");
+        let mut names: Vec<OutputFileName> = Vec::with_capacity(count);
+        for i in 0..count {
+            // Safe: the range guard above proved `start + last_offset` fits in
+            // u32, and `i <= count - 1`, so this addition cannot overflow.
+            let seq_n = start + index_as_u32(i);
+            let seq = SequenceNumber::new(seq_n);
             let name = rule
                 .resolve(seq)
                 .map_err(|source| PlanError::Resolve { seq: seq_n, source })?;
@@ -155,9 +203,9 @@ impl ArchiveJob {
         }
 
         // Defensive uniqueness guard. Via this path names cannot collide (the
-        // numbers 1..=N are distinct and rendering is injective), but we still
-        // assert it so any future rule change that breaks injectivity surfaces
-        // as an error instead of a silent overwrite.
+        // numbers start..=start+count-1 are distinct and rendering is injective),
+        // but we still assert it so any future rule change that breaks
+        // injectivity surfaces as an error instead of a silent overwrite.
         Self::check_unique(&names)?;
 
         // Build the tasks, pairing each item with its id and resolved name.
@@ -471,6 +519,69 @@ mod tests {
         let job = ArchiveJob::plan(items, rule("file{n}"), out_dir()).unwrap();
         let actual: Vec<&SourceItem> = job.tasks().iter().map(|t| t.source()).collect();
         assert_eq!(actual, expected.iter().collect::<Vec<_>>());
+    }
+
+    // ── plan_with_start ───────────────────────────────────────────────────────
+
+    #[test]
+    fn plan_with_start_numbers_names_from_start_but_keeps_one_based_ids() {
+        let job = ArchiveJob::plan_with_start(sources(3), rule("file{n}"), out_dir(), 5).unwrap();
+        assert_eq!(
+            id_name_pairs(&job),
+            vec![
+                (1, "file5.zip".to_string()),
+                (2, "file6.zip".to_string()),
+                (3, "file7.zip".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_with_start_allows_zero() {
+        let job = ArchiveJob::plan_with_start(sources(3), rule("{n:02}"), out_dir(), 0).unwrap();
+        assert_eq!(
+            id_name_pairs(&job),
+            vec![
+                (1, "00.zip".to_string()),
+                (2, "01.zip".to_string()),
+                (3, "02.zip".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_with_start_grows_digits_past_the_pad_width() {
+        // printf semantics: {n:02} is a minimum width, so 100 renders as "100".
+        let job = ArchiveJob::plan_with_start(sources(3), rule("{n:02}"), out_dir(), 99).unwrap();
+        assert_eq!(
+            id_name_pairs(&job),
+            vec![
+                (1, "99.zip".to_string()),
+                (2, "100.zip".to_string()),
+                (3, "101.zip".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_with_start_rejects_u32_overflow() {
+        // Numbering 2 items from u32::MAX would need u32::MAX + 1.
+        let result = ArchiveJob::plan_with_start(sources(2), rule("file{n}"), out_dir(), u32::MAX);
+        assert_eq!(
+            result,
+            Err(PlanError::SequenceOverflow {
+                start: u32::MAX,
+                count: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn plan_numbers_from_one_by_default() {
+        let default = ArchiveJob::plan(sources(3), rule("file{n}"), out_dir()).unwrap();
+        let explicit =
+            ArchiveJob::plan_with_start(sources(3), rule("file{n}"), out_dir(), 1).unwrap();
+        assert_eq!(id_name_pairs(&default), id_name_pairs(&explicit));
     }
 
     // ── plan: empty ───────────────────────────────────────────────────────────

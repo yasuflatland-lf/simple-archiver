@@ -168,6 +168,7 @@ describe("App", () => {
       draft: {
         items: [{ path: "/a.rar", kind: "rar" }],
         namingTemplate: "photo_{n:03}",
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -257,6 +258,7 @@ describe("App", () => {
         draft: {
           items: [],
           namingTemplate: null,
+          startNumber: 1,
           outputDir: "/already/set",
           outputMode: "zip",
           conflictPolicy: "autoRename",
@@ -321,6 +323,7 @@ describe("App", () => {
           draft: {
             items: [],
             namingTemplate: null,
+            startNumber: 1,
             outputDir: "/user/picked",
             outputMode: "zip",
             conflictPolicy: "autoRename",

@@ -32,6 +32,7 @@ it("reflects the store's current policy", () => {
     draft: {
       items: [],
       namingTemplate: null,
+      startNumber: 1,
       outputDir: null,
       outputMode: "folder",
       conflictPolicy: "skip",

@@ -111,7 +111,7 @@ mod tests {
     fn resolve(template: &str, seq: u32) -> Result<String, NameError> {
         NamingRule::parse(template)
             .unwrap()
-            .resolve(SequenceNumber::new(seq).unwrap())
+            .resolve(SequenceNumber::new(seq))
             .map(|name| name.as_str().to_string())
     }
 
@@ -132,6 +132,14 @@ mod tests {
     }
 
     #[test]
+    fn resolve_renders_zero_sequence() {
+        // Start-from-0 numbering: a padded placeholder zero-fills, and a plain
+        // placeholder renders the bare "0".
+        assert_eq!(resolve("{n:02}", 0).unwrap(), "00.zip");
+        assert_eq!(resolve("{n}", 0).unwrap(), "0.zip");
+    }
+
+    #[test]
     fn resolve_appended_placeholder_is_unpadded() {
         assert_eq!(resolve("photo", 3).unwrap(), "photo_3.zip");
     }
@@ -146,7 +154,7 @@ mod tests {
         // The literal trailing space survives resolution and fails FileStem.
         let err = NamingRule::parse("{n} ")
             .unwrap()
-            .resolve(SequenceNumber::new(1).unwrap())
+            .resolve(SequenceNumber::new(1))
             .unwrap_err();
         assert_eq!(err, NameError::TrailingDotOrSpace);
     }

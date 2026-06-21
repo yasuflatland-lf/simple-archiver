@@ -4,6 +4,7 @@ import { ConflictPolicySelect } from "@/components/ConflictPolicySelect";
 import { NamingRuleForm } from "@/components/NamingRuleForm";
 import { OutputDirPicker } from "@/components/OutputDirPicker";
 import { OutputModeToggle } from "@/components/OutputModeToggle";
+import { StartNumberForm } from "@/components/StartNumberForm";
 import { joinOutputPath } from "@/lib/path";
 import { selectFirstPreview, useJobStore } from "@/store/jobStore";
 
@@ -110,7 +111,10 @@ export function OutputSettings() {
       <div className="grid grid-cols-[max-content_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2.5">
         <OutputDirPicker />
         {outputMode === "zip" ? (
-          <NamingRuleForm />
+          <>
+            <NamingRuleForm />
+            <StartNumberForm />
+          </>
         ) : (
           <>
             <p className="col-span-3 text-xs text-muted-foreground">

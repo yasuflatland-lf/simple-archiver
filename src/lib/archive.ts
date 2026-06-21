@@ -35,6 +35,14 @@ export function setNamingRule(template: string): Promise<DraftSnapshot> {
 }
 
 /**
+ * Set the sequence start number used to render output filenames. May be 0.
+ * Returns the updated draft snapshot.
+ */
+export function setStartNumber(start: number): Promise<DraftSnapshot> {
+  return invoke<DraftSnapshot>("set_start_number", { start });
+}
+
+/**
  * Set the output directory where archives will be written.
  * Returns the updated draft snapshot.
  */
@@ -71,9 +79,9 @@ export function clearItems(): Promise<DraftSnapshot> {
 }
 
 /**
- * Resolve the preview output filename for a 1-based sequence number using the
- * given naming template. The backend is the single source of truth for naming.
- * Rejects if the template or sequence is invalid.
+ * Resolve the preview output filename for a sequence number using the given
+ * naming template. Any `u32` sequence is valid, including 0. The backend is the
+ * single source of truth for naming. Rejects if the template is invalid.
  */
 export function previewOutputName(
   template: string,

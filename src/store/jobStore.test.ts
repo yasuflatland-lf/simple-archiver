@@ -9,6 +9,7 @@ vi.mock("@/lib/archive", () => ({
   addItems: vi.fn(),
   reorder: vi.fn(),
   setNamingRule: vi.fn(),
+  setStartNumber: vi.fn(),
   setOutputDir: vi.fn(),
   setOutputMode: vi.fn(),
   setConflictPolicy: vi.fn(),
@@ -39,6 +40,7 @@ function makeDraft(
   itemCount: number,
   namingTemplate: string | null = null,
   outputDir: string | null = null,
+  startNumber: number = 1,
 ): DraftSnapshot {
   return {
     items: Array.from({ length: itemCount }, (_, i) => ({
@@ -46,6 +48,7 @@ function makeDraft(
       kind: "rar" as const,
     })),
     namingTemplate,
+    startNumber,
     outputDir,
     outputMode: "zip",
     conflictPolicy: "autoRename",
@@ -55,6 +58,7 @@ function makeDraft(
 const INITIAL_DRAFT: DraftSnapshot = {
   items: [],
   namingTemplate: null,
+  startNumber: 1,
   outputDir: null,
   outputMode: "zip",
   conflictPolicy: "autoRename",
@@ -244,6 +248,48 @@ describe("setNamingRule", () => {
   });
 });
 
+describe("setStartNumber", () => {
+  it("recomputes previews numbering the hero and items from the new start", async () => {
+    const draft = makeDraft(3, "photo_{n:03}", null, 5);
+    mockArchive.setStartNumber.mockResolvedValue(draft);
+    mockArchive.previewOutputName.mockImplementation((_template, seq) =>
+      Promise.resolve(`photo_${String(seq).padStart(3, "0")}.zip`),
+    );
+
+    await useJobStore.getState().setStartNumber(5);
+
+    expect(mockArchive.setStartNumber).toHaveBeenCalledWith(5);
+    // Hero uses start (5); the three items use start + i = 5, 6, 7.
+    expect(mockArchive.previewOutputName).toHaveBeenCalledWith(
+      "photo_{n:03}",
+      5,
+    );
+    expect(mockArchive.previewOutputName).toHaveBeenCalledWith(
+      "photo_{n:03}",
+      6,
+    );
+    expect(mockArchive.previewOutputName).toHaveBeenCalledWith(
+      "photo_{n:03}",
+      7,
+    );
+    expect(useJobStore.getState().previewNames).toEqual([
+      "photo_005.zip",
+      "photo_006.zip",
+      "photo_007.zip",
+    ]);
+    expect(useJobStore.getState().firstPreview).toBe("photo_005.zip");
+  });
+
+  it("sets error and leaves the draft unchanged on failure", async () => {
+    mockArchive.setStartNumber.mockRejectedValue("boom");
+
+    await useJobStore.getState().setStartNumber(3);
+
+    expect(useJobStore.getState().error).toBe("boom");
+    expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);
+  });
+});
+
 describe("setOutputDir", () => {
   it("updates the draft outputDir without recomputing previews", async () => {
     const draft = makeDraft(2, "photo_{n}", "/out");
@@ -317,6 +363,7 @@ describe("setOutputMode", () => {
     const spy = vi.spyOn(archive, "setOutputMode").mockResolvedValue({
       items: [],
       namingTemplate: null,
+      startNumber: 1,
       outputDir: "/out",
       outputMode: "folder",
       conflictPolicy: "autoRename",
@@ -334,6 +381,7 @@ describe("setConflictPolicy", () => {
     const spy = vi.spyOn(archive, "setConflictPolicy").mockResolvedValue({
       items: [],
       namingTemplate: null,
+      startNumber: 1,
       outputDir: "/out",
       outputMode: "folder",
       conflictPolicy: "overwrite",
@@ -375,6 +423,7 @@ describe("recomputePreviews", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n}",
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -411,6 +460,7 @@ describe("recomputePreviews", () => {
       draft: {
         items: makeDraft(1).items,
         namingTemplate: "a",
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -425,6 +475,7 @@ describe("recomputePreviews", () => {
       draft: {
         items: makeDraft(1).items,
         namingTemplate: "b",
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -578,6 +629,7 @@ describe("reset", () => {
     const clearedDraft: DraftSnapshot = {
       items: [],
       namingTemplate: "photo_{n}",
+      startNumber: 1,
       outputDir: "/out",
       outputMode: "zip",
       conflictPolicy: "autoRename",
@@ -598,6 +650,7 @@ describe("reset", () => {
     const clearedDraft: DraftSnapshot = {
       items: [],
       namingTemplate: "photo_{n}",
+      startNumber: 1,
       outputDir: "/out",
       outputMode: "zip",
       conflictPolicy: "autoRename",
@@ -639,6 +692,7 @@ describe("reset", () => {
     const clearedDraft: DraftSnapshot = {
       items: [],
       namingTemplate: "photo_{n}",
+      startNumber: 1,
       outputDir: "/out",
       outputMode: "zip",
       conflictPolicy: "autoRename",
@@ -681,6 +735,7 @@ describe("reset", () => {
     const clearedDraft: DraftSnapshot = {
       items: [],
       namingTemplate: "photo_{n}",
+      startNumber: 1,
       outputDir: "/out",
       outputMode: "zip",
       conflictPolicy: "autoRename",

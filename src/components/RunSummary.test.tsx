@@ -96,6 +96,7 @@ describe("RunSummary", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "folder",
         conflictPolicy: "autoRename",
@@ -111,6 +112,7 @@ describe("RunSummary", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",

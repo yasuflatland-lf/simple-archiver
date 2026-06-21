@@ -27,9 +27,10 @@ describe("OutputSettings", () => {
     vi.mocked(open).mockReset();
     vi.mocked(previewOutputName).mockReset();
     vi.mocked(previewOutputName).mockResolvedValue("photo_001.zip");
-    // Replace setNamingRule with a spy so NamingRuleForm's debounced store push
-    // does not call the real action (which would invoke the backend).
-    useJobStore.setState({ setNamingRule: vi.fn() });
+    // Replace setNamingRule / setStartNumber with spies so the child forms'
+    // debounced store pushes do not call the real actions (which invoke the
+    // backend).
+    useJobStore.setState({ setNamingRule: vi.fn(), setStartNumber: vi.fn() });
   });
 
   it("hides the Name field and shows the extraction note in Folder mode", () => {
@@ -56,6 +57,27 @@ describe("OutputSettings", () => {
     expect(screen.getByLabelText("Name")).toBeDefined();
   });
 
+  it("shows the Start # field in zip mode", () => {
+    useJobStore.setState((s) => ({
+      draft: { ...s.draft, outputMode: "zip" },
+    }));
+    render(<OutputSettings />);
+    expect(screen.getByLabelText("Start #")).toBeDefined();
+  });
+
+  it("hides the Start # field in Folder mode", () => {
+    useJobStore.setState((s) => ({
+      draft: {
+        ...s.draft,
+        outputMode: "folder",
+        conflictPolicy: "autoRename",
+        outputDir: "/Users/me/Downloads",
+      },
+    }));
+    render(<OutputSettings />);
+    expect(screen.queryByLabelText("Start #")).toBeNull();
+  });
+
   it("renders the OUTPUT group heading and Destination/Name child headings", () => {
     render(<OutputSettings />);
 
@@ -69,6 +91,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n:03}",
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -90,6 +113,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n:03}",
+        startNumber: 1,
         outputDir: "~/Archives",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -110,6 +134,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n",
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -129,6 +154,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n",
+        startNumber: 1,
         outputDir: "~/Archives",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -161,6 +187,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [{ path: "/a.rar", kind: "rar" }],
         namingTemplate: "photo_{n:03}",
+        startNumber: 1,
         outputDir: "~/Archives",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -188,6 +215,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n",
+        startNumber: 1,
         outputDir: "~/Archives",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -212,6 +240,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n:03}",
+        startNumber: 1,
         outputDir: "~/Archives",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -232,6 +261,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n",
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -260,6 +290,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n:03}",
+        startNumber: 1,
         outputDir: "~/Archives",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -284,6 +315,7 @@ describe("OutputSettings", () => {
       draft: {
         items: [],
         namingTemplate: "photo_{n:03}",
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
