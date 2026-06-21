@@ -119,6 +119,8 @@ pub struct DraftSnapshot {
     pub naming_template: Option<String>,
     /// The output directory, if one has been chosen.
     pub output_dir: Option<String>,
+    /// The chosen output mode (re-zip vs extract-to-folder).
+    pub output_mode: OutputMode,
 }
 
 /// A single draft item: its path and what kind of source it is.
@@ -143,6 +145,17 @@ pub enum SourceKind {
     Rar,
     /// A zip file to be extracted and re-archived.
     Zip,
+}
+
+/// The batch output mode chosen in the UI.
+#[derive(Serialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum OutputMode {
+    /// Re-archive each source into a `.zip`.
+    Zip,
+    /// Extract each archive into its own folder.
+    Folder,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,6 +185,7 @@ mod tests {
         DraftSnapshot::export().expect("export DraftSnapshot");
         DraftItemDto::export().expect("export DraftItemDto");
         SourceKind::export().expect("export SourceKind");
+        OutputMode::export().expect("export OutputMode");
     }
 
     /// Guard: `u64` fields must be typed as `number` (not `bigint`) in the
@@ -320,6 +334,7 @@ mod tests {
             ],
             naming_template: Some("f{n}".to_string()),
             output_dir: Some("/out".to_string()),
+            output_mode: OutputMode::Zip,
         };
         let v = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(v["items"][0]["path"], json!("/a/folder"));
@@ -337,6 +352,7 @@ mod tests {
             items: Vec::new(),
             naming_template: None,
             output_dir: None,
+            output_mode: OutputMode::Zip,
         };
         let v = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(v["namingTemplate"], json!(null));
@@ -351,5 +367,26 @@ mod tests {
         );
         assert_eq!(serde_json::to_value(SourceKind::Rar).unwrap(), json!("rar"));
         assert_eq!(serde_json::to_value(SourceKind::Zip).unwrap(), json!("zip"));
+    }
+
+    #[test]
+    fn output_mode_serializes_to_lowercase_variants() {
+        assert_eq!(serde_json::to_value(OutputMode::Zip).unwrap(), json!("zip"));
+        assert_eq!(
+            serde_json::to_value(OutputMode::Folder).unwrap(),
+            json!("folder")
+        );
+    }
+
+    #[test]
+    fn draft_snapshot_includes_output_mode() {
+        let snapshot = DraftSnapshot {
+            items: Vec::new(),
+            naming_template: None,
+            output_dir: None,
+            output_mode: OutputMode::Folder,
+        };
+        let v = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(v["outputMode"], json!("folder"));
     }
 }

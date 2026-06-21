@@ -133,6 +133,7 @@ impl JobDraft {
                 .out_dir
                 .as_ref()
                 .map(|p| p.to_string_lossy().into_owned()),
+            output_mode: crate::presentation::dto_map::output_mode_from_domain(self.output_mode),
         }
     }
 

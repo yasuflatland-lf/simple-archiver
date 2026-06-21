@@ -11,12 +11,13 @@ use std::time::Duration;
 
 use simple_archiver_core::application::progress::JobProgress;
 use simple_archiver_core::application::progress_aggregator::JobSummary;
+use simple_archiver_core::domain::output_mode::OutputMode as DomainOutputMode;
 use simple_archiver_core::domain::source_item::SourceItem;
 use simple_archiver_core::domain::task_progress::TaskProgress;
 
 use super::dto::{
-    DraftItemDto, FailedTaskDto, JobSummaryDto, ProgressCounts, ProgressEvent, SourceKind,
-    TaskProgressDto,
+    DraftItemDto, FailedTaskDto, JobSummaryDto, OutputMode as OutputModeDto, ProgressCounts,
+    ProgressEvent, SourceKind, TaskProgressDto,
 };
 
 impl From<&TaskProgress> for ProgressCounts {
@@ -68,6 +69,24 @@ impl From<JobSummary> for JobSummaryDto {
                 })
                 .collect(),
         }
+    }
+}
+
+/// Map the wire output mode to the domain output mode.
+// Provided for upcoming command handlers; unused until the set_output_mode command lands.
+#[allow(dead_code)]
+pub(crate) fn output_mode_to_domain(mode: OutputModeDto) -> DomainOutputMode {
+    match mode {
+        OutputModeDto::Zip => DomainOutputMode::Zip,
+        OutputModeDto::Folder => DomainOutputMode::Folder,
+    }
+}
+
+/// Map the domain output mode to the wire output mode.
+pub(crate) fn output_mode_from_domain(mode: DomainOutputMode) -> OutputModeDto {
+    match mode {
+        DomainOutputMode::Zip => OutputModeDto::Zip,
+        DomainOutputMode::Folder => OutputModeDto::Folder,
     }
 }
 
