@@ -8,6 +8,7 @@ pub mod archive_task;
 pub mod file_name;
 pub mod naming_rule;
 pub mod output_directory;
+pub mod output_mode;
 pub mod sequence_number;
 pub mod source_item;
 pub mod task_progress;
