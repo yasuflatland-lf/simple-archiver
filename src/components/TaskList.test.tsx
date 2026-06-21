@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
+import { COLUMN_BY_KEY, TASK_COLUMNS } from "./task-columns";
 import { TaskList } from "./TaskList";
 
 beforeEach(() => {
@@ -594,5 +595,84 @@ describe("TaskList drag-and-drop reorder", () => {
     fireEvent.drop(rows[2]);
 
     expect(reorder).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Column resize
+// ---------------------------------------------------------------------------
+
+describe("TaskList column resize", () => {
+  function setItems(n: number) {
+    useJobStore.setState({
+      draft: {
+        items: makeItems(n),
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: [],
+    });
+  }
+
+  // The <col> at the same ordinal as `key` in TASK_COLUMNS.
+  function colWidth(container: HTMLElement, key: string) {
+    const index = TASK_COLUMNS.findIndex((c) => c.key === key);
+    const cols = container.querySelectorAll("col");
+    return (cols[index] as HTMLElement).style.width;
+  }
+
+  it("renders a colgroup with each column at its default width", () => {
+    setItems(1);
+    const { container } = render(<TaskList />);
+
+    const cols = container.querySelectorAll("col");
+    expect(cols.length).toBe(TASK_COLUMNS.length);
+    expect(colWidth(container, "source")).toBe(
+      `${COLUMN_BY_KEY.source.defaultWidth}px`,
+    );
+    expect(colWidth(container, "kind")).toBe(
+      `${COLUMN_BY_KEY.kind.defaultWidth}px`,
+    );
+  });
+
+  it("renders resize handles only for the resizable columns", () => {
+    setItems(1);
+    render(<TaskList />);
+
+    const resizable = TASK_COLUMNS.filter((c) => c.resizable);
+    expect(screen.getAllByRole("separator").length).toBe(resizable.length);
+
+    // Fixed columns carry no handle.
+    expect(screen.queryByTestId("column-resize-index")).toBeNull();
+    expect(screen.queryByTestId("column-resize-actions")).toBeNull();
+    // Resizable columns do.
+    expect(screen.getByTestId("column-resize-source")).toBeTruthy();
+    expect(
+      screen.getByRole("separator", { name: "Resize Source column" }),
+    ).toBeTruthy();
+  });
+
+  it("widens the Source column when its handle is dragged right", () => {
+    setItems(1);
+    const { container } = render(<TaskList />);
+
+    expect(colWidth(container, "source")).toBe(
+      `${COLUMN_BY_KEY.source.defaultWidth}px`,
+    );
+
+    const handle = screen.getByTestId("column-resize-source");
+    fireEvent.pointerDown(handle, { clientX: 100, buttons: 1, pointerId: 1 });
+    expect(handle.getAttribute("data-dragging")).toBe("true");
+
+    fireEvent.pointerMove(handle, { clientX: 180, buttons: 1, pointerId: 1 });
+    expect(colWidth(container, "source")).toBe(
+      `${COLUMN_BY_KEY.source.defaultWidth + 80}px`,
+    );
+
+    fireEvent.pointerUp(handle, { clientX: 180, buttons: 1, pointerId: 1 });
+    expect(handle.getAttribute("data-dragging")).toBeNull();
   });
 });

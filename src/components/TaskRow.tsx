@@ -140,15 +140,16 @@ function TaskRowImpl({ index }: TaskRowProps) {
         </span>
       </td>
 
-      {/* Source basename */}
-      <td className="py-2 pr-3 font-mono text-foreground">
+      {/* Source basename — break long names so they wrap within the column's
+          fixed width instead of forcing it wider. */}
+      <td className="py-2 pr-3 font-mono text-foreground break-words">
         {basename(row.path)}
       </td>
 
       {/* Output preview name */}
       <td
         data-testid={`output-cell-${index}`}
-        className="py-2 pr-3 font-mono text-muted-foreground"
+        className="py-2 pr-3 font-mono text-muted-foreground break-words"
       >
         {row.previewName}
       </td>
