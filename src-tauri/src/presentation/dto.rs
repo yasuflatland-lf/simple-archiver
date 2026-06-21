@@ -239,18 +239,21 @@ mod tests {
     /// side of the wire contract can never silently drift from the Rust side.
     #[test]
     fn export_typescript_bindings() {
-        ProgressEvent::export().expect("export ProgressEvent");
-        ProgressCounts::export().expect("export ProgressCounts");
-        TaskProgressDto::export().expect("export TaskProgressDto");
-        JobSummaryDto::export().expect("export JobSummaryDto");
-        FailedTaskDto::export().expect("export FailedTaskDto");
-        TaskResultDto::export().expect("export TaskResultDto");
-        TaskStatusDto::export().expect("export TaskStatusDto");
-        DraftSnapshot::export().expect("export DraftSnapshot");
-        DraftItemDto::export().expect("export DraftItemDto");
-        SourceKind::export().expect("export SourceKind");
-        OutputMode::export().expect("export OutputMode");
-        ConflictPolicy::export().expect("export ConflictPolicy");
+        // ts-rs 12 `TS::export` takes a `Config`; `from_env` honours the default
+        // `export_to` base so bindings still land in `src/bindings/`.
+        let cfg = ts_rs::Config::from_env();
+        ProgressEvent::export(&cfg).expect("export ProgressEvent");
+        ProgressCounts::export(&cfg).expect("export ProgressCounts");
+        TaskProgressDto::export(&cfg).expect("export TaskProgressDto");
+        JobSummaryDto::export(&cfg).expect("export JobSummaryDto");
+        FailedTaskDto::export(&cfg).expect("export FailedTaskDto");
+        TaskResultDto::export(&cfg).expect("export TaskResultDto");
+        TaskStatusDto::export(&cfg).expect("export TaskStatusDto");
+        DraftSnapshot::export(&cfg).expect("export DraftSnapshot");
+        DraftItemDto::export(&cfg).expect("export DraftItemDto");
+        SourceKind::export(&cfg).expect("export SourceKind");
+        OutputMode::export(&cfg).expect("export OutputMode");
+        ConflictPolicy::export(&cfg).expect("export ConflictPolicy");
     }
 
     /// Guard: `u64` fields must be typed as `number` (not `bigint`) in the
@@ -263,8 +266,11 @@ mod tests {
     /// side-effects beyond what `export_typescript_bindings` already does.
     #[test]
     fn u64_fields_emit_number_not_bigint_in_ts_bindings() {
+        // ts-rs 12 `TS::decl` takes a `Config`; the value does not affect the
+        // emitted field types this test inspects.
+        let cfg = ts_rs::Config::from_env();
         // ProgressCounts: bytesDone and bytesTotal must be `number`.
-        let counts_decl = ProgressCounts::decl();
+        let counts_decl = ProgressCounts::decl(&cfg);
         assert!(
             counts_decl.contains("bytesDone: number"),
             "ProgressCounts.bytesDone should be `number`, got: {counts_decl}"
@@ -279,7 +285,7 @@ mod tests {
         );
 
         // TaskProgressDto: bytesDone and bytesTotal must be `number`; etaMs must be `number | null`.
-        let task_decl = TaskProgressDto::decl();
+        let task_decl = TaskProgressDto::decl(&cfg);
         assert!(
             task_decl.contains("bytesDone: number"),
             "TaskProgressDto.bytesDone should be `number`, got: {task_decl}"
@@ -298,7 +304,7 @@ mod tests {
         );
 
         // ProgressEvent: elapsedMs must be `number`; overallEtaMs must be `number | null`.
-        let event_decl = ProgressEvent::decl();
+        let event_decl = ProgressEvent::decl(&cfg);
         assert!(
             event_decl.contains("elapsedMs: number"),
             "ProgressEvent.elapsedMs should be `number`, got: {event_decl}"

@@ -18,7 +18,7 @@ lalrpop-util = "0.23"
 [dev-dependencies]
 mockall = "=0.14.0"
 tokio = { version = "=1.52.3", features = ["macros", "rt-multi-thread", "time"] }
-zip = "=2.4.2"
+zip = "=8.6.0"
 
 [build-dependencies]
 lalrpop = "0.23"

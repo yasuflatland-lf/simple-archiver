@@ -27,7 +27,7 @@ tauri-plugin-dialog = "2"
 # Powers the Inline Ledger's per-row "Copy path" action (clipboard write-text).
 tauri-plugin-clipboard-manager = "2"
 # Generates the TypeScript wire contract from the DTOs via `#[derive(TS)]`.
-ts-rs = "10"
+ts-rs = "12"
 # Promoted from dev-dependencies: Wave 3's async `run_job` command needs the
 # Tokio runtime in the library itself, not only in tests.
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -55,6 +55,6 @@ bitflags = "=2.13.0"
 ignored = ["bitflags", "serde", "serde_json"]
 
 [dev-dependencies]
-zip = "=2.4.2"
+zip = "=8.6.0"
 tempfile = "=3.27.0"
 
