@@ -426,9 +426,9 @@ mod tests {
         {
             let mut draft = state.draft.lock().unwrap();
             // Mirror the command body: map the wire mode and set it.
-            draft.set_output_mode(
-                crate::presentation::dto_map::output_mode_to_domain(OutputMode::Folder),
-            );
+            draft.set_output_mode(crate::presentation::dto_map::output_mode_to_domain(
+                OutputMode::Folder,
+            ));
             draft.add_items(vec![SourceItem::RarFile(PathBuf::from("/in/a.rar"))]);
             draft.set_out_dir(PathBuf::from("/out"));
         }

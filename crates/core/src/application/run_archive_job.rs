@@ -52,7 +52,12 @@ pub struct RunArchiveJob<A: Archiver, E: Extractor, P: Placer> {
 
 impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArchiveJob<A, E, P> {
     /// Build an engine with an explicit parallelism limit.
-    pub fn new(archiver: Arc<A>, extractor: Arc<E>, placer: Arc<P>, parallelism: NonZeroUsize) -> Self {
+    pub fn new(
+        archiver: Arc<A>,
+        extractor: Arc<E>,
+        placer: Arc<P>,
+        parallelism: NonZeroUsize,
+    ) -> Self {
         Self {
             archiver,
             registry: FormatRegistry::new(extractor),
@@ -152,7 +157,15 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
             handles.push(tokio::spawn(async move {
                 // Bounded concurrency: hold a permit for the whole task.
                 let _permit = semaphore.acquire_owned().await.expect("semaphore open");
-                run_one(archiver.as_ref(), &registry, placer.as_ref(), item, tx, cancellation_token).await;
+                run_one(
+                    archiver.as_ref(),
+                    &registry,
+                    placer.as_ref(),
+                    item,
+                    tx,
+                    cancellation_token,
+                )
+                .await;
             }));
         }
         // Drop the engine's own sender so the channel closes once workers finish.
@@ -478,7 +491,12 @@ mod tests {
         let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let fake = Arc::new(FakeArchiver::new());
         let calls = fake.call_count();
-        let engine = RunArchiveJob::new(fake, Arc::new(FakeExtractor::new()), Arc::new(FakePlacer::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            fake,
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let cancel = CancellationToken::new();
@@ -505,7 +523,12 @@ mod tests {
         let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let extractor = Arc::new(FakeExtractor::new());
         let calls = extractor.calls.clone();
-        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, Arc::new(FakePlacer::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            extractor,
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let cancel = CancellationToken::new();
@@ -553,7 +576,12 @@ mod tests {
         let id: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let mut fake = FakeArchiver::new();
         fake.fail_names.insert("f2.zip".to_string());
-        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), Arc::new(FakePlacer::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(fake),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = engine.execute(job, &clock, &sink).await;
@@ -575,7 +603,12 @@ mod tests {
         let id: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let mut fake = FakeArchiver::new();
         fake.cancel_names.insert("f2.zip".to_string());
-        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), Arc::new(FakePlacer::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(fake),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -644,7 +677,12 @@ mod tests {
         // parallelism 2 so the target can be in `compress` (awaiting the sibling)
         // while the sibling runs to completion; `Notify::notify_one` is sticky, so
         // the order in which the two enter `compress` does not matter.
-        let engine = RunArchiveJob::new(archiver, Arc::new(FakeExtractor::new()), Arc::new(FakePlacer::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            archiver,
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -683,7 +721,12 @@ mod tests {
 
         let extractor = Arc::new(FakeExtractor::new());
         let calls = extractor.calls.clone();
-        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, Arc::new(FakePlacer::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            extractor,
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -721,7 +764,12 @@ mod tests {
 
         let extractor = Arc::new(FakeExtractor::new());
         let calls = extractor.calls.clone();
-        let engine = RunArchiveJob::new(Arc::new(FakeArchiver::new()), extractor, Arc::new(FakePlacer::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            extractor,
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
 
@@ -839,7 +887,12 @@ mod tests {
         let mut fake = FakeArchiver::new();
         fake.barrier = Some(barrier.clone());
         let max_live = fake.max_live.clone();
-        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), Arc::new(FakePlacer::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(fake),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         // A Barrier(2) only releases if both workers are inside compress at once;
@@ -864,7 +917,12 @@ mod tests {
         let mut fake = FakeArchiver::new();
         fake.barrier = Some(barrier.clone());
         let max_live = fake.max_live.clone();
-        let engine = RunArchiveJob::new(Arc::new(fake), Arc::new(FakeExtractor::new()), Arc::new(FakePlacer::new()), nz(2));
+        let engine = RunArchiveJob::new(
+            Arc::new(fake),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = tokio::time::timeout(
@@ -940,8 +998,8 @@ mod tests {
             SourceItem::RarFile(PathBuf::from("/in/a.rar")),
             SourceItem::ZipFile(PathBuf::from("/in/b.zip")),
         ];
-        let job = ArchiveJob::plan_extract(items, OutputDirectory::new(PathBuf::from("/out")))
-            .unwrap();
+        let job =
+            ArchiveJob::plan_extract(items, OutputDirectory::new(PathBuf::from("/out"))).unwrap();
         let expected: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
 
         let archiver = Arc::new(FakeArchiver::new());
@@ -961,7 +1019,11 @@ mod tests {
         let mut want = expected.clone();
         want.sort_by_key(|i| i.get());
         assert_eq!(succeeded, want);
-        assert_eq!(archiver_calls.load(Ordering::SeqCst), 0, "no compression in Folder mode");
+        assert_eq!(
+            archiver_calls.load(Ordering::SeqCst),
+            0,
+            "no compression in Folder mode"
+        );
 
         let mut placed = placed.lock().unwrap().clone();
         placed.sort();

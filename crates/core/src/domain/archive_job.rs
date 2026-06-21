@@ -4,9 +4,9 @@ use std::collections::HashSet;
 
 use crate::domain::archive_task::{ArchiveTask, TaskId};
 use crate::domain::file_name::{FileStem, NameError, OutputFileName};
-use crate::domain::output_mode::OutputMode;
 use crate::domain::naming_rule::NamingRule;
 use crate::domain::output_directory::OutputDirectory;
+use crate::domain::output_mode::OutputMode;
 use crate::domain::sequence_number::SequenceNumber;
 use crate::domain::source_item::SourceItem;
 use crate::domain::task_status::{IllegalTransition, TaskEvent, TaskStatus};
@@ -834,7 +834,10 @@ mod tests {
     #[test]
     fn plan_sets_zip_output_mode() {
         let job = ArchiveJob::plan(sources(1), rule("file{n}"), out_dir()).unwrap();
-        assert_eq!(job.output_mode(), crate::domain::output_mode::OutputMode::Zip);
+        assert_eq!(
+            job.output_mode(),
+            crate::domain::output_mode::OutputMode::Zip
+        );
     }
 
     #[test]

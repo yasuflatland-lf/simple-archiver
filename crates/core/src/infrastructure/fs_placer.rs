@@ -96,7 +96,10 @@ mod tests {
 
         assert_eq!(final_path, dest);
         assert_eq!(std::fs::read(dest.join("a.txt")).unwrap(), b"alpha");
-        assert_eq!(std::fs::read(dest.join("sub").join("b.txt")).unwrap(), b"beta");
+        assert_eq!(
+            std::fs::read(dest.join("sub").join("b.txt")).unwrap(),
+            b"beta"
+        );
     }
 
     #[tokio::test]

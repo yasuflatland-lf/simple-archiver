@@ -171,11 +171,8 @@ impl JobDraft {
                 .map_err(|e| e.to_string())
             }
             OutputMode::Folder => {
-                ArchiveJob::plan_extract(
-                    self.items.clone(),
-                    OutputDirectory::new(out_dir.clone()),
-                )
-                .map_err(|e| e.to_string())
+                ArchiveJob::plan_extract(self.items.clone(), OutputDirectory::new(out_dir.clone()))
+                    .map_err(|e| e.to_string())
             }
         }
     }

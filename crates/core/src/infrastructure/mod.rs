@@ -10,6 +10,8 @@
 #[cfg(not(loom))]
 pub mod archive_extractor;
 #[cfg(not(loom))]
+pub mod fs_placer;
+#[cfg(not(loom))]
 mod path_utils;
 pub mod system_clock;
 #[cfg(not(loom))]
@@ -20,5 +22,3 @@ pub mod unrar_extractor;
 pub mod zip_archiver;
 #[cfg(not(loom))]
 pub mod zip_extractor;
-#[cfg(not(loom))]
-pub mod fs_placer;
