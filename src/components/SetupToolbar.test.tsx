@@ -26,6 +26,7 @@ function withItems() {
     draft: {
       items: [ITEM],
       namingTemplate: null,
+      startNumber: 1,
       outputDir: null,
       outputMode: "zip",
       conflictPolicy: "autoRename",
@@ -108,6 +109,7 @@ describe("SetupToolbar", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",

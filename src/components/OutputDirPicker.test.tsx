@@ -30,6 +30,7 @@ describe("OutputDirPicker", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/my/output",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -46,6 +47,7 @@ describe("OutputDirPicker", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -63,6 +65,7 @@ describe("OutputDirPicker", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/my/output",
         outputMode: "zip",
         conflictPolicy: "autoRename",

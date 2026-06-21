@@ -16,6 +16,10 @@ export type DraftSnapshot = {
    */
   namingTemplate: string | null;
   /**
+   * The sequence start number used to render output filenames (default 1).
+   */
+  startNumber: number;
+  /**
    * The output directory, if one has been chosen.
    */
   outputDir: string | null;

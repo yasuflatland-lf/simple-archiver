@@ -50,10 +50,15 @@ struct ParsedTemplate {
 pub struct JobDraft {
     items: Vec<SourceItem>,
     template: Option<ParsedTemplate>,
+    start_number: u32,
     out_dir: Option<PathBuf>,
     output_mode: OutputMode,
     conflict_policy: ConflictPolicy,
 }
+
+/// The default sequence start when the user has not changed it. Matches the
+/// frontend `DEFAULT_START`, preserving the historical 1-based numbering.
+const DEFAULT_START_NUMBER: u32 = 1;
 
 impl JobDraft {
     /// Create an empty draft with no items, template, or output directory.
@@ -61,6 +66,7 @@ impl JobDraft {
         Self {
             items: Vec::new(),
             template: None,
+            start_number: DEFAULT_START_NUMBER,
             out_dir: None,
             output_mode: OutputMode::default(),         // Zip
             conflict_policy: ConflictPolicy::default(), // AutoRename
@@ -132,11 +138,20 @@ impl JobDraft {
         self.conflict_policy = policy;
     }
 
+    /// Set the sequence start number used to render output filenames.
+    ///
+    /// `0` is allowed (e.g. to number from "00"). Only Zip mode consumes this;
+    /// Folder mode ignores it (extraction folders are named after the source).
+    pub fn set_start_number(&mut self, start: u32) {
+        self.start_number = start;
+    }
+
     /// Return a serialisable snapshot of the current draft for the frontend.
     pub fn snapshot(&self) -> DraftSnapshot {
         DraftSnapshot {
             items: self.items.iter().map(draft_item_from_source).collect(),
             naming_template: self.template.as_ref().map(|t| t.raw.clone()),
+            start_number: self.start_number,
             output_dir: self
                 .out_dir
                 .as_ref()
@@ -152,7 +167,8 @@ impl JobDraft {
     ///
     /// Branches on [`output_mode`]:
     /// - [`OutputMode::Zip`]: requires both a naming template and an output
-    ///   directory, then calls [`ArchiveJob::plan`].
+    ///   directory, then calls [`ArchiveJob::plan_with_start`] with the draft's
+    ///   start number.
     /// - [`OutputMode::Folder`]: requires only an output directory (no template),
     ///   then calls [`ArchiveJob::plan_extract`].
     ///
@@ -173,11 +189,13 @@ impl JobDraft {
                     .as_ref()
                     .ok_or_else(|| "naming rule not set".to_string())?;
                 // Reuse the rule parsed in `set_template`; the template is
-                // never re-parsed here.
-                ArchiveJob::plan(
+                // never re-parsed here. Numbering starts at the draft's
+                // start_number (default 1).
+                ArchiveJob::plan_with_start(
                     self.items.clone(),
                     template.rule.clone(),
                     OutputDirectory::new(out_dir.clone()),
+                    self.start_number,
                 )
                 .map_err(|e| e.to_string())
             }
@@ -445,6 +463,38 @@ mod tests {
             snap.naming_template, None,
             "invalid template must not be stored"
         );
+    }
+
+    // ── set_start_number / snapshot.start_number ─────────────────────────────
+
+    /// A fresh draft numbers from 1 (preserving the historical behavior).
+    #[test]
+    fn default_start_number_is_one() {
+        let snap = JobDraft::new().snapshot();
+        assert_eq!(snap.start_number, 1);
+    }
+
+    /// The start number set on the draft appears in the snapshot.
+    #[test]
+    fn set_start_number_appears_in_snapshot() {
+        let mut draft = JobDraft::new();
+        draft.set_start_number(5);
+        assert_eq!(draft.snapshot().start_number, 5);
+    }
+
+    /// `start = 0` is accepted and flows into the planned job's first filename.
+    #[test]
+    fn set_start_number_zero_builds_and_numbers_from_zero() {
+        let mut draft = JobDraft::new();
+        draft.add_items(vec![SourceItem::RarFile(PathBuf::from("/a.rar"))]);
+        draft
+            .set_template("{n:02}".to_string())
+            .expect("valid template should be accepted");
+        draft.set_out_dir(PathBuf::from("/out"));
+        draft.set_start_number(0);
+
+        let job = draft.build().expect("draft should plan OK with start 0");
+        assert_eq!(job.tasks()[0].output_name().as_str(), "00.zip");
     }
 
     // ── set_out_dir / snapshot.output_dir ────────────────────────────────────

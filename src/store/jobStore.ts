@@ -9,7 +9,7 @@ import type { ProgressEvent } from "@/bindings/ProgressEvent";
 // which share names (addItems, reorder, setNamingRule, ...).
 import * as archive from "@/lib/archive";
 import { messageFromReason } from "@/lib/errors";
-import { DEFAULT_TEMPLATE } from "@/lib/naming";
+import { DEFAULT_START, DEFAULT_TEMPLATE } from "@/lib/naming";
 import { persistOutputDir } from "@/lib/output-dir-default";
 
 // Monotonic counter tagging each recomputePreviews run. A run only commits its
@@ -82,6 +82,8 @@ export interface JobState {
   reorder: (from: number, to: number) => Promise<void>;
   /** Set the naming template, then recompute previews. */
   setNamingRule: (template: string) => Promise<void>;
+  /** Set the sequence start number (may be 0), then recompute previews. */
+  setStartNumber: (start: number) => Promise<void>;
   /** Set the output directory (does not affect preview filenames). */
   setOutputDir: (dir: string) => Promise<void>;
   /** Set the output mode (re-zip vs extract-to-folder); stores the returned draft. */
@@ -113,6 +115,7 @@ export const useJobStore = create<JobState>()((set, get) => ({
   draft: {
     items: [],
     namingTemplate: null,
+    startNumber: DEFAULT_START,
     outputDir: null,
     outputMode: "zip",
     conflictPolicy: "autoRename",
@@ -149,6 +152,18 @@ export const useJobStore = create<JobState>()((set, get) => ({
   setNamingRule: async (template) => {
     try {
       const draft = await archive.setNamingRule(template);
+      set({ draft, error: null });
+      await get().recomputePreviews();
+    } catch (reason) {
+      set({ error: messageFromReason(reason) });
+    }
+  },
+
+  setStartNumber: async (start) => {
+    try {
+      // The start number shifts every per-item number and the hero preview, so
+      // recompute previews after the backend stores it.
+      const draft = await archive.setStartNumber(start);
       set({ draft, error: null });
       await get().recomputePreviews();
     } catch (reason) {
@@ -234,6 +249,9 @@ export const useJobStore = create<JobState>()((set, get) => ({
     const generation = ++previewGeneration;
     const { draft } = get();
     const template = draft.namingTemplate;
+    // Numbering starts at the draft's start number: the hero shows `start` and
+    // per-item previews show `start + i`, mirroring the backend's plan_with_start.
+    const start = draft.startNumber;
     // The hero always shows a representative filename: fall back to the shared
     // default before NamingRuleForm has pushed a template, so the OUTPUT group
     // is meaningful on first paint even with an empty queue.
@@ -242,17 +260,16 @@ export const useJobStore = create<JobState>()((set, get) => ({
     // while the recompute is in flight, mirroring the old component-local guard.
     set({ firstPreview: null });
     try {
-      // Sequence numbers are 1-based, matching the backend's naming contract.
-      // The hero preview uses sequence 1; per-item previews use i + 1.
+      // The hero preview uses `start`; per-item previews use `start + i`.
       const [heroName, names] = await Promise.all([
-        archive.previewOutputName(heroTemplate, 1),
+        archive.previewOutputName(heroTemplate, start),
         // previewNames stays index-aligned with draft.items and empty for a null
         // template (no items, or no template => no per-item names).
         template === null
           ? Promise.resolve<string[]>([])
           : Promise.all(
               draft.items.map((_item, i) =>
-                archive.previewOutputName(template, i + 1),
+                archive.previewOutputName(template, start + i),
               ),
             ),
       ]);

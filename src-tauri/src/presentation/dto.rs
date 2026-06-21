@@ -117,6 +117,8 @@ pub struct DraftSnapshot {
     pub items: Vec<DraftItemDto>,
     /// The naming template, if one has been set.
     pub naming_template: Option<String>,
+    /// The sequence start number used to render output filenames (default 1).
+    pub start_number: u32,
     /// The output directory, if one has been chosen.
     pub output_dir: Option<String>,
     /// The chosen output mode (re-zip vs extract-to-folder).
@@ -353,6 +355,7 @@ mod tests {
                 },
             ],
             naming_template: Some("f{n}".to_string()),
+            start_number: 1,
             output_dir: Some("/out".to_string()),
             output_mode: OutputMode::Zip,
             conflict_policy: ConflictPolicy::AutoRename,
@@ -362,8 +365,10 @@ mod tests {
         assert_eq!(v["items"][0]["kind"], json!("folder"));
         assert_eq!(v["items"][1]["kind"], json!("rar"));
         assert_eq!(v["namingTemplate"], json!("f{n}"));
+        assert_eq!(v["startNumber"], json!(1));
         assert_eq!(v["outputDir"], json!("/out"));
         assert!(v.get("naming_template").is_none());
+        assert!(v.get("start_number").is_none());
         assert!(v.get("output_dir").is_none());
     }
 
@@ -372,6 +377,7 @@ mod tests {
         let snapshot = DraftSnapshot {
             items: Vec::new(),
             naming_template: None,
+            start_number: 1,
             output_dir: None,
             output_mode: OutputMode::Zip,
             conflict_policy: ConflictPolicy::AutoRename,
@@ -405,6 +411,7 @@ mod tests {
         let snapshot = DraftSnapshot {
             items: Vec::new(),
             naming_template: None,
+            start_number: 1,
             output_dir: None,
             output_mode: OutputMode::Folder,
             conflict_policy: ConflictPolicy::AutoRename,
@@ -455,11 +462,26 @@ mod tests {
         let snapshot = DraftSnapshot {
             items: Vec::new(),
             naming_template: None,
+            start_number: 1,
             output_dir: None,
             output_mode: OutputMode::Folder,
             conflict_policy: ConflictPolicy::Overwrite,
         };
         let v = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(v["conflictPolicy"], json!("overwrite"));
+    }
+
+    #[test]
+    fn draft_snapshot_includes_start_number() {
+        let snapshot = DraftSnapshot {
+            items: Vec::new(),
+            naming_template: None,
+            start_number: 5,
+            output_dir: None,
+            output_mode: OutputMode::Zip,
+            conflict_policy: ConflictPolicy::AutoRename,
+        };
+        let v = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(v["startNumber"], json!(5));
     }
 }

@@ -38,6 +38,7 @@ describe("RunControls – button visibility", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -56,6 +57,7 @@ describe("RunControls – button visibility", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -76,6 +78,7 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -96,6 +99,7 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -117,6 +121,7 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -140,6 +145,7 @@ describe("RunControls – Run action guard", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -161,6 +167,7 @@ describe("RunControls – Run action guard", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -182,6 +189,7 @@ describe("RunControls – Run action guard", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -204,6 +212,7 @@ describe("RunControls – Run action guard", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -225,6 +234,7 @@ describe("RunControls – Run action guard", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -249,6 +259,7 @@ describe("RunControls – Run action guard", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -271,6 +282,7 @@ describe("RunControls – ReadinessChip", () => {
       draft: {
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -288,6 +300,7 @@ describe("RunControls – ReadinessChip", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -305,6 +318,7 @@ describe("RunControls – ReadinessChip", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -327,6 +341,7 @@ describe("RunControls – ReadinessChip", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -349,6 +364,7 @@ describe("RunControls – overwrite confirmation", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "folder",
         conflictPolicy: "overwrite",
@@ -372,6 +388,7 @@ describe("RunControls – overwrite confirmation", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "folder",
         conflictPolicy: "overwrite",
@@ -396,6 +413,7 @@ describe("RunControls – overwrite confirmation", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "folder",
         conflictPolicy: "overwrite",
@@ -418,6 +436,7 @@ describe("RunControls – overwrite confirmation", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "folder",
         conflictPolicy: "autoRename",
@@ -440,6 +459,7 @@ describe("RunControls – overwrite confirmation", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "overwrite",
@@ -462,6 +482,7 @@ describe("RunControls – Cancel button", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -480,6 +501,7 @@ describe("RunControls – Cancel button", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",

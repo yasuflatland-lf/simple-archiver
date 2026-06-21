@@ -25,6 +25,7 @@ describe("StatusBar", () => {
           { path: "/b", kind: "folder" },
         ],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -39,6 +40,7 @@ describe("StatusBar", () => {
       draft: {
         items: [{ path: "/a.rar", kind: "rar" }],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -69,6 +71,7 @@ describe("StatusBar", () => {
       draft: {
         items: [ITEM, ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "folder",
         conflictPolicy: "autoRename",
@@ -90,6 +93,7 @@ describe("StatusBar", () => {
       draft: {
         items: [ITEM, ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -144,6 +148,7 @@ describe("StatusBar Reset slot – visibility", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -160,6 +165,7 @@ describe("StatusBar Reset slot – visibility", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -178,6 +184,7 @@ describe("StatusBar Reset slot – visibility", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -202,6 +209,7 @@ describe("StatusBar Reset slot – label", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -218,6 +226,7 @@ describe("StatusBar Reset slot – label", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -246,6 +255,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -266,6 +276,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -289,6 +300,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -314,6 +326,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -339,6 +352,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -364,6 +378,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -390,6 +405,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",

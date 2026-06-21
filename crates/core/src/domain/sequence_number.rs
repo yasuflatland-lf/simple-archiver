@@ -1,28 +1,23 @@
-//! The 1-based sequence number assigned to each output file.
+//! The sequence number assigned to each output file.
+//!
+//! A sequence number renders the `{n}` / `{n:0W}` placeholder in a naming
+//! template. Any `u32` is valid, including `0`, so a batch can number its files
+//! from an arbitrary starting point (see `ArchiveJob::plan_with_start`).
 
-use std::num::NonZeroU32;
-
-/// A 1-based sequence number. Zero is rejected at construction.
+/// A sequence number used to render a naming template. Any `u32` value is valid,
+/// including `0`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SequenceNumber(NonZeroU32);
-
-/// Returned when a sequence number fails its invariant.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum SequenceError {
-    /// Sequence numbers are 1-based; zero is not allowed.
-    #[error("sequence number must be 1 or greater")]
-    Zero,
-}
+pub struct SequenceNumber(u32);
 
 impl SequenceNumber {
-    /// Create a sequence number from a raw value; `0` is rejected.
-    pub fn new(value: u32) -> Result<Self, SequenceError> {
-        NonZeroU32::new(value).map(Self).ok_or(SequenceError::Zero)
+    /// Create a sequence number from a raw value. Every `u32` is valid.
+    pub fn new(value: u32) -> Self {
+        Self(value)
     }
 
-    /// The underlying value (always >= 1).
+    /// The underlying value.
     pub fn get(self) -> u32 {
-        self.0.get()
+        self.0
     }
 }
 
@@ -31,17 +26,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn one_is_valid() {
-        assert_eq!(SequenceNumber::new(1).unwrap().get(), 1);
+    fn zero_is_valid() {
+        // Zero is allowed so templates can start numbering from 0 (e.g. "00").
+        assert_eq!(SequenceNumber::new(0).get(), 0);
     }
 
     #[test]
-    fn zero_is_rejected() {
-        assert_eq!(SequenceNumber::new(0), Err(SequenceError::Zero));
+    fn one_is_valid() {
+        assert_eq!(SequenceNumber::new(1).get(), 1);
     }
 
     #[test]
     fn max_u32_is_valid() {
-        assert_eq!(SequenceNumber::new(u32::MAX).unwrap().get(), u32::MAX);
+        assert_eq!(SequenceNumber::new(u32::MAX).get(), u32::MAX);
     }
 }

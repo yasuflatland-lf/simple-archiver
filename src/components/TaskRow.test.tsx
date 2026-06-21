@@ -23,6 +23,7 @@ describe("TaskRow", () => {
       draft: {
         items: [{ path: "/home/user/archive.rar", kind: "rar" }],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -41,6 +42,7 @@ describe("TaskRow", () => {
       draft: {
         items: [{ path: "/home/user/archive.zip", kind: "zip" as const }],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",
@@ -61,6 +63,7 @@ describe("TaskRow", () => {
       draft: {
         items: [{ path: "/a.rar", kind: "rar" }],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "zip",
         conflictPolicy: "autoRename",

@@ -21,6 +21,7 @@ import {
   setNamingRule,
   setOutputDir,
   setOutputMode,
+  setStartNumber,
   subscribeProgress,
 } from "./archive";
 
@@ -35,6 +36,7 @@ describe("archive client", () => {
       vi.mocked(invoke).mockResolvedValue({
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
       });
       await addItems(["/a", "/b"]);
@@ -56,6 +58,7 @@ describe("archive client", () => {
       vi.mocked(invoke).mockResolvedValue({
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
       });
       await reorder(0, 1);
@@ -71,6 +74,7 @@ describe("archive client", () => {
       vi.mocked(invoke).mockResolvedValue({
         items: [],
         namingTemplate: "img_{n}",
+        startNumber: 1,
         outputDir: null,
       });
       await setNamingRule("img_{n}");
@@ -80,11 +84,27 @@ describe("archive client", () => {
     });
   });
 
+  describe("setStartNumber", () => {
+    it("invokes set_start_number with the start value", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        items: [],
+        namingTemplate: null,
+        startNumber: 5,
+        outputDir: null,
+      });
+      await setStartNumber(5);
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_start_number", {
+        start: 5,
+      });
+    });
+  });
+
   describe("setOutputDir", () => {
     it("invokes set_output_dir with the dir string", async () => {
       vi.mocked(invoke).mockResolvedValue({
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: "/out",
       });
       await setOutputDir("/out");
@@ -99,6 +119,7 @@ describe("archive client", () => {
       vi.mocked(invoke).mockResolvedValue({
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "folder",
       });
@@ -115,6 +136,7 @@ describe("archive client", () => {
       vi.mocked(invoke).mockResolvedValue({
         items: [],
         namingTemplate: null,
+        startNumber: 1,
         outputDir: null,
         outputMode: "folder",
         conflictPolicy: "overwrite",
@@ -176,6 +198,7 @@ describe("archive client", () => {
       vi.mocked(invoke).mockResolvedValue({
         items: [],
         namingTemplate: "photo_{n:03}",
+        startNumber: 1,
         outputDir: "/out",
       });
       await clearItems();
@@ -186,6 +209,7 @@ describe("archive client", () => {
       const snapshot = {
         items: [],
         namingTemplate: "photo_{n:03}",
+        startNumber: 1,
         outputDir: "/out",
       };
       vi.mocked(invoke).mockResolvedValue(snapshot);
