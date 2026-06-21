@@ -64,6 +64,48 @@ describe("StatusBar", () => {
     expect(screen.getByRole("progressbar")).toBeTruthy();
   });
 
+  it("announces the mode-aware verb while a folder job runs", () => {
+    useJobStore.setState({
+      draft: {
+        items: [ITEM, ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "folder",
+        conflictPolicy: "autoRename",
+      },
+      progress: {
+        overall: { bytesDone: 5, bytesTotal: 10 },
+        overallEtaMs: 12000,
+        perTask: [],
+        elapsedMs: 1000,
+      },
+      summary: null,
+    });
+    render(<StatusBar />);
+    expect(screen.getByText(/extracted 2/i)).toBeTruthy();
+  });
+
+  it("announces the archive verb while a zip job runs", () => {
+    useJobStore.setState({
+      draft: {
+        items: [ITEM, ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      progress: {
+        overall: { bytesDone: 5, bytesTotal: 10 },
+        overallEtaMs: 12000,
+        perTask: [],
+        elapsedMs: 1000,
+      },
+      summary: null,
+    });
+    render(<StatusBar />);
+    expect(screen.getByText(/archived 2/i)).toBeTruthy();
+  });
+
   it("shows the results summary when a job has finished", () => {
     useJobStore.setState({
       summary: { succeeded: [1], cancelled: [], failed: [] },

@@ -5,6 +5,7 @@ import { OverallProgress } from "@/components/OverallProgress";
 import { RunSummary } from "@/components/RunSummary";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { verbForMode } from "@/lib/wording";
 import { useJobStore } from "@/store/jobStore";
 
 /** Content and labels for the confirm dialog, keyed by reset variant. */
@@ -45,10 +46,15 @@ const NEW_BATCH_CONFIG: ResetDialogConfig = {
  */
 export function StatusBar() {
   const itemCount = useJobStore((s) => s.draft.items.length);
+  const outputMode = useJobStore((s) => s.draft.outputMode);
   const hasProgress = useJobStore((s) => s.progress !== null);
   const hasSummary = useJobStore((s) => s.summary !== null);
   const running = useJobStore((s) => s.running);
   const reset = useJobStore((s) => s.reset);
+
+  // Mode-aware verb shared with RunSummary: "extracted" in Folder mode vs
+  // "archived" in Zip mode. Used for the live progress announcement below.
+  const verb = verbForMode(outputMode);
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
 
@@ -81,6 +87,14 @@ export function StatusBar() {
       </p>
     ) : (
       <div className="flex flex-col gap-2">
+        {/* While a job is in flight (progress, no summary yet) announce the
+            mode-aware action so screen-reader users hear "extracted"/"archived"
+            consistent with the finished RunSummary copy. */}
+        {hasProgress && !hasSummary ? (
+          <p className="sr-only" aria-live="polite">
+            {verb} {itemCount}
+          </p>
+        ) : null}
         <OverallProgress />
         <RunSummary />
       </div>
