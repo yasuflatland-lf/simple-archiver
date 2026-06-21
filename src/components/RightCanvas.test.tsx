@@ -96,6 +96,26 @@ describe("RightCanvas", () => {
     expect(screen.queryByTestId("empty-queue")).toBeNull();
   });
 
+  it("shows the drop zone and the last-batch chip after a clear", () => {
+    // Clear folds the Ledger back to the drop zone while pinning the chip.
+    useJobStore.setState({
+      cleared: true,
+      summary: null,
+      lastBatch: { summary: SUMMARY, outputDir: "/out", count: 2 },
+    });
+    render(<RightCanvas />);
+    // The drop zone returns.
+    expect(screen.getByTestId("empty-queue")).toBeTruthy();
+    // The residual chip is pinned above it.
+    expect(screen.getByText(/2 items/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /undo/i })).toBeTruthy();
+  });
+
+  it("does not render the chip when there is no residual last batch", () => {
+    render(<RightCanvas />);
+    expect(screen.queryByRole("button", { name: /undo/i })).toBeNull();
+  });
+
   it("prefers the running phase over a stale summary", () => {
     setItems(1);
     useJobStore.setState({
