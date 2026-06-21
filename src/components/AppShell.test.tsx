@@ -8,7 +8,6 @@ describe("AppShell", () => {
   function renderShell(banner?: ReactNode) {
     render(
       <AppShell
-        header={<div>HEADER</div>}
         toolbar={<div>TOOLBAR</div>}
         banner={banner}
         statusBar={<div>STATUS</div>}
@@ -20,10 +19,15 @@ describe("AppShell", () => {
 
   it("renders all slots in their landmark regions", () => {
     renderShell();
-    expect(screen.getByRole("banner").textContent).toContain("HEADER");
     expect(screen.getByRole("main").textContent).toContain("MAIN");
     expect(screen.getByRole("contentinfo").textContent).toContain("STATUS");
     expect(screen.getByText("TOOLBAR")).toBeTruthy();
+  });
+
+  it("renders no header/banner landmark", () => {
+    // The header region was removed; the toolbar is now the topmost zone.
+    renderShell();
+    expect(screen.queryByRole("banner")).toBeNull();
   });
 
   it("makes only the main region scrollable", () => {

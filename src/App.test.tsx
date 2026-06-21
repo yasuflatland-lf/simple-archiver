@@ -87,8 +87,8 @@ describe("App", () => {
   it("renders the key UI elements", async () => {
     render(<App />);
 
-    // Header
-    expect(screen.getByText("simple-archiver")).toBeDefined();
+    // Header removed — the product title is no longer rendered anywhere.
+    expect(screen.queryByText("simple-archiver")).toBeNull();
     // Toolbar — add-source fallback + setup controls. The empty-state CTA also
     // renders AddSourceButtons, so "Add files" appears in both the toolbar and
     // the main region; assert at least one is present.
@@ -361,8 +361,9 @@ describe("App", () => {
 
       expect(setOutputDirSpy).not.toHaveBeenCalled();
       expect(useJobStore.getState().draft.outputDir).toBeNull();
-      // The app stays mounted and rendered despite the rejection.
-      expect(screen.getByText("simple-archiver")).toBeDefined();
+      // The app stays mounted and rendered despite the rejection. The header is
+      // gone, so anchor on the always-present empty-state CTA instead.
+      expect(screen.getByText(/drag .* drop files or folders/i)).toBeDefined();
 
       errorSpy.mockRestore();
     });

@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 
 import "./App.css";
-import { AppHeader } from "@/components/AppHeader";
 import { AppShell } from "@/components/AppShell";
 import { DropOverlay } from "@/components/DropOverlay";
 import { EmptyQueue } from "@/components/EmptyQueue";
@@ -96,7 +95,6 @@ function App() {
   return (
     <>
       <AppShell
-        header={<AppHeader />}
         toolbar={<SetupToolbar />}
         banner={banner}
         statusBar={<StatusBar />}
