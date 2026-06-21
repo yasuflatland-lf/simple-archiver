@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use simple_archiver_core::domain::archive_job::ArchiveJob;
+use simple_archiver_core::domain::conflict_policy::ConflictPolicy;
 use simple_archiver_core::domain::naming_rule::NamingRule;
 use simple_archiver_core::domain::output_directory::OutputDirectory;
 use simple_archiver_core::domain::output_mode::OutputMode;
@@ -51,6 +52,7 @@ pub struct JobDraft {
     template: Option<ParsedTemplate>,
     out_dir: Option<PathBuf>,
     output_mode: OutputMode,
+    conflict_policy: ConflictPolicy,
 }
 
 impl JobDraft {
@@ -60,7 +62,8 @@ impl JobDraft {
             items: Vec::new(),
             template: None,
             out_dir: None,
-            output_mode: OutputMode::default(), // Zip
+            output_mode: OutputMode::default(),         // Zip
+            conflict_policy: ConflictPolicy::default(), // AutoRename
         }
     }
 
@@ -124,6 +127,11 @@ impl JobDraft {
         self.output_mode = mode;
     }
 
+    /// Set the collision policy used for Folder-mode extraction.
+    pub fn set_conflict_policy(&mut self, policy: ConflictPolicy) {
+        self.conflict_policy = policy;
+    }
+
     /// Return a serialisable snapshot of the current draft for the frontend.
     pub fn snapshot(&self) -> DraftSnapshot {
         DraftSnapshot {
@@ -134,6 +142,9 @@ impl JobDraft {
                 .as_ref()
                 .map(|p| p.to_string_lossy().into_owned()),
             output_mode: crate::presentation::dto_map::output_mode_from_domain(self.output_mode),
+            conflict_policy: crate::presentation::dto_map::conflict_policy_from_domain(
+                self.conflict_policy,
+            ),
         }
     }
 
@@ -170,10 +181,12 @@ impl JobDraft {
                 )
                 .map_err(|e| e.to_string())
             }
-            OutputMode::Folder => {
-                ArchiveJob::plan_extract(self.items.clone(), OutputDirectory::new(out_dir.clone()))
-                    .map_err(|e| e.to_string())
-            }
+            OutputMode::Folder => ArchiveJob::plan_extract(
+                self.items.clone(),
+                OutputDirectory::new(out_dir.clone()),
+                self.conflict_policy,
+            )
+            .map_err(|e| e.to_string()),
         }
     }
 }
@@ -578,6 +591,27 @@ mod tests {
         draft.add_items(vec![SourceItem::RarFile(PathBuf::from("/in/a.rar"))]);
         let err = draft.build().expect_err("missing out dir must fail");
         assert!(err.contains("output directory not set"), "got: {err}");
+    }
+
+    // ── set_conflict_policy ───────────────────────────────────────────────────
+
+    /// A fresh draft defaults to the AutoRename collision policy and threads the
+    /// chosen policy into the planned Folder-mode job.
+    #[test]
+    fn set_conflict_policy_threads_into_folder_job() {
+        let mut draft = JobDraft::new();
+        draft.set_output_mode(OutputMode::Folder);
+        draft.add_items(vec![SourceItem::ZipFile(PathBuf::from("/in/a.zip"))]);
+        draft.set_out_dir(PathBuf::from("/out"));
+
+        // Default is AutoRename.
+        let job = draft.build().expect("folder draft should build");
+        assert_eq!(job.conflict_policy(), ConflictPolicy::AutoRename);
+
+        // Setting Overwrite carries through to the built job.
+        draft.set_conflict_policy(ConflictPolicy::Overwrite);
+        let job = draft.build().expect("folder draft should build");
+        assert_eq!(job.conflict_policy(), ConflictPolicy::Overwrite);
     }
 
     // ── RunState ──────────────────────────────────────────────────────────────

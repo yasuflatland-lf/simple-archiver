@@ -17,6 +17,7 @@ use crate::application::progress::ProgressSink;
 use crate::application::progress_aggregator::{Aggregator, JobSummary, WorkerMsg};
 use crate::domain::archive_job::ArchiveJob;
 use crate::domain::archive_task::TaskId;
+use crate::domain::conflict_policy::ConflictPolicy;
 use crate::domain::output_mode::OutputMode;
 use crate::domain::source_item::SourceItem;
 use crate::domain::task_progress::TaskProgress;
@@ -40,6 +41,7 @@ struct WorkItem {
     source: SourceItem,
     dest: PathBuf,
     mode: OutputMode,
+    policy: ConflictPolicy,
 }
 
 /// Runs an `ArchiveJob` with up to N concurrent workers.
@@ -103,6 +105,7 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
         // Extract an immutable work list before the job moves into the aggregator.
         let out_dir = job.output_directory().path().to_path_buf();
         let mode = job.output_mode();
+        let policy = job.conflict_policy();
         let work: Vec<WorkItem> = job
             .tasks()
             .iter()
@@ -116,6 +119,7 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
                     source: t.source().clone(),
                     dest,
                     mode,
+                    policy,
                 }
             })
             .collect();
@@ -234,7 +238,16 @@ async fn run_one<A: Archiver, E: Extractor, P: Placer>(
             let ctx = CompressContext::new(item.task, reporter, cancellation_token);
             map_archive_result(archiver.compress(prepared.dir(), &item.dest, &ctx).await)
         }
-        OutputMode::Folder => map_place_result(placer.place(prepared.dir(), &item.dest).await),
+        OutputMode::Folder => {
+            // A folder source has no archive to extract in Folder mode, so there
+            // is nothing to place: terminate as a skip (Complete with no
+            // placement) instead of copying the source folder (spec §11 default).
+            if matches!(item.source, SourceItem::Folder(_)) {
+                TaskEvent::Complete
+            } else {
+                map_place_result(placer.place(prepared.dir(), &item.dest, item.policy).await)
+            }
+        }
     };
     let _ = tx.send(WorkerMsg::Status {
         task: item.task,
@@ -448,6 +461,7 @@ mod tests {
             &self,
             src_tree: &Path,
             desired_dest: &Path,
+            _policy: ConflictPolicy,
         ) -> Result<std::path::PathBuf, PlaceError> {
             assert!(src_tree.is_dir(), "placer receives a real extracted dir");
             self.placed.lock().unwrap().push(desired_dest.to_path_buf());
@@ -999,8 +1013,12 @@ mod tests {
             SourceItem::RarFile(PathBuf::from("/in/a.rar")),
             SourceItem::ZipFile(PathBuf::from("/in/b.zip")),
         ];
-        let job =
-            ArchiveJob::plan_extract(items, OutputDirectory::new(PathBuf::from("/out"))).unwrap();
+        let job = ArchiveJob::plan_extract(
+            items,
+            OutputDirectory::new(PathBuf::from("/out")),
+            ConflictPolicy::default(),
+        )
+        .unwrap();
         let expected: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
 
         let archiver = Arc::new(FakeArchiver::new());
@@ -1032,5 +1050,48 @@ mod tests {
             placed,
             vec![PathBuf::from("/out/a"), PathBuf::from("/out/b")]
         );
+    }
+
+    #[tokio::test]
+    async fn folder_mode_skips_folder_sources_without_placing() {
+        // A Folder source has nothing to extract in Folder mode: only the zip is
+        // placed; the folder source produces no output directory.
+        let items = vec![
+            SourceItem::Folder(PathBuf::from("/in/some_dir")),
+            SourceItem::ZipFile(PathBuf::from("/in/b.zip")),
+        ];
+        let job = ArchiveJob::plan_extract(
+            items,
+            OutputDirectory::new(PathBuf::from("/out")),
+            ConflictPolicy::default(),
+        )
+        .unwrap();
+        let expected: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        let placer = Arc::new(FakePlacer::new());
+        let placed = placer.placed.clone();
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(FakeExtractor::new()),
+            placer,
+            nz(2),
+        );
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        // Both tasks succeed: the zip via extract -> place, the folder as a skip
+        // (a terminal Complete with no placement).
+        let mut succeeded = summary.succeeded.clone();
+        succeeded.sort_by_key(|i| i.get());
+        let mut want = expected.clone();
+        want.sort_by_key(|i| i.get());
+        assert_eq!(succeeded, want);
+        assert!(summary.failed.is_empty());
+
+        // Only the zip source produced an output directory; the folder did not.
+        let placed = placed.lock().unwrap().clone();
+        assert_eq!(placed, vec![PathBuf::from("/out/b")]);
     }
 }

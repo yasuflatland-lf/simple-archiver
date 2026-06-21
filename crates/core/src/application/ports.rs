@@ -7,6 +7,7 @@
 //! via the `CancellationToken` carried by `CompressContext`.
 
 use crate::application::compress_context::CompressContext;
+use crate::domain::conflict_policy::ConflictPolicy;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
@@ -109,13 +110,21 @@ pub enum PlaceError {
 /// Mirrors [`Archiver`] / [`Extractor`]: the future is `Send` (and the trait is
 /// `Send + Sync`) so the engine can run implementations across `tokio::spawn`.
 pub trait Placer: Send + Sync {
-    /// Recursively copy the tree at `src_tree` to `desired_dest`. If
-    /// `desired_dest` already exists, append ` (2)`, ` (3)`, … to its final
-    /// component until a free path is found. Returns the path actually created.
+    /// Recursively copy the tree at `src_tree` to `desired_dest`, resolving any
+    /// collision according to `policy`:
+    /// - [`ConflictPolicy::AutoRename`]: if `desired_dest` already exists, append
+    ///   ` (2)`, ` (3)`, … to its final component until a free path is found.
+    /// - [`ConflictPolicy::Skip`]: if `desired_dest` already exists, leave it
+    ///   untouched (no copy) and return that existing path.
+    /// - [`ConflictPolicy::Overwrite`]: if `desired_dest` already exists, remove
+    ///   it first, then copy the tree to `desired_dest`.
+    ///
+    /// Returns the path actually written (or the pre-existing path under `Skip`).
     fn place(
         &self,
         src_tree: &Path,
         desired_dest: &Path,
+        policy: ConflictPolicy,
     ) -> impl Future<Output = Result<PathBuf, PlaceError>> + Send;
 }
 
@@ -158,6 +167,7 @@ mod tests {
             &self,
             _src_tree: &std::path::Path,
             desired_dest: &std::path::Path,
+            _policy: crate::domain::conflict_policy::ConflictPolicy,
         ) -> Result<std::path::PathBuf, super::PlaceError> {
             Ok(desired_dest.to_path_buf())
         }

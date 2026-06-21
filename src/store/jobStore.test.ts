@@ -11,6 +11,7 @@ vi.mock("@/lib/archive", () => ({
   setNamingRule: vi.fn(),
   setOutputDir: vi.fn(),
   setOutputMode: vi.fn(),
+  setConflictPolicy: vi.fn(),
   clearItems: vi.fn(),
   runJob: vi.fn(),
   cancelJob: vi.fn(),
@@ -47,6 +48,7 @@ function makeDraft(
     namingTemplate,
     outputDir,
     outputMode: "zip",
+    conflictPolicy: "autoRename",
   };
 }
 
@@ -55,6 +57,7 @@ const INITIAL_DRAFT: DraftSnapshot = {
   namingTemplate: null,
   outputDir: null,
   outputMode: "zip",
+  conflictPolicy: "autoRename",
 };
 
 beforeEach(() => {
@@ -316,12 +319,38 @@ describe("setOutputMode", () => {
       namingTemplate: null,
       outputDir: "/out",
       outputMode: "folder",
+      conflictPolicy: "autoRename",
     });
 
     await useJobStore.getState().setOutputMode("folder");
 
     expect(spy).toHaveBeenCalledWith("folder");
     expect(useJobStore.getState().draft.outputMode).toBe("folder");
+  });
+});
+
+describe("setConflictPolicy", () => {
+  it("setConflictPolicy pushes the policy and stores the returned draft", async () => {
+    const spy = vi.spyOn(archive, "setConflictPolicy").mockResolvedValue({
+      items: [],
+      namingTemplate: null,
+      outputDir: "/out",
+      outputMode: "folder",
+      conflictPolicy: "overwrite",
+    });
+
+    await useJobStore.getState().setConflictPolicy("overwrite");
+
+    expect(spy).toHaveBeenCalledWith("overwrite");
+    expect(useJobStore.getState().draft.conflictPolicy).toBe("overwrite");
+  });
+
+  it("setConflictPolicy records the error when the wrapper rejects", async () => {
+    vi.spyOn(archive, "setConflictPolicy").mockRejectedValue("boom");
+
+    await useJobStore.getState().setConflictPolicy("skip");
+
+    expect(useJobStore.getState().error).toBe("boom");
   });
 });
 
@@ -348,6 +377,7 @@ describe("recomputePreviews", () => {
         namingTemplate: "photo_{n}",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       error: "stale error",
     });
@@ -383,6 +413,7 @@ describe("recomputePreviews", () => {
         namingTemplate: "a",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
     });
     const runA = useJobStore.getState().recomputePreviews();
@@ -396,6 +427,7 @@ describe("recomputePreviews", () => {
         namingTemplate: "b",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
     });
     const runB = useJobStore.getState().recomputePreviews();
@@ -548,6 +580,7 @@ describe("reset", () => {
       namingTemplate: "photo_{n}",
       outputDir: "/out",
       outputMode: "zip",
+      conflictPolicy: "autoRename",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 
@@ -567,6 +600,7 @@ describe("reset", () => {
       namingTemplate: "photo_{n}",
       outputDir: "/out",
       outputMode: "zip",
+      conflictPolicy: "autoRename",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 
@@ -607,6 +641,7 @@ describe("reset", () => {
       namingTemplate: "photo_{n}",
       outputDir: "/out",
       outputMode: "zip",
+      conflictPolicy: "autoRename",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 
@@ -648,6 +683,7 @@ describe("reset", () => {
       namingTemplate: "photo_{n}",
       outputDir: "/out",
       outputMode: "zip",
+      conflictPolicy: "autoRename",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 

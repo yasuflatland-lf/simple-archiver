@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import type { ConflictPolicy } from "@/bindings/ConflictPolicy";
 import type { DraftSnapshot } from "@/bindings/DraftSnapshot";
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { OutputMode } from "@/bindings/OutputMode";
@@ -47,6 +48,17 @@ export function setOutputDir(dir: string): Promise<DraftSnapshot> {
  */
 export function setOutputMode(mode: OutputMode): Promise<DraftSnapshot> {
   return invoke<DraftSnapshot>("set_output_mode", { mode });
+}
+
+/**
+ * Set the collision policy used when a Folder-mode extraction lands on an
+ * existing destination folder (auto-rename / skip / overwrite).
+ * Returns the updated draft snapshot.
+ */
+export function setConflictPolicy(
+  policy: ConflictPolicy,
+): Promise<DraftSnapshot> {
+  return invoke<DraftSnapshot>("set_conflict_policy", { policy });
 }
 
 /**

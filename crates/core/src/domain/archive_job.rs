@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use crate::domain::archive_task::{ArchiveTask, TaskId};
+use crate::domain::conflict_policy::ConflictPolicy;
 use crate::domain::file_name::{FileStem, NameError, OutputFileName};
 use crate::domain::naming_rule::NamingRule;
 use crate::domain::output_directory::OutputDirectory;
@@ -117,6 +118,7 @@ pub struct ArchiveJob {
     rule: NamingRule,
     out_dir: OutputDirectory,
     mode: OutputMode,
+    policy: ConflictPolicy,
 }
 
 impl ArchiveJob {
@@ -171,6 +173,8 @@ impl ArchiveJob {
             rule,
             out_dir,
             mode: OutputMode::Zip,
+            // Zip mode never collides via the placer; default to the safe policy.
+            policy: ConflictPolicy::default(),
         })
     }
 
@@ -191,6 +195,7 @@ impl ArchiveJob {
     pub fn plan_extract(
         items: Vec<SourceItem>,
         out_dir: OutputDirectory,
+        policy: ConflictPolicy,
     ) -> Result<Self, PlanError> {
         if items.is_empty() {
             return Err(PlanError::Empty);
@@ -223,6 +228,7 @@ impl ArchiveJob {
             rule,
             out_dir,
             mode: OutputMode::Folder,
+            policy,
         })
     }
 
@@ -309,6 +315,11 @@ impl ArchiveJob {
     /// Return this job's output mode (re-zip vs extract-to-folder).
     pub fn output_mode(&self) -> OutputMode {
         self.mode
+    }
+
+    /// Return this job's collision policy (used by Folder-mode placement).
+    pub fn conflict_policy(&self) -> ConflictPolicy {
+        self.policy
     }
 
     /// Return the directory archives will be written to.
@@ -846,7 +857,7 @@ mod tests {
             SourceItem::RarFile(PathBuf::from("/a/foo.rar")),
             SourceItem::ZipFile(PathBuf::from("/a/bar.zip")),
         ];
-        let job = ArchiveJob::plan_extract(items, out_dir()).unwrap();
+        let job = ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default()).unwrap();
         assert_eq!(
             job.output_mode(),
             crate::domain::output_mode::OutputMode::Folder
@@ -859,9 +870,22 @@ mod tests {
     }
 
     #[test]
+    fn plan_defaults_conflict_policy_to_auto_rename() {
+        let job = ArchiveJob::plan(sources(1), rule("file{n}"), out_dir()).unwrap();
+        assert_eq!(job.conflict_policy(), ConflictPolicy::AutoRename);
+    }
+
+    #[test]
+    fn plan_extract_stores_the_given_conflict_policy() {
+        let items = vec![SourceItem::RarFile(PathBuf::from("/a/foo.rar"))];
+        let job = ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::Overwrite).unwrap();
+        assert_eq!(job.conflict_policy(), ConflictPolicy::Overwrite);
+    }
+
+    #[test]
     fn plan_extract_rejects_empty() {
         assert_eq!(
-            ArchiveJob::plan_extract(Vec::new(), out_dir()),
+            ArchiveJob::plan_extract(Vec::new(), out_dir(), ConflictPolicy::default()),
             Err(PlanError::Empty)
         );
     }
@@ -876,7 +900,7 @@ mod tests {
         // `name` is the internal `.zip`-suffixed label the uniqueness guard compares;
         // Folder mode produces no `.zip` — the folder would be named `foo`.
         assert_eq!(
-            ArchiveJob::plan_extract(items, out_dir()),
+            ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default()),
             Err(PlanError::DuplicateName {
                 name: "foo.zip".to_string()
             })

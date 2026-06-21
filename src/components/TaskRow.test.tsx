@@ -25,6 +25,7 @@ describe("TaskRow", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       previewNames: ["out_001.zip"],
     });
@@ -42,6 +43,7 @@ describe("TaskRow", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       previewNames: ["out_001.zip"],
     });
@@ -61,6 +63,7 @@ describe("TaskRow", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       previewNames: ["out1.zip"],
       running: true,

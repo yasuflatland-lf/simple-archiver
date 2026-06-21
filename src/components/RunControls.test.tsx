@@ -40,6 +40,7 @@ describe("RunControls – button visibility", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -57,6 +58,7 @@ describe("RunControls – button visibility", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: true,
       error: null,
@@ -76,6 +78,7 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -95,6 +98,7 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -115,6 +119,7 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -137,6 +142,7 @@ describe("RunControls – Run action guard", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -157,6 +163,7 @@ describe("RunControls – Run action guard", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -177,6 +184,7 @@ describe("RunControls – Run action guard", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -198,6 +206,7 @@ describe("RunControls – Run action guard", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -218,6 +227,7 @@ describe("RunControls – Run action guard", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -241,6 +251,7 @@ describe("RunControls – Run action guard", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -262,6 +273,7 @@ describe("RunControls – ReadinessChip", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -278,6 +290,7 @@ describe("RunControls – ReadinessChip", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -294,6 +307,7 @@ describe("RunControls – ReadinessChip", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -315,6 +329,7 @@ describe("RunControls – ReadinessChip", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: true,
       error: null,
@@ -327,6 +342,120 @@ describe("RunControls – ReadinessChip", () => {
   });
 });
 
+describe("RunControls – overwrite confirmation", () => {
+  it("shows a confirm dialog instead of running when Folder+overwrite", async () => {
+    const runJob = vi.fn();
+    useJobStore.setState({
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "folder",
+        conflictPolicy: "overwrite",
+      },
+      running: false,
+      error: null,
+      summary: null,
+      runJob,
+    });
+    const user = userEvent.setup();
+    render(<RunControls />);
+    await user.click(screen.getByRole("button", { name: /^run$/i }));
+    // The job must not start until the user confirms.
+    expect(runJob).not.toHaveBeenCalled();
+    expect(screen.getByText(/overwrite existing folders\?/i)).toBeTruthy();
+  });
+
+  it("runs the job after confirming the overwrite", async () => {
+    const runJob = vi.fn();
+    useJobStore.setState({
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "folder",
+        conflictPolicy: "overwrite",
+      },
+      running: false,
+      error: null,
+      summary: null,
+      runJob,
+    });
+    const user = userEvent.setup();
+    render(<RunControls />);
+    await user.click(screen.getByRole("button", { name: /^run$/i }));
+    await user.click(
+      screen.getByRole("button", { name: /overwrite and run/i }),
+    );
+    expect(runJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run the job when the overwrite confirmation is cancelled", async () => {
+    const runJob = vi.fn();
+    useJobStore.setState({
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "folder",
+        conflictPolicy: "overwrite",
+      },
+      running: false,
+      error: null,
+      summary: null,
+      runJob,
+    });
+    const user = userEvent.setup();
+    render(<RunControls />);
+    await user.click(screen.getByRole("button", { name: /^run$/i }));
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(runJob).not.toHaveBeenCalled();
+  });
+
+  it("runs immediately without a dialog for non-overwrite policies", async () => {
+    const runJob = vi.fn();
+    useJobStore.setState({
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "folder",
+        conflictPolicy: "autoRename",
+      },
+      running: false,
+      error: null,
+      summary: null,
+      runJob,
+    });
+    const user = userEvent.setup();
+    render(<RunControls />);
+    await user.click(screen.getByRole("button", { name: /^run$/i }));
+    expect(runJob).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/overwrite existing folders\?/i)).toBeNull();
+  });
+
+  it("does not confirm overwrite in zip mode even if policy is overwrite", async () => {
+    const runJob = vi.fn();
+    useJobStore.setState({
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+        conflictPolicy: "overwrite",
+      },
+      running: false,
+      error: null,
+      summary: null,
+      runJob,
+    });
+    const user = userEvent.setup();
+    render(<RunControls />);
+    await user.click(screen.getByRole("button", { name: /^run$/i }));
+    expect(runJob).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("RunControls – Cancel button", () => {
   it("does not render Cancel when not running", () => {
     useJobStore.setState({
@@ -335,6 +464,7 @@ describe("RunControls – Cancel button", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       error: null,
@@ -352,6 +482,7 @@ describe("RunControls – Cancel button", () => {
         namingTemplate: null,
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: true,
       error: null,

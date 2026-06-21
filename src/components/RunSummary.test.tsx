@@ -91,6 +91,36 @@ describe("RunSummary", () => {
     expect(screen.getByText(/out_2\.zip/).textContent).toContain("err B");
   });
 
+  it("reads 'extracted N' in folder mode", () => {
+    useJobStore.setState({
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "folder",
+        conflictPolicy: "autoRename",
+      },
+      summary: { succeeded: [1, 2], cancelled: [], failed: [] },
+    });
+    render(<RunSummary />);
+    expect(screen.getByText(/extracted 2/i)).toBeTruthy();
+  });
+
+  it("reads 'archived N' in zip mode", () => {
+    useJobStore.setState({
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      summary: { succeeded: [1, 2], cancelled: [], failed: [] },
+    });
+    render(<RunSummary />);
+    expect(screen.getByText(/archived 2/i)).toBeTruthy();
+  });
+
   it("omits the failed-items disclosure when there are no failures", () => {
     useJobStore.setState({
       summary: { succeeded: [1], cancelled: [], failed: [] },

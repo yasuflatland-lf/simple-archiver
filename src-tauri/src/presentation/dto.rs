@@ -121,6 +121,8 @@ pub struct DraftSnapshot {
     pub output_dir: Option<String>,
     /// The chosen output mode (re-zip vs extract-to-folder).
     pub output_mode: OutputMode,
+    /// The chosen collision policy for Folder-mode extraction.
+    pub conflict_policy: ConflictPolicy,
 }
 
 /// A single draft item: its path and what kind of source it is.
@@ -158,6 +160,23 @@ pub enum OutputMode {
     Folder,
 }
 
+/// The collision policy chosen in the UI for Folder-mode extraction.
+///
+/// The serde wire values are camelCase (`autoRename` / `skip` / `overwrite`) and
+/// are pinned by [`tests::conflict_policy_serializes_to_camel_case_variants`].
+#[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum ConflictPolicy {
+    /// Write to `name (2)`, `name (3)`, … on collision (default).
+    #[default]
+    AutoRename,
+    /// Leave the existing folder; do not extract this item.
+    Skip,
+    /// Remove the existing folder, then extract.
+    Overwrite,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,6 +205,7 @@ mod tests {
         DraftItemDto::export().expect("export DraftItemDto");
         SourceKind::export().expect("export SourceKind");
         OutputMode::export().expect("export OutputMode");
+        ConflictPolicy::export().expect("export ConflictPolicy");
     }
 
     /// Guard: `u64` fields must be typed as `number` (not `bigint`) in the
@@ -335,6 +355,7 @@ mod tests {
             naming_template: Some("f{n}".to_string()),
             output_dir: Some("/out".to_string()),
             output_mode: OutputMode::Zip,
+            conflict_policy: ConflictPolicy::AutoRename,
         };
         let v = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(v["items"][0]["path"], json!("/a/folder"));
@@ -353,6 +374,7 @@ mod tests {
             naming_template: None,
             output_dir: None,
             output_mode: OutputMode::Zip,
+            conflict_policy: ConflictPolicy::AutoRename,
         };
         let v = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(v["namingTemplate"], json!(null));
@@ -385,8 +407,59 @@ mod tests {
             naming_template: None,
             output_dir: None,
             output_mode: OutputMode::Folder,
+            conflict_policy: ConflictPolicy::AutoRename,
         };
         let v = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(v["outputMode"], json!("folder"));
+    }
+
+    #[test]
+    fn conflict_policy_serializes_to_camel_case_variants() {
+        assert_eq!(
+            serde_json::to_value(ConflictPolicy::AutoRename).unwrap(),
+            json!("autoRename")
+        );
+        assert_eq!(
+            serde_json::to_value(ConflictPolicy::Skip).unwrap(),
+            json!("skip")
+        );
+        assert_eq!(
+            serde_json::to_value(ConflictPolicy::Overwrite).unwrap(),
+            json!("overwrite")
+        );
+    }
+
+    #[test]
+    fn conflict_policy_deserializes_from_camel_case_variants() {
+        assert_eq!(
+            serde_json::from_value::<ConflictPolicy>(json!("autoRename")).unwrap(),
+            ConflictPolicy::AutoRename
+        );
+        assert_eq!(
+            serde_json::from_value::<ConflictPolicy>(json!("skip")).unwrap(),
+            ConflictPolicy::Skip
+        );
+        assert_eq!(
+            serde_json::from_value::<ConflictPolicy>(json!("overwrite")).unwrap(),
+            ConflictPolicy::Overwrite
+        );
+    }
+
+    #[test]
+    fn conflict_policy_default_is_auto_rename() {
+        assert_eq!(ConflictPolicy::default(), ConflictPolicy::AutoRename);
+    }
+
+    #[test]
+    fn draft_snapshot_includes_conflict_policy() {
+        let snapshot = DraftSnapshot {
+            items: Vec::new(),
+            naming_template: None,
+            output_dir: None,
+            output_mode: OutputMode::Folder,
+            conflict_policy: ConflictPolicy::Overwrite,
+        };
+        let v = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(v["conflictPolicy"], json!("overwrite"));
     }
 }

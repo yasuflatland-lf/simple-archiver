@@ -1,5 +1,6 @@
 import { ArrowRight } from "lucide-react";
 
+import { ConflictPolicySelect } from "@/components/ConflictPolicySelect";
 import { NamingRuleForm } from "@/components/NamingRuleForm";
 import { OutputDirPicker } from "@/components/OutputDirPicker";
 import { OutputModeToggle } from "@/components/OutputModeToggle";
@@ -111,10 +112,20 @@ export function OutputSettings() {
         {outputMode === "zip" ? (
           <NamingRuleForm />
         ) : (
-          <p className="col-span-3 text-xs text-muted-foreground">
-            Each archive is extracted into its own folder named after the
-            archive.
-          </p>
+          <>
+            <p className="col-span-3 text-xs text-muted-foreground">
+              Each archive is extracted into its own folder named after the
+              archive.
+            </p>
+            {/* Folder-mode collision policy row: the label shares the first
+                column with Destination, the control sits in the value column. */}
+            <span className="text-xs font-medium text-muted-foreground">
+              If exists
+            </span>
+            <div className="col-span-2">
+              <ConflictPolicySelect />
+            </div>
+          </>
         )}
       </div>
     </section>

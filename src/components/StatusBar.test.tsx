@@ -27,6 +27,7 @@ describe("StatusBar", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
     });
     render(<StatusBar />);
@@ -40,6 +41,7 @@ describe("StatusBar", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       progress: null,
       summary: null,
@@ -60,6 +62,48 @@ describe("StatusBar", () => {
     });
     render(<StatusBar />);
     expect(screen.getByRole("progressbar")).toBeTruthy();
+  });
+
+  it("announces the mode-aware verb while a folder job runs", () => {
+    useJobStore.setState({
+      draft: {
+        items: [ITEM, ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "folder",
+        conflictPolicy: "autoRename",
+      },
+      progress: {
+        overall: { bytesDone: 5, bytesTotal: 10 },
+        overallEtaMs: 12000,
+        perTask: [],
+        elapsedMs: 1000,
+      },
+      summary: null,
+    });
+    render(<StatusBar />);
+    expect(screen.getByText(/extracted 2/i)).toBeTruthy();
+  });
+
+  it("announces the archive verb while a zip job runs", () => {
+    useJobStore.setState({
+      draft: {
+        items: [ITEM, ITEM],
+        namingTemplate: null,
+        outputDir: "/out",
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      progress: {
+        overall: { bytesDone: 5, bytesTotal: 10 },
+        overallEtaMs: 12000,
+        perTask: [],
+        elapsedMs: 1000,
+      },
+      summary: null,
+    });
+    render(<StatusBar />);
+    expect(screen.getByText(/archived 2/i)).toBeTruthy();
   });
 
   it("shows the results summary when a job has finished", () => {
@@ -102,6 +146,7 @@ describe("StatusBar Reset slot – visibility", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: null,
@@ -117,6 +162,7 @@ describe("StatusBar Reset slot – visibility", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: true,
       summary: null,
@@ -134,6 +180,7 @@ describe("StatusBar Reset slot – visibility", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: { succeeded: [1], cancelled: [], failed: [] },
@@ -157,6 +204,7 @@ describe("StatusBar Reset slot – label", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: null,
@@ -172,6 +220,7 @@ describe("StatusBar Reset slot – label", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: {
@@ -199,6 +248,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: null,
@@ -218,6 +268,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: null,
@@ -240,6 +291,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: null,
@@ -264,6 +316,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: { succeeded: [1], cancelled: [], failed: [] },
@@ -288,6 +341,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: { succeeded: [1], cancelled: [], failed: [] },
@@ -312,6 +366,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: null,
@@ -337,6 +392,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       running: false,
       summary: null,

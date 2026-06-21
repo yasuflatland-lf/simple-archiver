@@ -16,8 +16,8 @@ use simple_archiver_core::infrastructure::fs_placer::FsPlacer;
 use simple_archiver_core::infrastructure::system_clock::SystemClock;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 
-use crate::presentation::dto::{DraftSnapshot, JobSummaryDto, OutputMode};
-use crate::presentation::dto_map::output_mode_to_domain;
+use crate::presentation::dto::{ConflictPolicy, DraftSnapshot, JobSummaryDto, OutputMode};
+use crate::presentation::dto_map::{conflict_policy_to_domain, output_mode_to_domain};
 use crate::presentation::events::{EventSink, ProgressEmitter, TauriEmitter};
 use crate::presentation::state::{AppState, RunState};
 
@@ -106,6 +106,17 @@ pub fn set_output_mode(
 ) -> Result<DraftSnapshot, String> {
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.set_output_mode(output_mode_to_domain(mode));
+    Ok(draft.snapshot())
+}
+
+/// Set the draft's collision policy (Folder mode), returning the new snapshot.
+#[tauri::command]
+pub fn set_conflict_policy(
+    state: State<'_, AppState>,
+    policy: ConflictPolicy,
+) -> Result<DraftSnapshot, String> {
+    let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+    draft.set_conflict_policy(conflict_policy_to_domain(policy));
     Ok(draft.snapshot())
 }
 
@@ -436,6 +447,25 @@ mod tests {
         let snap = draft.snapshot();
         assert_eq!(snap.output_mode, OutputMode::Folder);
         assert!(draft.build().is_ok(), "Folder build needs no template");
+    }
+
+    /// Mirror the `set_conflict_policy` command body: mapping the wire policy and
+    /// setting it on the draft surfaces in the snapshot.
+    #[test]
+    fn set_conflict_policy_overwrite_appears_in_snapshot() {
+        let state = AppState::default();
+        {
+            let mut draft = state.draft.lock().unwrap();
+            draft.set_conflict_policy(crate::presentation::dto_map::conflict_policy_to_domain(
+                crate::presentation::dto::ConflictPolicy::Overwrite,
+            ));
+        }
+        let draft = state.draft.lock().unwrap();
+        let snap = draft.snapshot();
+        assert_eq!(
+            snap.conflict_policy,
+            crate::presentation::dto::ConflictPolicy::Overwrite
+        );
     }
 
     /// `cancel_job` semantics at the token level: `request_cancel` on the stored

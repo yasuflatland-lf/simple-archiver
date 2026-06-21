@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import type { ConflictPolicy } from "@/bindings/ConflictPolicy";
 import type { DraftSnapshot } from "@/bindings/DraftSnapshot";
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { OutputMode } from "@/bindings/OutputMode";
@@ -85,6 +86,8 @@ export interface JobState {
   setOutputDir: (dir: string) => Promise<void>;
   /** Set the output mode (re-zip vs extract-to-folder); stores the returned draft. */
   setOutputMode: (mode: OutputMode) => Promise<void>;
+  /** Set the Folder-mode collision policy; stores the returned draft. */
+  setConflictPolicy: (policy: ConflictPolicy) => Promise<void>;
   /** Start the archive job and store its summary when it finishes. */
   runJob: () => Promise<void>;
   /** Request cancellation of the running job (does not flip `running`). */
@@ -112,6 +115,7 @@ export const useJobStore = create<JobState>()((set, get) => ({
     namingTemplate: null,
     outputDir: null,
     outputMode: "zip",
+    conflictPolicy: "autoRename",
   },
   previewNames: [],
   firstPreview: null,
@@ -176,6 +180,17 @@ export const useJobStore = create<JobState>()((set, get) => ({
       // A mode change drives what the OUTPUT group shows (re-zip vs extract),
       // not the preview filenames, so no recompute is needed.
       const draft = await archive.setOutputMode(mode);
+      set({ draft, error: null });
+    } catch (reason) {
+      set({ error: messageFromReason(reason) });
+    }
+  },
+
+  setConflictPolicy: async (policy) => {
+    try {
+      // The collision policy only affects Folder-mode placement at run time, not
+      // the preview filenames, so no recompute is needed.
+      const draft = await archive.setConflictPolicy(policy);
       set({ draft, error: null });
     } catch (reason) {
       set({ error: messageFromReason(reason) });

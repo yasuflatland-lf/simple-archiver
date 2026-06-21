@@ -170,6 +170,7 @@ describe("App", () => {
         namingTemplate: "photo_{n:03}",
         outputDir: "/out",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
     });
 
@@ -258,6 +259,7 @@ describe("App", () => {
           namingTemplate: null,
           outputDir: "/already/set",
           outputMode: "zip",
+          conflictPolicy: "autoRename",
         },
         setOutputDir: setOutputDirSpy,
       });
@@ -321,6 +323,7 @@ describe("App", () => {
             namingTemplate: null,
             outputDir: "/user/picked",
             outputMode: "zip",
+            conflictPolicy: "autoRename",
           },
         });
       });

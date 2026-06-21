@@ -37,6 +37,7 @@ describe("OutputSettings", () => {
       draft: {
         ...s.draft,
         outputMode: "folder",
+        conflictPolicy: "autoRename",
         outputDir: "/Users/me/Downloads",
       },
     }));
@@ -70,6 +71,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n:03}",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: "photo_001.zip",
     });
@@ -90,6 +92,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: "photo_001.zip",
     });
@@ -109,6 +112,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: "",
       previewError: "invalid naming template: stray or malformed brace",
@@ -127,6 +131,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n",
         outputDir: "~/Archives",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: "",
       previewError: "invalid naming template: stray or malformed brace",
@@ -158,6 +163,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: "photo_001.zip",
     });
@@ -184,6 +190,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n",
         outputDir: "~/Archives",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: "",
       previewError: "invalid naming template: stray or malformed brace",
@@ -207,6 +214,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: null,
     });
@@ -226,6 +234,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: "",
       previewError: "invalid naming template: stray or malformed brace",
@@ -253,6 +262,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: "photo_001.zip",
     });
@@ -276,6 +286,7 @@ describe("OutputSettings", () => {
         namingTemplate: "photo_{n:03}",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       firstPreview: "photo_001.zip",
     });

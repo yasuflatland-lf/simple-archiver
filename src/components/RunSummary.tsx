@@ -1,4 +1,5 @@
 import { outputNameForTask, statusVisual } from "@/lib/status";
+import { verbForMode } from "@/lib/wording";
 import { useJobStore } from "@/store/jobStore";
 
 /**
@@ -11,8 +12,13 @@ export function RunSummary() {
   const summary = useJobStore((s) => s.summary);
   const previewNames = useJobStore((s) => s.previewNames);
   const taskIdByIndex = useJobStore((s) => s.taskIdByIndex);
+  const outputMode = useJobStore((s) => s.draft.outputMode);
 
   if (summary === null) return null;
+
+  // Mode-aware completion headline: "extracted N" in Folder mode vs
+  // "archived N" in Zip mode, where N is the succeeded count.
+  const verb = verbForMode(outputMode);
 
   const counts = [
     { visual: statusVisual("succeeded"), n: summary.succeeded.length },
@@ -32,6 +38,10 @@ export function RunSummary() {
       <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Run summary
       </h2>
+
+      <p className="text-foreground">
+        {verb} {summary.succeeded.length}
+      </p>
 
       <div className="flex flex-wrap gap-2">
         {counts.map(({ visual, n }) => (
