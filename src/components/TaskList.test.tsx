@@ -592,6 +592,26 @@ describe("TaskList pointer reorder", () => {
 
     expect(rows[2].getAttribute("data-drop-edge")).toBe("top");
     expect(rows[0].getAttribute("data-dragging")).toBe("true");
+    // Non-target rows must carry no insertion line.
+    expect(rows[0].getAttribute("data-drop-edge")).toBeNull();
+    expect(rows[1].getAttribute("data-drop-edge")).toBeNull();
+  });
+
+  it("shows a top drop-line on an interior row hovered at its upper half", () => {
+    setItems(3);
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    stubRect(rows[1], 20);
+    // Drag row 0 and hover the upper half of row 1.
+    fireEvent.pointerDown(handle(0));
+    fireEvent.pointerMove(rows[1], { clientY: topHalf(20) });
+
+    // Only row 1 should show the insertion line.
+    expect(rows[1].getAttribute("data-drop-edge")).toBe("top");
+    // Row 0 is the dragged row — fix #2 ensures no line on it.
+    expect(rows[0].getAttribute("data-drop-edge")).toBeNull();
+    expect(rows[2].getAttribute("data-drop-edge")).toBeNull();
   });
 
   it("shows a bottom drop-line on the last row when its lower half is hovered", () => {

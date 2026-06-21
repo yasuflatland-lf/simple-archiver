@@ -102,6 +102,9 @@ export function ReorderDndProvider({ children }: { children: ReactNode }) {
 
   const pointerMoveOnRow = useCallback(
     (index: number, event: RowPointerEvent) => {
+      // Do nothing while reordering is disabled; a pending press must not arm
+      // into a drag mid-run even if the pointer has traveled far enough.
+      if (!enabled) return;
       // Promote a pending row-body press to a real drag once it passes threshold.
       const pending = pendingRef.current;
       if (pending && draggingRef.current === null) {
@@ -122,7 +125,7 @@ export function ReorderDndProvider({ children }: { children: ReactNode }) {
       overGapRef.current = gap;
       setOverGap(gap);
     },
-    [arm],
+    [enabled, arm],
   );
 
   const drop = useCallback(() => {
@@ -233,9 +236,10 @@ export function useReorderRow(index: number): ReorderRow {
 
   // Interior gap g renders as row g's top edge; the trailing gap (== count)
   // renders as the last row's bottom edge, so each gap draws exactly one line.
+  // The dragged row itself never shows an insertion line (it is already dimmed).
   const isLast = index === count - 1;
   const dropEdge: DropEdge =
-    overGap === null
+    overGap === null || draggingIndex === index
       ? null
       : overGap === index
         ? "top"
