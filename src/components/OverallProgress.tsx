@@ -16,13 +16,15 @@ export function OverallProgress() {
     progress.overall.bytesTotal,
   );
 
+  // Right-pad percent to width 3 and render monospace/pre so the line keeps a
+  // constant width as percent grows 0 → 100 and does not shift horizontally.
+  const etaLabel = `${String(percent).padStart(3)}% · ETA ${formatEta(progress.overallEtaMs)}`;
+
   return (
     <section aria-label="Overall progress" className="flex flex-col gap-1">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span className="font-medium uppercase tracking-wide">Overall</span>
-        <span>
-          {percent}% · ETA {formatEta(progress.overallEtaMs)}
-        </span>
+        <span className="font-mono whitespace-pre">{etaLabel}</span>
       </div>
       <Progress value={percent} />
     </section>

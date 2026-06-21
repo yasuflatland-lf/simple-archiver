@@ -447,6 +447,6 @@ describe("TaskList progress", () => {
       },
     });
     render(<TaskList />);
-    expect(screen.getByText(/12\.4 \/ 19 MB/)).toBeTruthy();
+    expect(screen.getByText(/12\.4 \/ 19\.0 MB/)).toBeTruthy();
   });
 });

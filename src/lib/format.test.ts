@@ -37,20 +37,29 @@ describe("progressPercent", () => {
 });
 
 describe("formatBytes", () => {
-  it("renders both numbers on the unit of the total", () => {
-    // 12.4 MB done of 19 MB total (1 MB = 1024*1024).
-    expect(formatBytes(13_002_342, 19_922_944)).toBe("12.4 / 19 MB");
+  it("renders both numbers on the unit of the total with one decimal", () => {
+    // 12.4 MB done of 19 MB total (1 MB = 1024*1024); a whole total still
+    // keeps one decimal so done and total share the same shape.
+    expect(formatBytes(13_002_342, 19_922_944)).toBe("12.4 / 19.0 MB");
   });
-  it("uses whole numbers for bytes (no decimals under 1 KB)", () => {
-    expect(formatBytes(512, 1000)).toBe("512 / 1000 B");
+  it("uses whole numbers for bytes and right-aligns done to total width", () => {
+    expect(formatBytes(512, 1000)).toBe(" 512 / 1000 B");
   });
-  it("scales to KB", () => {
-    expect(formatBytes(512, 2048)).toBe("0.5 / 2 KB");
+  it("scales to KB with one decimal on both numbers", () => {
+    expect(formatBytes(512, 2048)).toBe("0.5 / 2.0 KB");
   });
   it("handles a zero total without dividing by zero", () => {
     expect(formatBytes(0, 0)).toBe("0 / 0 B");
   });
   it("clamps negative inputs to zero", () => {
     expect(formatBytes(-5, -10)).toBe("0 / 0 B");
+  });
+  it("keeps the rendered width constant as done grows for a fixed total", () => {
+    const total = 145 * 1024 * 1024;
+    expect(formatBytes(5 * 1024 * 1024, total)).toBe("  5.0 / 145.0 MB");
+    expect(formatBytes(123 * 1024 * 1024, total)).toBe("123.0 / 145.0 MB");
+    expect(formatBytes(5 * 1024 * 1024, total)).toHaveLength(
+      formatBytes(123 * 1024 * 1024, total).length,
+    );
   });
 });
