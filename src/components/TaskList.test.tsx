@@ -472,10 +472,17 @@ describe("TaskList progress", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Drag-and-drop reorder
+// Pointer-driven reorder
+//
+// Rows reorder via pointer events rather than HTML5 drag-and-drop: Tauri's
+// webview drag-drop handler — which the file-drop-to-add feature relies on —
+// intercepts native drag gestures so the DOM `drop` event never fires in the
+// app. Pointer events are not intercepted, so dragging a row by its grip handle
+// reorders it. The grip starts the drag; the row under the pointer is the drop
+// target; releasing the pointer commits the move.
 // ---------------------------------------------------------------------------
 
-describe("TaskList drag-and-drop reorder", () => {
+describe("TaskList pointer reorder", () => {
   function setItems(n: number, extra: Record<string, unknown> = {}) {
     useJobStore.setState({
       draft: {
@@ -491,55 +498,59 @@ describe("TaskList drag-and-drop reorder", () => {
     });
   }
 
-  // The first <tr> is the header; the remaining rows are the draggable items.
+  // The first <tr> is the header; the remaining rows are the reorderable items.
   function bodyRows() {
     return screen.getAllByRole("row").slice(1) as HTMLTableRowElement[];
   }
 
-  it("marks item rows draggable when no job is running", () => {
+  // The grip handle that starts a drag for the row at `index`.
+  function handle(index: number) {
+    return screen.getByTestId(`reorder-handle-${index}`);
+  }
+
+  it("exposes an enabled drag handle for each item row when idle", () => {
     setItems(3);
     render(<TaskList />);
 
-    for (const row of bodyRows()) {
-      expect(row.getAttribute("draggable")).toBe("true");
+    for (let i = 0; i < 3; i++) {
+      expect(handle(i).getAttribute("data-disabled")).toBeNull();
     }
   });
 
-  it("calls reorder(from, to) when a row is dropped onto a lower row", () => {
+  it("calls reorder(from, to) when a row is dragged onto a lower row", () => {
     const reorder = vi.fn().mockResolvedValue(undefined);
     setItems(3, { reorder });
     render(<TaskList />);
 
     const rows = bodyRows();
-    fireEvent.dragStart(rows[0]);
-    fireEvent.dragOver(rows[2]);
-    fireEvent.drop(rows[2]);
+    fireEvent.pointerDown(handle(0));
+    fireEvent.pointerMove(rows[2]);
+    fireEvent.pointerUp(rows[2]);
 
     expect(reorder).toHaveBeenCalledWith(0, 2);
   });
 
-  it("calls reorder(from, to) when a row is dropped onto a higher row", () => {
+  it("calls reorder(from, to) when a row is dragged onto a higher row", () => {
     const reorder = vi.fn().mockResolvedValue(undefined);
     setItems(3, { reorder });
     render(<TaskList />);
 
     const rows = bodyRows();
-    fireEvent.dragStart(rows[2]);
-    fireEvent.dragOver(rows[0]);
-    fireEvent.drop(rows[0]);
+    fireEvent.pointerDown(handle(2));
+    fireEvent.pointerMove(rows[0]);
+    fireEvent.pointerUp(rows[0]);
 
     expect(reorder).toHaveBeenCalledWith(2, 0);
   });
 
-  it("does not call reorder when a row is dropped onto itself", () => {
+  it("does not call reorder when a row is released onto itself", () => {
     const reorder = vi.fn().mockResolvedValue(undefined);
     setItems(3, { reorder });
     render(<TaskList />);
 
     const rows = bodyRows();
-    fireEvent.dragStart(rows[1]);
-    fireEvent.dragOver(rows[1]);
-    fireEvent.drop(rows[1]);
+    fireEvent.pointerDown(handle(1));
+    fireEvent.pointerUp(rows[1]);
 
     expect(reorder).not.toHaveBeenCalled();
   });
@@ -549,28 +560,30 @@ describe("TaskList drag-and-drop reorder", () => {
     render(<TaskList />);
 
     const rows = bodyRows();
-    fireEvent.dragStart(rows[0]);
-    fireEvent.dragOver(rows[2]);
+    fireEvent.pointerDown(handle(0));
+    fireEvent.pointerMove(rows[2]);
 
     expect(rows[2].getAttribute("data-drop-target")).toBe("true");
     expect(rows[0].getAttribute("data-drop-target")).toBeNull();
     expect(rows[0].getAttribute("data-dragging")).toBe("true");
   });
 
-  it("clears the drag state on drag end", () => {
+  it("clears the drag state when the pointer is released off the rows", () => {
     setItems(3);
     render(<TaskList />);
 
     const rows = bodyRows();
-    fireEvent.dragStart(rows[0]);
-    fireEvent.dragOver(rows[2]);
-    fireEvent.dragEnd(rows[0]);
+    fireEvent.pointerDown(handle(0));
+    fireEvent.pointerMove(rows[2]);
+    // Release outside any row (e.g. on the surrounding page chrome).
+    fireEvent.pointerUp(document.body);
 
-    expect(rows[0].getAttribute("data-dragging")).toBeNull();
-    expect(rows[2].getAttribute("data-drop-target")).toBeNull();
+    const after = bodyRows();
+    expect(after[0].getAttribute("data-dragging")).toBeNull();
+    expect(after[2].getAttribute("data-drop-target")).toBeNull();
   });
 
-  it("does not allow dragging while a job is running", () => {
+  it("does not reorder while a job is running", () => {
     const reorder = vi.fn().mockResolvedValue(undefined);
     setItems(3, {
       reorder,
@@ -584,14 +597,12 @@ describe("TaskList drag-and-drop reorder", () => {
     });
     render(<TaskList />);
 
-    const rows = bodyRows();
-    for (const row of rows) {
-      expect(row.getAttribute("draggable")).toBe("false");
-    }
+    expect(handle(0).getAttribute("data-disabled")).toBe("true");
 
-    fireEvent.dragStart(rows[0]);
-    fireEvent.dragOver(rows[2]);
-    fireEvent.drop(rows[2]);
+    const rows = bodyRows();
+    fireEvent.pointerDown(handle(0));
+    fireEvent.pointerMove(rows[2]);
+    fireEvent.pointerUp(rows[2]);
 
     expect(reorder).not.toHaveBeenCalled();
   });

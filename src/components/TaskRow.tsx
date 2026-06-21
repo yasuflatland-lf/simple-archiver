@@ -108,24 +108,22 @@ function TaskRowImpl({ index }: TaskRowProps) {
   // reflow cannot strip the right-align padding spaces formatBytes emits.
   const liveLabel = `${formatBytes(row.liveBytesDone ?? 0, row.liveBytesTotal ?? 0)} · ETA ${formatEta(row.liveEtaMs)}`;
 
-  // Drag affordances: grab cursor while draggable, dim the row being dragged,
-  // and highlight the row the pointer is currently over as the drop target.
+  // Drag affordances: dim the row being dragged and highlight the row the
+  // pointer is currently over as the drop target. The grab cursor lives on the
+  // grip handle (the only element that starts a drag), not the whole row.
   const rowClassName = [
     "border-b border-border/50 transition-colors",
-    dnd.draggable && "cursor-grab active:cursor-grabbing",
     dnd.isDragging ? "opacity-40" : "hover:bg-muted/30",
     dnd.isOver && "bg-primary/10",
+    // Suppress text selection across the list while any row is being dragged.
+    dnd.isDraggingAny && "select-none",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
     <tr
-      draggable={dnd.draggable}
-      onDragStart={dnd.onDragStart}
-      onDragOver={dnd.onDragOver}
-      onDrop={dnd.onDrop}
-      onDragEnd={dnd.onDragEnd}
+      {...dnd.rowProps}
       data-dragging={dnd.isDragging || undefined}
       data-drop-target={dnd.isOver || undefined}
       className={rowClassName}
@@ -178,12 +176,25 @@ function TaskRowImpl({ index }: TaskRowProps) {
       {/* Actions: drag handle + keyboard-accessible up/down buttons + delete */}
       <td className="py-2">
         <div className="flex items-center gap-1">
-          <GripVertical
+          {/* Grip handle: starts a pointer drag to reorder this row. The drag is
+              pointer-based (not HTML5) so it survives Tauri's webview drag-drop
+              handler; keyboard users reorder with the up/down buttons instead,
+              so the handle stays aria-hidden. `touch-none` keeps a touch drag
+              from scrolling the list; `select-none` keeps the press from
+              starting a text selection (mirrors PaneSeparator). */}
+          <span
+            {...dnd.handleProps}
+            data-testid={`reorder-handle-${index}`}
+            data-disabled={!dnd.enabled || undefined}
             aria-hidden
-            className={`size-4 shrink-0 text-muted-foreground/60 ${
-              dnd.draggable ? "cursor-grab" : "opacity-30"
+            className={`flex items-center touch-none select-none text-muted-foreground/60 ${
+              dnd.enabled
+                ? "cursor-grab active:cursor-grabbing"
+                : "cursor-not-allowed opacity-30"
             }`}
-          />
+          >
+            <GripVertical className="size-4 shrink-0" />
+          </span>
           <button
             type="button"
             aria-label="Move up"
