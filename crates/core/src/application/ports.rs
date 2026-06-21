@@ -8,7 +8,7 @@
 
 use crate::application::compress_context::CompressContext;
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Error returned by an [`Archiver`].
 ///
@@ -96,6 +96,29 @@ pub trait Extractor: Send + Sync {
     ) -> impl Future<Output = Result<Box<dyn ExtractedTree>, ExtractError>> + Send;
 }
 
+/// Error returned by a [`Placer`].
+#[derive(Debug, thiserror::Error)]
+pub enum PlaceError {
+    /// Filesystem I/O failed while copying the tree into the destination.
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+/// Places an extracted directory tree at a destination, never overwriting.
+///
+/// Mirrors [`Archiver`] / [`Extractor`]: the future is `Send` (and the trait is
+/// `Send + Sync`) so the engine can run implementations across `tokio::spawn`.
+pub trait Placer: Send + Sync {
+    /// Recursively copy the tree at `src_tree` to `desired_dest`. If
+    /// `desired_dest` already exists, append ` (2)`, ` (3)`, … to its final
+    /// component until a free path is found. Returns the path actually created.
+    fn place(
+        &self,
+        src_tree: &Path,
+        desired_dest: &Path,
+    ) -> impl Future<Output = Result<PathBuf, PlaceError>> + Send;
+}
+
 #[cfg(test)]
 mod tests {
     use super::ArchiveError;
@@ -116,5 +139,30 @@ mod tests {
 
         let io = ExtractError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"));
         assert_eq!(io.to_string(), "I/O error: missing");
+    }
+
+    #[test]
+    fn placer_is_object_safe_via_generic_bound() {
+        // Compile-time assertion that the bound is usable as a generic constraint.
+        fn assert_placer<P: super::Placer>() {}
+        // FsPlacer (infrastructure) will satisfy this; here we only prove the
+        // trait + error type compile and that PlaceError Displays as expected.
+        let err = super::PlaceError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "boom",
+        ));
+        assert_eq!(err.to_string(), "I/O error: boom");
+        let _ = assert_placer::<Noop>;
+    }
+
+    struct Noop;
+    impl super::Placer for Noop {
+        async fn place(
+            &self,
+            _src_tree: &std::path::Path,
+            desired_dest: &std::path::Path,
+        ) -> Result<std::path::PathBuf, super::PlaceError> {
+            Ok(desired_dest.to_path_buf())
+        }
     }
 }
