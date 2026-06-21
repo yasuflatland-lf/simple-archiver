@@ -4,13 +4,13 @@ import { messageFromReason } from "@/lib/errors";
 import { useJobStore } from "@/store/jobStore";
 
 /**
- * Lets the user pick an output directory via the native OS dialog.
- * Calls setOutputDir in the job store when a directory is chosen.
- *
- * Renders as a fragment of three grid cells so it flattens into the shared
- * OUTPUT editing grid owned by OutputSettings: a tier-2 "Destination" label, the
+ * The collapsed Destination summary in the left rail: a "Destination" label, the
  * current path (or a "(not set)" empty state with a "Required" badge when none
- * is chosen), and the Choose button pinned to the right-hand action column.
+ * is chosen), and a "Change…" button that opens the native OS directory picker.
+ *
+ * Calls setOutputDir in the job store when a directory is chosen. Self-contained
+ * (a vertical summary block), unlike its previous incarnation as three cells of
+ * a shared OUTPUT grid.
  */
 export function OutputDirPicker() {
   const outputDir = useJobStore((s) => s.draft.outputDir);
@@ -30,13 +30,20 @@ export function OutputDirPicker() {
   }
 
   return (
-    <>
-      <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
-        Destination
-      </span>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
+          Destination
+        </span>
+        <Button variant="outline" size="sm" onClick={handleChoose}>
+          Change…
+        </Button>
+      </div>
       <span className="flex min-w-0 items-center gap-2 text-sm">
         {outputDir !== null ? (
-          <span className="truncate">{outputDir}</span>
+          <span className="truncate font-mono" title={outputDir}>
+            {outputDir}
+          </span>
         ) : (
           <>
             <span className="text-muted-foreground">(not set)</span>
@@ -46,9 +53,6 @@ export function OutputDirPicker() {
           </>
         )}
       </span>
-      <Button variant="outline" size="sm" onClick={handleChoose}>
-        Choose…
-      </Button>
-    </>
+    </div>
   );
 }

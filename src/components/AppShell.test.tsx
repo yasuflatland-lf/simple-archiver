@@ -8,39 +8,45 @@ describe("AppShell", () => {
   function renderShell(banner?: ReactNode) {
     render(
       <AppShell
-        toolbar={<div>TOOLBAR</div>}
+        rail={<div>RAIL</div>}
         banner={banner}
         statusBar={<div>STATUS</div>}
       >
-        <div>MAIN</div>
+        <div>CANVAS</div>
       </AppShell>,
     );
   }
 
-  it("renders all slots in their landmark regions", () => {
+  it("renders the rail, canvas, and footer slots", () => {
     renderShell();
-    expect(screen.getByRole("main").textContent).toContain("MAIN");
+    expect(screen.getByText("RAIL")).toBeTruthy();
+    expect(screen.getByText("CANVAS")).toBeTruthy();
     expect(screen.getByRole("contentinfo").textContent).toContain("STATUS");
-    expect(screen.getByText("TOOLBAR")).toBeTruthy();
   });
 
   it("renders no header/banner landmark", () => {
-    // The header region was removed; the toolbar is now the topmost zone.
+    // The header region was removed; the body (rail + canvas) is the topmost
+    // content zone.
     renderShell();
     expect(screen.queryByRole("banner")).toBeNull();
   });
 
-  it("makes only the main region scrollable", () => {
+  it("lays the body out as a flex row of rail then canvas", () => {
     renderShell();
-    const main = screen.getByRole("main");
-    expect(main.className).toContain("overflow-y-auto");
-    expect(main.className).toContain("min-h-0");
+    const body = screen.getByTestId("app-body");
+    expect(body.className).toContain("flex");
+    expect(body.className).toContain("flex-row");
+    expect(body.className).toContain("min-h-0");
+    // The rail comes before the canvas in the DOM order.
+    const railIndex = body.innerHTML.indexOf("RAIL");
+    const canvasIndex = body.innerHTML.indexOf("CANVAS");
+    expect(railIndex).toBeGreaterThanOrEqual(0);
+    expect(railIndex).toBeLessThan(canvasIndex);
   });
 
   it("composes from tokens, not raw colors", () => {
     renderShell();
-    const main = screen.getByRole("main");
-    const shell = main.parentElement as HTMLElement;
+    const shell = screen.getByTestId("app-shell");
     expect(shell.className).toContain("bg-background");
     expect(shell.className).toContain("text-foreground");
   });

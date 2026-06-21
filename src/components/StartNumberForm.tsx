@@ -13,11 +13,10 @@ export const DEBOUNCE_MS = 200;
 /**
  * The "Start #" control inside the OUTPUT group: a debounced number input that
  * pushes the sequence start number into the store via setStartNumber. The live
- * preview reflects the start through OutputSettings' hero path.
+ * preview reflects the start through the left rail's hero path.
  *
- * Renders as a fragment of two grid cells so it flattens into the shared OUTPUT
- * editing grid owned by OutputSettings: a tier-2 "Start #" label cell followed
- * by the number input in the control column (the action column stays empty).
+ * Renders as a self-contained vertical block (a tier-2 "Start #" label above the
+ * number input) so it stacks cleanly in the left rail.
  *
  * The field keeps its own raw text so a partial edit (empty, "-", "1.") is
  * representable while typing; only a sanitized integer is pushed to the store.
@@ -57,7 +56,7 @@ export function StartNumberForm() {
   }, [storedStart]);
 
   return (
-    <>
+    <div className="flex flex-col gap-1.5">
       <Label
         htmlFor="start-number"
         className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground"
@@ -72,6 +71,6 @@ export function StartNumberForm() {
         value={startText}
         onChange={(event) => setStartText(event.target.value)}
       />
-    </>
+    </div>
   );
 }
