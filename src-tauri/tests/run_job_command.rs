@@ -72,6 +72,21 @@ async fn run_job_inner_happy_path_archives_every_item() {
     assert!(summary.failed.is_empty(), "no task should fail");
     assert!(summary.cancelled.is_empty(), "no task should be cancelled");
 
+    // The wire summary carries one per-task result per task, in job order, each
+    // with the absolute output path the engine wrote to.
+    assert_eq!(summary.results.len(), 2, "one result per task");
+    let out_1 = out_dir.path().join("out_1.zip");
+    let out_2 = out_dir.path().join("out_2.zip");
+    assert_eq!(
+        summary.results[0].output_path,
+        out_1.to_string_lossy(),
+        "first result carries the absolute path of out_1.zip"
+    );
+    assert_eq!(summary.results[1].output_path, out_2.to_string_lossy());
+    assert_eq!(summary.results[0].output_name, "out_1.zip");
+    // A succeeded task carries no failure reason.
+    assert!(summary.results[0].reason.is_none());
+
     // At least one progress event must have crossed the emitter seam, and the
     // final recorded event must carry real byte data (non-zero bytes_done),
     // confirming the engine reported actual I/O progress through the seam.

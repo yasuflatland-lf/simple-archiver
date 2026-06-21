@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use simple_archiver_core::application::run_archive_job::RunArchiveJob;
 use simple_archiver_core::domain::archive_job::ArchiveJob;
 use simple_archiver_core::domain::naming_rule::NamingRule;
+use simple_archiver_core::domain::output_mode::OutputMode as DomainOutputMode;
 use simple_archiver_core::domain::sequence_number::SequenceNumber;
 use simple_archiver_core::domain::source_item::SourceItem;
 use simple_archiver_core::infrastructure::archive_extractor::ArchiveExtractor;
@@ -17,7 +18,9 @@ use simple_archiver_core::infrastructure::system_clock::SystemClock;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 
 use crate::presentation::dto::{ConflictPolicy, DraftSnapshot, JobSummaryDto, OutputMode};
-use crate::presentation::dto_map::{conflict_policy_to_domain, output_mode_to_domain};
+use crate::presentation::dto_map::{
+    conflict_policy_to_domain, job_summary_dto, output_mode_to_domain, TaskPathMeta,
+};
 use crate::presentation::events::{EventSink, ProgressEmitter, TauriEmitter};
 use crate::presentation::state::{AppState, RunState};
 
@@ -158,6 +161,11 @@ pub async fn run_job_inner(
     job: ArchiveJob,
     token: CancellationToken,
 ) -> JobSummaryDto {
+    // Capture per-task output paths from the planned job BEFORE it moves into the
+    // engine: the engine returns task ids only, so the path formula is mirrored
+    // here at the IPC boundary to enrich the wire summary with output locations.
+    let meta = task_path_meta(&job);
+
     let engine = RunArchiveJob::with_default_parallelism(
         Arc::new(ZipArchiver::new()),
         Arc::new(ArchiveExtractor::new()),
@@ -168,7 +176,28 @@ pub async fn run_job_inner(
     let summary = engine
         .execute_with_cancellation(job, &clock, &sink, token)
         .await;
-    JobSummaryDto::from(summary)
+    job_summary_dto(summary, &meta)
+}
+
+/// Recompute each task's `(id, output base name, absolute output path)` from the
+/// planned job, mirroring the engine's destination formula in `run_archive_job`:
+/// Zip mode joins the output filename, Folder mode joins the source's output stem.
+///
+/// `PathBuf` is rendered to a lossy UTF-8 `String` at this wire boundary.
+fn task_path_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
+    let out_dir = job.output_directory().path();
+    let mode = job.output_mode();
+    job.tasks()
+        .iter()
+        .map(|t| {
+            let name = match mode {
+                DomainOutputMode::Zip => t.output_name().as_str().to_string(),
+                DomainOutputMode::Folder => t.source().output_stem(),
+            };
+            let path = out_dir.join(&name).to_string_lossy().into_owned();
+            (t.id(), name, path)
+        })
+        .collect()
 }
 
 /// RAII guard that clears the active-job slot when dropped.

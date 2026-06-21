@@ -41,6 +41,7 @@ describe("taskOutcomeFor", () => {
     succeeded: [1, 2],
     cancelled: [3],
     failed: [{ taskId: 4, reason: "boom" }],
+    results: [],
   };
 
   it("resolves a succeeded id to a succeeded outcome", () => {
@@ -94,6 +95,7 @@ describe("computeStatus", () => {
       succeeded: [10],
       cancelled: [],
       failed: [],
+      results: [],
     };
     expect(computeStatus(0, false, null, summary, [10])).toBe("Succeeded");
   });
@@ -103,6 +105,7 @@ describe("computeStatus", () => {
       succeeded: [],
       cancelled: [10],
       failed: [],
+      results: [],
     };
     expect(computeStatus(0, false, null, summary, [10])).toBe("Cancelled");
   });
@@ -112,6 +115,7 @@ describe("computeStatus", () => {
       succeeded: [],
       cancelled: [],
       failed: [{ taskId: 10, reason: "boom" }],
+      results: [],
     };
     expect(computeStatus(0, false, null, summary, [10])).toBe("Failed: boom");
   });
@@ -121,6 +125,7 @@ describe("computeStatus", () => {
       succeeded: [],
       cancelled: [],
       failed: [],
+      results: [],
     };
     expect(computeStatus(5, false, null, summary, [10])).toBe("Done");
   });
@@ -130,6 +135,7 @@ describe("computeStatus", () => {
       succeeded: [],
       cancelled: [],
       failed: [],
+      results: [],
     };
     expect(computeStatus(0, false, null, summary, [10])).toBe("Done");
   });

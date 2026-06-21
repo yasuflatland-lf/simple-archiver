@@ -112,7 +112,7 @@ describe("StatusBar", () => {
 
   it("shows the results summary when a job has finished", () => {
     useJobStore.setState({
-      summary: { succeeded: [1], cancelled: [], failed: [] },
+      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
     });
     render(<StatusBar />);
     // RunSummary (PR10) renders with role="status".
@@ -190,7 +190,7 @@ describe("StatusBar Reset slot – visibility", () => {
         conflictPolicy: "autoRename",
       },
       running: false,
-      summary: { succeeded: [1], cancelled: [], failed: [] },
+      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
     });
     render(<StatusBar />);
     expect(screen.getByRole("button", { name: /new batch/i })).toBeTruthy();
@@ -236,6 +236,7 @@ describe("StatusBar Reset slot – label", () => {
         succeeded: [],
         cancelled: [],
         failed: [{ taskId: 1, reason: "error" }],
+        results: [],
       },
     });
     render(<StatusBar />);
@@ -332,7 +333,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
         conflictPolicy: "autoRename",
       },
       running: false,
-      summary: { succeeded: [1], cancelled: [], failed: [] },
+      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
       reset,
     });
     const user = userEvent.setup();
@@ -358,7 +359,7 @@ describe("StatusBar Reset slot – confirm dialog", () => {
         conflictPolicy: "autoRename",
       },
       running: false,
-      summary: { succeeded: [1], cancelled: [], failed: [] },
+      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
       reset,
     });
     const user = userEvent.setup();
