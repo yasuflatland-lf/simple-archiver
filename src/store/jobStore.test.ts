@@ -119,6 +119,7 @@ describe("addItems", () => {
       succeeded: [10],
       cancelled: [],
       failed: [{ taskId: 11, reason: "boom" }],
+      results: [],
     };
     const progress: ProgressEvent = {
       overall: { bytesDone: 100, bytesTotal: 100 },
@@ -170,6 +171,7 @@ describe("reorder", () => {
       succeeded: [10],
       cancelled: [],
       failed: [{ taskId: 11, reason: "boom" }],
+      results: [],
     };
     const progress: ProgressEvent = {
       overall: { bytesDone: 100, bytesTotal: 100 },
@@ -506,6 +508,7 @@ describe("runJob", () => {
       succeeded: [1, 2],
       cancelled: [],
       failed: [],
+      results: [],
     };
     // A manually-resolved promise lets us observe the in-flight running flag.
     let resolveRun: (value: JobSummaryDto) => void = () => {};
@@ -553,6 +556,7 @@ describe("runJob", () => {
       succeeded: [11, 22],
       cancelled: [],
       failed: [],
+      results: [],
     };
     mockArchive.runJob.mockResolvedValue(summary);
 
@@ -572,6 +576,7 @@ describe("runJob", () => {
       succeeded: [33, 44],
       cancelled: [],
       failed: [],
+      results: [],
     };
     mockArchive.runJob.mockResolvedValue(summary);
 
@@ -670,6 +675,7 @@ describe("reset", () => {
       succeeded: [10],
       cancelled: [],
       failed: [{ taskId: 11, reason: "boom" }],
+      results: [],
     };
     const progress: ProgressEvent = {
       overall: { bytesDone: 100, bytesTotal: 100 },
@@ -716,6 +722,7 @@ describe("reset", () => {
       succeeded: [10],
       cancelled: [],
       failed: [],
+      results: [],
     };
     const progress: ProgressEvent = {
       overall: { bytesDone: 100, bytesTotal: 100 },

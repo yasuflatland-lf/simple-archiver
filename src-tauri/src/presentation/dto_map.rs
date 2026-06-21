@@ -9,8 +9,11 @@
 
 use std::time::Duration;
 
+use std::collections::HashMap;
+
 use simple_archiver_core::application::progress::JobProgress;
 use simple_archiver_core::application::progress_aggregator::JobSummary;
+use simple_archiver_core::domain::archive_task::TaskId;
 use simple_archiver_core::domain::conflict_policy::ConflictPolicy as DomainConflictPolicy;
 use simple_archiver_core::domain::output_mode::OutputMode as DomainOutputMode;
 use simple_archiver_core::domain::source_item::SourceItem;
@@ -19,6 +22,7 @@ use simple_archiver_core::domain::task_progress::TaskProgress;
 use super::dto::{
     ConflictPolicy as ConflictPolicyDto, DraftItemDto, FailedTaskDto, JobSummaryDto,
     OutputMode as OutputModeDto, ProgressCounts, ProgressEvent, SourceKind, TaskProgressDto,
+    TaskResultDto, TaskStatusDto,
 };
 
 impl From<&TaskProgress> for ProgressCounts {
@@ -56,20 +60,71 @@ impl From<&JobProgress> for ProgressEvent {
     }
 }
 
-impl From<JobSummary> for JobSummaryDto {
-    fn from(summary: JobSummary) -> Self {
-        Self {
-            succeeded: summary.succeeded.iter().map(|id| id.get()).collect(),
-            cancelled: summary.cancelled.iter().map(|id| id.get()).collect(),
-            failed: summary
-                .failed
-                .into_iter()
-                .map(|(id, reason)| FailedTaskDto {
-                    task_id: id.get(),
-                    reason,
-                })
-                .collect(),
-        }
+/// Per-task output metadata the presentation layer recomputes from the planned
+/// job: `(task id, output base name, absolute output path)`, in job/task order.
+///
+/// This is the bridge that lets the wire summary carry output paths without the
+/// core engine producing them — the engine returns task ids only, and the path
+/// formula is mirrored here at the IPC boundary (see `commands::run_job_inner`).
+pub type TaskPathMeta = (TaskId, String, String);
+
+/// Build a [`JobSummaryDto`] from the engine's [`JobSummary`] plus per-task
+/// output metadata.
+///
+/// The legacy `succeeded`/`cancelled`/`failed` buckets are populated exactly as
+/// the old `From<JobSummary>` impl did. The additive `results` vec is built in
+/// `meta` order (which mirrors the planned job's task order), classifying each
+/// task from the three summary vecs and attaching a `reason` only for failures.
+///
+/// A task id present in `meta` but absent from all three summary buckets cannot
+/// happen for a finished job (`into_summary` reconciles every task into exactly
+/// one bucket); if it ever did, it is conservatively reported as `Failed` with a
+/// synthesized reason rather than silently dropped.
+pub(crate) fn job_summary_dto(summary: JobSummary, meta: &[TaskPathMeta]) -> JobSummaryDto {
+    // Index each task id to its terminal status (and reason, for failures).
+    let mut status_by_id: HashMap<u32, (TaskStatusDto, Option<String>)> = HashMap::new();
+    for id in &summary.succeeded {
+        status_by_id.insert(id.get(), (TaskStatusDto::Succeeded, None));
+    }
+    for id in &summary.cancelled {
+        status_by_id.insert(id.get(), (TaskStatusDto::Cancelled, None));
+    }
+    for (id, reason) in &summary.failed {
+        status_by_id.insert(id.get(), (TaskStatusDto::Failed, Some(reason.clone())));
+    }
+
+    let results = meta
+        .iter()
+        .map(|(id, output_name, output_path)| {
+            let raw = id.get();
+            let (status, reason) = status_by_id.get(&raw).cloned().unwrap_or_else(|| {
+                (
+                    TaskStatusDto::Failed,
+                    Some("task was not accounted for in the run summary".to_string()),
+                )
+            });
+            TaskResultDto {
+                task_id: raw,
+                output_name: output_name.clone(),
+                output_path: output_path.clone(),
+                status,
+                reason,
+            }
+        })
+        .collect();
+
+    JobSummaryDto {
+        succeeded: summary.succeeded.iter().map(|id| id.get()).collect(),
+        cancelled: summary.cancelled.iter().map(|id| id.get()).collect(),
+        failed: summary
+            .failed
+            .into_iter()
+            .map(|(id, reason)| FailedTaskDto {
+                task_id: id.get(),
+                reason,
+            })
+            .collect(),
+        results,
     }
 }
 
@@ -126,6 +181,9 @@ pub(crate) fn draft_item_from_source(item: &SourceItem) -> DraftItemDto {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use simple_archiver_core::domain::archive_job::ArchiveJob;
+    use simple_archiver_core::domain::naming_rule::NamingRule;
+    use simple_archiver_core::domain::output_directory::OutputDirectory;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -179,24 +237,184 @@ mod tests {
     }
 
     #[test]
-    fn job_summary_maps_to_dto() {
-        // As above, `TaskId` values cannot be built outside core, so the
-        // task-id-bearing collections are empty here; their `TaskId::get`
-        // mapping and camelCase shape are covered by the serde-shape test.
+    fn job_summary_maps_to_empty_dto_when_no_tasks_run() {
+        // With no task ids and no meta, every bucket and `results` is empty.
         let summary = JobSummary {
             succeeded: Vec::new(),
             cancelled: Vec::new(),
             failed: Vec::new(),
         };
-        let dto = JobSummaryDto::from(summary);
+        let dto = job_summary_dto(summary, &[]);
         assert_eq!(
             dto,
             JobSummaryDto {
                 succeeded: Vec::new(),
                 cancelled: Vec::new(),
                 failed: Vec::new(),
+                results: Vec::new(),
             }
         );
+    }
+
+    // ── job_summary_dto: results builder ──────────────────────────────────────
+
+    /// Plan a three-item Zip job so we can borrow real `TaskId`s (which cannot be
+    /// constructed outside the core crate) for the builder tests.
+    fn three_item_zip_job() -> ArchiveJob {
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("/in/a.rar")),
+            SourceItem::RarFile(PathBuf::from("/in/b.rar")),
+            SourceItem::RarFile(PathBuf::from("/in/c.rar")),
+        ];
+        ArchiveJob::plan(
+            items,
+            NamingRule::parse("out_{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap()
+    }
+
+    /// Build the `(id, name, abs path)` meta for a Zip job, mirroring the engine's
+    /// destination formula `out_dir.join(t.output_name())`.
+    fn zip_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
+        let out_dir = job.output_directory().path();
+        job.tasks()
+            .iter()
+            .map(|t| {
+                let name = t.output_name().as_str().to_string();
+                let path = out_dir.join(&name).to_string_lossy().into_owned();
+                (t.id(), name, path)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn job_summary_dto_builds_results_for_a_mixed_run() {
+        // task 0 -> succeeded, task 1 -> failed, task 2 -> cancelled.
+        let job = three_item_zip_job();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+        let meta = zip_meta(&job);
+
+        let summary = JobSummary {
+            succeeded: vec![ids[0]],
+            cancelled: vec![ids[2]],
+            failed: vec![(ids[1], "boom".to_string())],
+        };
+
+        let dto = job_summary_dto(summary, &meta);
+
+        // Results are in job/task order and carry the right status + path.
+        assert_eq!(dto.results.len(), 3);
+
+        // Build expected paths the same way production does, so the assertion is
+        // platform-correct: on Windows `PathBuf::join` uses `\` as the separator,
+        // not `/`, so a hard-coded forward-slash literal would fail there.
+        let exp = |name: &str| {
+            PathBuf::from("/out")
+                .join(name)
+                .to_string_lossy()
+                .into_owned()
+        };
+
+        assert_eq!(dto.results[0].task_id, ids[0].get());
+        assert_eq!(dto.results[0].status, TaskStatusDto::Succeeded);
+        assert_eq!(dto.results[0].reason, None);
+        assert_eq!(dto.results[0].output_name, "out_1.zip");
+        assert_eq!(dto.results[0].output_path, exp("out_1.zip"));
+
+        assert_eq!(dto.results[1].task_id, ids[1].get());
+        assert_eq!(dto.results[1].status, TaskStatusDto::Failed);
+        assert_eq!(dto.results[1].reason, Some("boom".to_string()));
+        assert_eq!(dto.results[1].output_path, exp("out_2.zip"));
+
+        assert_eq!(dto.results[2].task_id, ids[2].get());
+        assert_eq!(dto.results[2].status, TaskStatusDto::Cancelled);
+        assert_eq!(dto.results[2].reason, None);
+        assert_eq!(dto.results[2].output_path, exp("out_3.zip"));
+    }
+
+    #[test]
+    fn job_summary_dto_reason_only_on_failed() {
+        let job = three_item_zip_job();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+        let meta = zip_meta(&job);
+        let summary = JobSummary {
+            succeeded: vec![ids[0], ids[2]],
+            cancelled: Vec::new(),
+            failed: vec![(ids[1], "kaput".to_string())],
+        };
+
+        let dto = job_summary_dto(summary, &meta);
+
+        // Only the failed task carries a reason; the others are None.
+        assert!(dto.results[0].reason.is_none());
+        assert_eq!(dto.results[1].reason, Some("kaput".to_string()));
+        assert!(dto.results[2].reason.is_none());
+    }
+
+    #[test]
+    fn job_summary_dto_folder_mode_path_uses_source_output_stem() {
+        // Folder mode: the output path is `out_dir/<source stem>`, not a zip name.
+        let items = vec![SourceItem::ZipFile(PathBuf::from("/in/photos.zip"))];
+        let job = ArchiveJob::plan_extract(
+            items,
+            OutputDirectory::new(PathBuf::from("/out")),
+            simple_archiver_core::domain::conflict_policy::ConflictPolicy::default(),
+        )
+        .unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+
+        // Build meta the same way the command does for Folder mode.
+        let out_dir = job.output_directory().path();
+        let meta: Vec<TaskPathMeta> = job
+            .tasks()
+            .iter()
+            .map(|t| {
+                let stem = t.source().output_stem();
+                let path = out_dir.join(&stem).to_string_lossy().into_owned();
+                (t.id(), stem, path)
+            })
+            .collect();
+
+        let summary = JobSummary {
+            succeeded: vec![ids[0]],
+            cancelled: Vec::new(),
+            failed: Vec::new(),
+        };
+
+        let dto = job_summary_dto(summary, &meta);
+
+        assert_eq!(dto.results[0].output_name, "photos");
+        // Platform-correct expected path (Windows joins with `\`, not `/`).
+        assert_eq!(
+            dto.results[0].output_path,
+            PathBuf::from("/out")
+                .join("photos")
+                .to_string_lossy()
+                .into_owned()
+        );
+        assert_eq!(dto.results[0].status, TaskStatusDto::Succeeded);
+    }
+
+    #[test]
+    fn job_summary_dto_preserves_legacy_buckets() {
+        // Regression: the legacy succeeded/cancelled/failed vecs are unchanged.
+        let job = three_item_zip_job();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+        let meta = zip_meta(&job);
+        let summary = JobSummary {
+            succeeded: vec![ids[0]],
+            cancelled: vec![ids[2]],
+            failed: vec![(ids[1], "boom".to_string())],
+        };
+
+        let dto = job_summary_dto(summary, &meta);
+
+        assert_eq!(dto.succeeded, vec![ids[0].get()]);
+        assert_eq!(dto.cancelled, vec![ids[2].get()]);
+        assert_eq!(dto.failed.len(), 1);
+        assert_eq!(dto.failed[0].task_id, ids[1].get());
+        assert_eq!(dto.failed[0].reason, "boom");
     }
 
     #[test]

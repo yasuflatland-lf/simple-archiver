@@ -1,6 +1,22 @@
+import { FolderOpen } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { messageFromReason } from "@/lib/errors";
+import { openPath } from "@/lib/reveal";
 import { outputNameForTask, statusVisual } from "@/lib/status";
 import { verbForMode } from "@/lib/wording";
 import { useJobStore } from "@/store/jobStore";
+
+// Open the job's output directory in the OS file explorer. Errors are surfaced
+// through the shared store error path rather than swallowed, mirroring the other
+// IPC-touching event handlers (e.g. AddSourceButtons).
+async function openOutputDir(outputDir: string) {
+  try {
+    await openPath(outputDir);
+  } catch (reason) {
+    useJobStore.setState({ error: messageFromReason(reason) });
+  }
+}
 
 /**
  * RunSummary is the completion panel shown after a job finishes. It is a pure
@@ -13,6 +29,7 @@ export function RunSummary() {
   const previewNames = useJobStore((s) => s.previewNames);
   const taskIdByIndex = useJobStore((s) => s.taskIdByIndex);
   const outputMode = useJobStore((s) => s.draft.outputMode);
+  const outputDir = useJobStore((s) => s.draft.outputDir);
 
   if (summary === null) return null;
 
@@ -54,6 +71,23 @@ export function RunSummary() {
           </span>
         ))}
       </div>
+
+      {/* The whole-job "find my files" affordance. Per-row Reveal/Copy land in a
+          later PR; here we surface only a single button to open the output dir.
+          Guarded on outputDir so it never opens a null path. */}
+      {outputDir !== null && (
+        <div>
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Open folder"
+            onClick={() => openOutputDir(outputDir)}
+          >
+            <FolderOpen aria-hidden="true" />
+            Open folder
+          </Button>
+        </div>
+      )}
 
       {summary.failed.length > 0 && (
         <details open className="flex flex-col gap-1">

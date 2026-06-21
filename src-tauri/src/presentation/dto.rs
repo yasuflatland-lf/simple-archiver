@@ -91,6 +91,11 @@ pub struct JobSummaryDto {
     pub cancelled: Vec<u32>,
     /// Tasks that failed, paired with their reason, in job order.
     pub failed: Vec<FailedTaskDto>,
+    /// Per-task results in job order, each carrying the task's absolute output
+    /// path and terminal status. Additive companion to the legacy
+    /// `succeeded`/`cancelled`/`failed` buckets: it is the single per-task
+    /// projection the completion UI uses to surface "where did my files go".
+    pub results: Vec<TaskResultDto>,
 }
 
 /// A failed task paired with its human-readable reason.
@@ -102,6 +107,42 @@ pub struct FailedTaskDto {
     pub task_id: u32,
     /// Why the task failed.
     pub reason: String,
+}
+
+/// One task's terminal result, carrying its absolute output path.
+///
+/// This is the per-task projection the completion UI reads to surface where each
+/// produced file/folder landed. The `output_path` is computed in the presentation
+/// layer from the planned job (PathBuf rendered to a lossy UTF-8 string at this
+/// wire boundary), mirroring the engine's destination formula.
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct TaskResultDto {
+    /// The raw task id.
+    pub task_id: u32,
+    /// The output base name, e.g. `"photo_001.zip"` (Zip mode) or the folder
+    /// name (Folder mode).
+    pub output_name: String,
+    /// The absolute output path the task wrote to.
+    pub output_path: String,
+    /// The task's terminal status.
+    pub status: TaskStatusDto,
+    /// The failure reason; `Some` only when `status` is [`TaskStatusDto::Failed`].
+    pub reason: Option<String>,
+}
+
+/// A task's terminal status on the wire.
+#[derive(Serialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum TaskStatusDto {
+    /// The task completed successfully.
+    Succeeded,
+    /// The task was cancelled before completion.
+    Cancelled,
+    /// The task failed.
+    Failed,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +244,8 @@ mod tests {
         TaskProgressDto::export().expect("export TaskProgressDto");
         JobSummaryDto::export().expect("export JobSummaryDto");
         FailedTaskDto::export().expect("export FailedTaskDto");
+        TaskResultDto::export().expect("export TaskResultDto");
+        TaskStatusDto::export().expect("export TaskStatusDto");
         DraftSnapshot::export().expect("export DraftSnapshot");
         DraftItemDto::export().expect("export DraftItemDto");
         SourceKind::export().expect("export SourceKind");
@@ -333,12 +376,58 @@ mod tests {
                 task_id: 2,
                 reason: "boom".to_string(),
             }],
+            results: vec![TaskResultDto {
+                task_id: 1,
+                output_name: "out_1.zip".to_string(),
+                output_path: "/out/out_1.zip".to_string(),
+                status: TaskStatusDto::Succeeded,
+                reason: None,
+            }],
         };
         let v = serde_json::to_value(&summary).unwrap();
         assert_eq!(v["succeeded"], json!([1, 3]));
         assert_eq!(v["cancelled"], json!([4]));
         assert_eq!(v["failed"][0]["taskId"], json!(2));
         assert_eq!(v["failed"][0]["reason"], json!("boom"));
+        // `results` carries the per-task projection in camelCase.
+        assert_eq!(v["results"][0]["taskId"], json!(1));
+        assert_eq!(v["results"][0]["outputName"], json!("out_1.zip"));
+        assert_eq!(v["results"][0]["outputPath"], json!("/out/out_1.zip"));
+        assert_eq!(v["results"][0]["status"], json!("succeeded"));
+        assert_eq!(v["results"][0]["reason"], json!(null));
+        // Confirm snake_case keys are absent on the nested result.
+        assert!(v["results"][0].get("output_name").is_none());
+        assert!(v["results"][0].get("output_path").is_none());
+    }
+
+    #[test]
+    fn task_status_dto_serializes_to_camel_case_variants() {
+        assert_eq!(
+            serde_json::to_value(TaskStatusDto::Succeeded).unwrap(),
+            json!("succeeded")
+        );
+        assert_eq!(
+            serde_json::to_value(TaskStatusDto::Cancelled).unwrap(),
+            json!("cancelled")
+        );
+        assert_eq!(
+            serde_json::to_value(TaskStatusDto::Failed).unwrap(),
+            json!("failed")
+        );
+    }
+
+    #[test]
+    fn task_result_dto_failed_carries_reason() {
+        let result = TaskResultDto {
+            task_id: 2,
+            output_name: "out_2.zip".to_string(),
+            output_path: "/out/out_2.zip".to_string(),
+            status: TaskStatusDto::Failed,
+            reason: Some("boom".to_string()),
+        };
+        let v = serde_json::to_value(&result).unwrap();
+        assert_eq!(v["status"], json!("failed"));
+        assert_eq!(v["reason"], json!("boom"));
     }
 
     #[test]

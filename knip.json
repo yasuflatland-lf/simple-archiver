@@ -1,5 +1,4 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/components/ui/**/*.{ts,tsx}"],
-  "ignoreDependencies": ["@tauri-apps/plugin-opener"]
+  "entry": ["src/components/ui/**/*.{ts,tsx}"]
 }
