@@ -11,6 +11,7 @@ pub fn run() {
             presentation::commands::preview_output_name,
             presentation::commands::add_items,
             presentation::commands::reorder,
+            presentation::commands::remove_item,
             presentation::commands::set_naming_rule,
             presentation::commands::set_start_number,
             presentation::commands::set_output_dir,

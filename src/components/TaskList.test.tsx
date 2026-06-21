@@ -65,6 +65,24 @@ describe("TaskList rendering", () => {
     expect(screen.getByText("out_003.zip")).toBeTruthy();
   });
 
+  it("labels the last column header 'Actions'", () => {
+    useJobStore.setState({
+      draft: {
+        items: makeItems(1),
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: [],
+    });
+
+    render(<TaskList />);
+
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeTruthy();
+  });
+
   it("renders empty state message when items list is empty", () => {
     useJobStore.setState({
       draft: {

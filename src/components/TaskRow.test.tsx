@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
@@ -79,5 +80,83 @@ describe("TaskRow", () => {
     });
     renderRow(0);
     expect(screen.getByRole("progressbar")).toBeTruthy();
+  });
+
+  it("renders a delete button labelled with the row's basename and the Trash2 icon", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip"],
+    });
+    renderRow(0);
+
+    const remove = screen.getByRole("button", {
+      name: "Remove archive.rar from queue",
+    });
+    expect(remove).toBeTruthy();
+    // lucide-react renders an inline <svg> with a class derived from the icon
+    // name; assert the Trash2 glyph specifically (not the reorder ▲▼ glyphs).
+    expect(remove.querySelector("svg.lucide-trash2")).toBeTruthy();
+  });
+
+  it("calls removeItem with the row index when the delete button is clicked", async () => {
+    const removeItem = vi.fn().mockResolvedValue(undefined);
+    useJobStore.setState({
+      draft: {
+        items: [
+          { path: "/a.rar", kind: "rar" },
+          { path: "/home/user/archive.rar", kind: "rar" },
+        ],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip", "out_002.zip"],
+      removeItem,
+    });
+
+    const user = userEvent.setup();
+    renderRow(1);
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove archive.rar from queue" }),
+    );
+
+    expect(removeItem).toHaveBeenCalledWith(1);
+  });
+
+  it("disables the delete button while a job is running", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip"],
+      running: true,
+      progress: {
+        overall: { bytesDone: 0, bytesTotal: 0 },
+        overallEtaMs: null,
+        perTask: [],
+        elapsedMs: 0,
+      },
+    });
+    renderRow(0);
+
+    const remove = screen.getByRole("button", {
+      name: "Remove archive.rar from queue",
+    }) as HTMLButtonElement;
+    expect(remove.disabled).toBe(true);
   });
 });
