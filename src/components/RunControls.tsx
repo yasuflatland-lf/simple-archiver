@@ -1,6 +1,7 @@
 import { Check, CircleDot, Play } from "lucide-react";
 import * as React from "react";
 
+import { ResetButton } from "@/components/ResetButton";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -44,9 +45,15 @@ function ReadinessChip({ readiness }: { readiness: Readiness }) {
 }
 
 /**
- * RunControls renders the primary job action for the current state:
- *   - idle  (running === false): Run only (Cancel is not in the DOM).
- *   - active (running === true): Cancel only (Run is not in the DOM).
+ * RunControls renders the queue's run row for the current state:
+ *   - idle  (running === false): the reset action (Clear / New batch) anchored
+ *     left, with the readiness chip + Run grouped at the right edge.
+ *   - active (running === true): Cancel only (Run is not in the DOM), kept at the
+ *     right edge so the primary button does not jump when toggling Run↔Cancel.
+ *
+ * The destructive reset action and the primary brand Run sit at opposite ends of
+ * the row to minimise misclicks; the right group is pushed right with `ml-auto`
+ * so Run stays anchored even when the reset action is hidden (empty queue).
  *
  * Run retains full accessible-disabled semantics (aria-disabled / aria-describedby /
  * sr-only reason span / title / handler guard) so assistive technology can announce
@@ -103,8 +110,10 @@ export function RunControls() {
   }
 
   if (running) {
+    // Cancel sits at the right edge, where Run was, so the primary button keeps
+    // its position across the Run↔Cancel toggle.
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-end gap-2">
         <Button type="button" variant="outline" onClick={handleCancel}>
           Cancel
         </Button>
@@ -114,24 +123,30 @@ export function RunControls() {
 
   return (
     <div className="flex items-center gap-2">
-      <ReadinessChip readiness={readiness} />
-      <Button
-        type="button"
-        variant="brand"
-        aria-disabled={runDisabled || undefined}
-        aria-describedby={runDisabled ? RUN_REASON_ID : undefined}
-        title={runReason || undefined}
-        className={cn(runDisabled && "opacity-50")}
-        onClick={handleRun}
-      >
-        <Play aria-hidden="true" />
-        Run
-      </Button>
-      {runDisabled ? (
-        <span id={RUN_REASON_ID} className="sr-only">
-          {runReason}
-        </span>
-      ) : null}
+      {/* Destructive reset at the left edge, kept clear of the primary CTA. It
+          renders nothing when the queue is empty; the right group's ml-auto then
+          keeps Run anchored right with no positional jump. */}
+      <ResetButton />
+      <div className="ml-auto flex items-center gap-2">
+        <ReadinessChip readiness={readiness} />
+        <Button
+          type="button"
+          variant="brand"
+          aria-disabled={runDisabled || undefined}
+          aria-describedby={runDisabled ? RUN_REASON_ID : undefined}
+          title={runReason || undefined}
+          className={cn(runDisabled && "opacity-50")}
+          onClick={handleRun}
+        >
+          <Play aria-hidden="true" />
+          Run
+        </Button>
+        {runDisabled ? (
+          <span id={RUN_REASON_ID} className="sr-only">
+            {runReason}
+          </span>
+        ) : null}
+      </div>
       <ConfirmDialog
         open={confirmOpen}
         title="Overwrite existing folders?"
