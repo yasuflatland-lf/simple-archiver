@@ -244,9 +244,12 @@ mod tests {
         // whose CRC32 fails to match, so extraction MUST fail.
         let tmp = tempfile::NamedTempFile::new().expect("temp zip file");
         let mut writer = ZipWriter::new(tmp.reopen().expect("reopen temp zip"));
+        // `with_deprecated_encryption` returns a `ZipResult` as of zip 8; unwrap
+        // it here since the test controls the password and cannot fail.
         let opts = SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored)
-            .with_deprecated_encryption(b"secret");
+            .with_deprecated_encryption(b"secret")
+            .expect("apply deprecated encryption");
         writer
             .start_file("secret.txt", opts)
             .expect("start encrypted entry");
