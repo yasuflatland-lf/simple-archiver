@@ -24,6 +24,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 simple-archiver-core = { path = "../crates/core" }
 tauri-plugin-dialog = "2"
+# Powers the Inline Ledger's per-row "Copy path" action (clipboard write-text).
+tauri-plugin-clipboard-manager = "2"
 # Generates the TypeScript wire contract from the DTOs via `#[derive(TS)]`.
 ts-rs = "10"
 # Promoted from dev-dependencies: Wave 3's async `run_job` command needs the

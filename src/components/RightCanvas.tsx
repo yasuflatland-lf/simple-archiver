@@ -1,7 +1,7 @@
 import { AddSourceButtons } from "@/components/AddSourceButtons";
 import { EmptyQueue } from "@/components/EmptyQueue";
+import { Ledger } from "@/components/Ledger";
 import { OverallProgress } from "@/components/OverallProgress";
-import { RunSummary } from "@/components/RunSummary";
 import { TaskList } from "@/components/TaskList";
 import { canvasPhase } from "@/lib/canvas-phase";
 import { useJobStore } from "@/store/jobStore";
@@ -14,7 +14,7 @@ import { useJobStore } from "@/store/jobStore";
  *   queued  → the waiting TaskList,
  *   running → OverallProgress pinned to the top of the canvas + the TaskList
  *             (each row keeps its own live progress),
- *   results → the existing RunSummary (replaced by the Ledger in a later PR).
+ *   results → the Inline Ledger (per-row Reveal/Copy + status tally header).
  *
  * The canvas is the only region that scrolls vertically (the left rail is
  * shrink-0 and scrolls only internally on short viewports). It is a labelled
@@ -54,7 +54,7 @@ export function RightCanvas() {
           <TaskList />
         </div>
       ) : null}
-      {phase === "results" ? <RunSummary /> : null}
+      {phase === "results" ? <Ledger /> : null}
     </main>
   );
 }

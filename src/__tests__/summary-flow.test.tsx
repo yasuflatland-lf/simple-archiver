@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RunSummary } from "@/components/RunSummary";
+import { Ledger } from "@/components/Ledger";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
 // Control the archive lib so runJob/cancelJob resolve deterministically.
@@ -18,6 +18,14 @@ vi.mock("@/lib/archive", () => ({
   subscribeProgress: vi.fn(),
 }));
 
+// The Ledger row actions go through the reveal wrapper; mock it so nothing
+// reaches the real Tauri backend.
+vi.mock("@/lib/reveal", () => ({
+  openPath: vi.fn(),
+  revealItem: vi.fn(),
+  copyText: vi.fn(),
+}));
+
 beforeEach(() => {
   resetJobStore();
   runJob.mockReset();
@@ -25,15 +33,40 @@ beforeEach(() => {
 });
 
 describe("run → summary flow", () => {
-  it("flips running off and projects the summary when a job finishes", async () => {
+  it("flips running off and projects the summary into the ledger when a job finishes", async () => {
     runJob.mockResolvedValue({
       succeeded: [1],
       cancelled: [],
       failed: [{ taskId: 2, reason: "unrar error: boom" }],
+      results: [
+        {
+          taskId: 1,
+          outputName: "out_1.zip",
+          outputPath: "/out/out_1.zip",
+          status: "succeeded",
+          reason: null,
+        },
+        {
+          taskId: 2,
+          outputName: "out_2.zip",
+          outputPath: "/out/out_2.zip",
+          status: "failed",
+          reason: "unrar error: boom",
+        },
+      ],
     });
     useJobStore.setState({
-      previewNames: ["out_1.zip", "out_2.zip"],
-      taskIdByIndex: [1, 2],
+      draft: {
+        items: [
+          { path: "/in/a.rar", kind: "rar" },
+          { path: "/in/b.rar", kind: "rar" },
+        ],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: "/out",
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
     });
 
     await useJobStore.getState().runJob();
@@ -43,11 +76,12 @@ describe("run → summary flow", () => {
       "unrar error: boom",
     );
 
-    render(<RunSummary />);
-    expect(screen.getByText(/Succeeded/).textContent).toMatch(/Succeeded\s*1/);
-    expect(screen.getByText(/out_2\.zip/).textContent).toContain(
-      "unrar error: boom",
-    );
+    render(<Ledger />);
+    // The "<label> <n>" form is unique to the header tally (row badges show only
+    // the bare label).
+    expect(screen.getByText(/Succeeded\s*1/)).toBeTruthy();
+    expect(screen.getByText("out_2.zip")).toBeTruthy();
+    expect(screen.getByText(/unrar error: boom/)).toBeTruthy();
   });
 
   it("requesting cancel does not flip running off (summary still arrives via runJob)", async () => {

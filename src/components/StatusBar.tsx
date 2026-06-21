@@ -38,8 +38,7 @@ const NEW_BATCH_CONFIG: ResetDialogConfig = {
  *
  * The left slot shows a quiet hint: a Ready/queued-count line when idle, and an
  * sr-only mode-aware live announcement ("extracted N" / "archived N") while a
- * job is in flight so screen-reader users hear progress that matches the
- * finished RunSummary copy.
+ * job is in flight so screen-reader users hear mode-aware progress copy.
  *
  * The right slot holds a Reset button that is visible when there are queued
  * items and no job is running. It opens a ConfirmDialog before calling the
@@ -53,8 +52,8 @@ export function StatusBar() {
   const running = useJobStore((s) => s.running);
   const reset = useJobStore((s) => s.reset);
 
-  // Mode-aware verb shared with RunSummary: "extracted" in Folder mode vs
-  // "archived" in Zip mode. Used for the live progress announcement below.
+  // Mode-aware verb: "extracted" in Folder mode vs "archived" in Zip mode. Used
+  // for the live progress announcement below.
   const verb = verbForMode(outputMode);
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -84,9 +83,9 @@ export function StatusBar() {
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           {/* While a job is in flight (progress, no summary yet) announce the
-              mode-aware action so screen-reader users hear "extracted"/"archived"
-              consistent with the finished RunSummary copy. The visible aggregate
-              bar lives in the canvas; this footer only carries the sr-only line. */}
+              mode-aware action so screen-reader users hear "extracted"/"archived".
+              The visible aggregate bar lives in the canvas; this footer only
+              carries the sr-only line. */}
           {hasProgress && !hasSummary ? (
             <p className="sr-only" aria-live="polite">
               {verb} {itemCount}
