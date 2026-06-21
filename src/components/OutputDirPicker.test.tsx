@@ -1,21 +1,22 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { pickDirectory } from "@/lib/dialog";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
 import { OutputDirPicker } from "./OutputDirPicker";
 
-// Mock the Tauri dialog plugin so tests run without a native Tauri runtime.
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn(),
+// Mock the dialog lib so tests run without a native Tauri runtime; the lib
+// centralizes the plugin open() call (asserted in lib/dialog.test.ts).
+vi.mock("@/lib/dialog", () => ({
+  pickDirectory: vi.fn(),
 }));
 
 describe("OutputDirPicker", () => {
   beforeEach(() => {
     resetJobStore();
-    vi.mocked(open).mockReset();
+    vi.mocked(pickDirectory).mockReset();
   });
 
   it("renders the Destination heading", () => {
@@ -55,8 +56,8 @@ describe("OutputDirPicker", () => {
     expect(screen.queryByText("(not set)")).toBeNull();
   });
 
-  it("calls open with { directory: true } when the Choose button is clicked", async () => {
-    vi.mocked(open).mockResolvedValue(null);
+  it("invokes the directory picker when the Choose button is clicked", async () => {
+    vi.mocked(pickDirectory).mockResolvedValue(null);
     const user = userEvent.setup();
 
     render(<OutputDirPicker />);
@@ -64,12 +65,12 @@ describe("OutputDirPicker", () => {
     await user.click(screen.getByRole("button", { name: /choose/i }));
 
     await waitFor(() => {
-      expect(vi.mocked(open)).toHaveBeenCalledWith({ directory: true });
+      expect(vi.mocked(pickDirectory)).toHaveBeenCalled();
     });
   });
 
-  it("calls setOutputDir with the picked path when open resolves a string", async () => {
-    vi.mocked(open).mockResolvedValue("/picked/dir");
+  it("calls setOutputDir with the picked path when pickDirectory resolves a string", async () => {
+    vi.mocked(pickDirectory).mockResolvedValue("/picked/dir");
     const setOutputDir = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({ setOutputDir });
     const user = userEvent.setup();
@@ -83,8 +84,8 @@ describe("OutputDirPicker", () => {
     });
   });
 
-  it("does NOT call setOutputDir when open resolves null (user cancelled)", async () => {
-    vi.mocked(open).mockResolvedValue(null);
+  it("does NOT call setOutputDir when pickDirectory resolves null (user cancelled)", async () => {
+    vi.mocked(pickDirectory).mockResolvedValue(null);
     const setOutputDir = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({ setOutputDir });
     const user = userEvent.setup();
@@ -94,14 +95,14 @@ describe("OutputDirPicker", () => {
     await user.click(screen.getByRole("button", { name: /choose/i }));
 
     await waitFor(() => {
-      expect(vi.mocked(open)).toHaveBeenCalled();
+      expect(vi.mocked(pickDirectory)).toHaveBeenCalled();
     });
 
     expect(setOutputDir).not.toHaveBeenCalled();
   });
 
   it("surfaces a real dialog error via the store without crashing or calling setOutputDir", async () => {
-    vi.mocked(open).mockRejectedValue("disk fail");
+    vi.mocked(pickDirectory).mockRejectedValue("disk fail");
     const setOutputDir = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({ setOutputDir });
     const user = userEvent.setup();

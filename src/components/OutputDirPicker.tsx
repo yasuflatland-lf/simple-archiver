@@ -1,6 +1,5 @@
-import { open } from "@tauri-apps/plugin-dialog";
-
 import { Button } from "@/components/ui/button";
+import { pickDirectory } from "@/lib/dialog";
 import { messageFromReason } from "@/lib/errors";
 import { useJobStore } from "@/store/jobStore";
 
@@ -19,14 +18,13 @@ export function OutputDirPicker() {
 
   async function handleChoose() {
     try {
-      // directory: true requests a folder picker, not a file picker.
-      const picked = await open({ directory: true });
+      const picked = await pickDirectory();
       if (typeof picked === "string") {
         await setOutputDir(picked);
       }
       // null means the user cancelled — do nothing.
     } catch (reason) {
-      // open() rejects only on a real dialog/IPC failure; cancellation resolves to null.
+      // pickDirectory rejects only on a real dialog/IPC failure; cancellation resolves to null.
       useJobStore.setState({ error: messageFromReason(reason) });
     }
   }
