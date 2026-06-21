@@ -476,6 +476,92 @@ describe("RunControls – overwrite confirmation", () => {
   });
 });
 
+describe("RunControls – reset action placement", () => {
+  it("renders the Clear action beside Run when idle with items", () => {
+    useJobStore.setState({
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: "/out",
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      running: false,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    const clear = screen.getByRole("button", { name: /^clear$/i });
+    const run = screen.getByRole("button", { name: /^run$/i });
+    expect(clear).toBeTruthy();
+    expect(run).toBeTruthy();
+    // Approved layout: the destructive reset sits left of the primary Run, so
+    // Clear must precede Run in document order.
+    expect(
+      clear.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("renders the New batch action beside Run when a summary is present", () => {
+    useJobStore.setState({
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: "/out",
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      running: false,
+      error: null,
+      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
+    });
+    render(<RunControls />);
+    expect(screen.getByRole("button", { name: /^new batch$/i })).toBeTruthy();
+  });
+
+  it("does not render the reset action when the queue is empty", () => {
+    useJobStore.setState({
+      draft: {
+        items: [],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: "/out",
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      running: false,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    expect(
+      screen.queryByRole("button", { name: /clear|new batch/i }),
+    ).toBeNull();
+  });
+
+  it("does not render the reset action while running", () => {
+    useJobStore.setState({
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: "/out",
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      running: true,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    expect(
+      screen.queryByRole("button", { name: /clear|new batch/i }),
+    ).toBeNull();
+  });
+});
+
 describe("RunControls – Cancel button", () => {
   it("does not render Cancel when not running", () => {
     useJobStore.setState({
