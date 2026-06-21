@@ -19,6 +19,7 @@ import {
   runJob,
   setNamingRule,
   setOutputDir,
+  setOutputMode,
   subscribeProgress,
 } from "./archive";
 
@@ -89,6 +90,22 @@ describe("archive client", () => {
       expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_output_dir", {
         dir: "/out",
       });
+    });
+  });
+
+  describe("setOutputMode", () => {
+    it("invokes set_output_mode with the mode", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "folder",
+      });
+      const snap = await setOutputMode("folder");
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_output_mode", {
+        mode: "folder",
+      });
+      expect(snap.outputMode).toBe("folder");
     });
   });
 

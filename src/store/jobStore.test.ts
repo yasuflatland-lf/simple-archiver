@@ -10,6 +10,7 @@ vi.mock("@/lib/archive", () => ({
   reorder: vi.fn(),
   setNamingRule: vi.fn(),
   setOutputDir: vi.fn(),
+  setOutputMode: vi.fn(),
   clearItems: vi.fn(),
   runJob: vi.fn(),
   cancelJob: vi.fn(),
@@ -305,6 +306,22 @@ describe("setOutputDir", () => {
     await useJobStore.getState().setOutputDir("/out");
 
     expect(useJobStore.getState().error).toBeNull();
+  });
+});
+
+describe("setOutputMode", () => {
+  it("setOutputMode pushes the mode and stores the returned draft", async () => {
+    const spy = vi.spyOn(archive, "setOutputMode").mockResolvedValue({
+      items: [],
+      namingTemplate: null,
+      outputDir: "/out",
+      outputMode: "folder",
+    });
+
+    await useJobStore.getState().setOutputMode("folder");
+
+    expect(spy).toHaveBeenCalledWith("folder");
+    expect(useJobStore.getState().draft.outputMode).toBe("folder");
   });
 });
 
