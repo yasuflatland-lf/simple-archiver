@@ -12,9 +12,10 @@ import { selectFirstPreview, useJobStore } from "@/store/jobStore";
 /**
  * The left rail: the fixed, never-moving column of OUTPUT settings and the run
  * action. It composes the existing OUTPUT sub-controls in a vertical stack —
- * the collapsed Destination summary, a compact full-path preview, the mode
- * toggle, the zip-mode naming/start fields (or the folder-mode collision
- * policy), and RunControls (readiness chip + Run / Cancel).
+ * the mode toggle, the folder-mode collision policy (pinned under the header,
+ * above the destination), the collapsed Destination summary, a compact
+ * full-path preview, the zip-mode naming/start fields (or a folder-mode
+ * extraction note), and RunControls (readiness chip + Run / Cancel).
  *
  * This is a relayout of the controls that previously lived in OutputSettings +
  * SetupToolbar: the controls and their store wiring are unchanged; only their
@@ -66,6 +67,18 @@ export function LeftRail() {
         <OutputModeToggle />
       </div>
 
+      {/* Folder-mode collision policy: pinned directly under the OUTPUT header,
+          ahead of the destination, so the "if a folder already exists" choice is
+          the first decision seen when extracting to folders. */}
+      {outputMode === "folder" ? (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted-foreground">
+            If exists
+          </span>
+          <ConflictPolicySelect />
+        </div>
+      ) : null}
+
       {/* Collapsed Destination: path or "(not set)" + Required, with Change. */}
       <OutputDirPicker />
 
@@ -103,25 +116,16 @@ export function LeftRail() {
       </div>
 
       {/* Mode-specific editing controls: naming + start number in zip mode, the
-          collision policy (and an extraction note) in folder mode. */}
+          extraction note in folder mode (the collision policy sits up top). */}
       {outputMode === "zip" ? (
         <div className="flex flex-col gap-3">
           <NamingRuleForm />
           <StartNumberForm />
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          <p className="text-xs text-muted-foreground">
-            Each archive is extracted into its own folder named after the
-            archive.
-          </p>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">
-              If exists
-            </span>
-            <ConflictPolicySelect />
-          </div>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Each archive is extracted into its own folder named after the archive.
+        </p>
       )}
 
       {/* The run action lives at the foot of the rail, pushed to the bottom so it
