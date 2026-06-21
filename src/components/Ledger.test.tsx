@@ -178,8 +178,8 @@ describe("Ledger", () => {
       },
     });
     render(<Ledger />);
-    // 2048 bytes total → "2 KB".
-    expect(screen.getByText(/2 KB/)).toBeTruthy();
+    // 2048 bytes total → formatBytes renders "done / total unit": "2.0 / 2.0 KB".
+    expect(screen.getByText(/2\.0 \/ 2\.0 KB/)).toBeTruthy();
   });
 
   it("omits the size gracefully when no progress entry matches the row", () => {
