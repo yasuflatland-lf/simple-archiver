@@ -1,5 +1,6 @@
 import { AddSourceButtons } from "@/components/AddSourceButtons";
 import { EmptyQueue } from "@/components/EmptyQueue";
+import { LastBatchChip } from "@/components/LastBatchChip";
 import { Ledger } from "@/components/Ledger";
 import { OverallProgress } from "@/components/OverallProgress";
 import { TaskList } from "@/components/TaskList";
@@ -16,6 +17,9 @@ import { useJobStore } from "@/store/jobStore";
  *             (each row keeps its own live progress),
  *   results → the Inline Ledger (per-row Reveal/Copy + status tally header).
  *
+ * After a finished run is cleared, the canvas returns to the drop zone with the
+ * residual {@link LastBatchChip} pinned above it (whenever a last batch exists).
+ *
  * The canvas is the only region that scrolls vertically (the left rail is
  * shrink-0 and scrolls only internally on short viewports). It is a labelled
  * landmark region so assistive tech can jump to the work area.
@@ -24,14 +28,17 @@ export function RightCanvas() {
   const itemCount = useJobStore((s) => s.draft.items.length);
   const running = useJobStore((s) => s.running);
   const hasSummary = useJobStore((s) => s.summary !== null);
+  const cleared = useJobStore((s) => s.cleared);
 
-  const phase = canvasPhase({ itemCount, running, hasSummary });
+  const phase = canvasPhase({ itemCount, running, hasSummary, cleared });
 
   return (
     <main
       aria-label="Work area"
       className="min-w-0 flex-1 overflow-y-auto px-6 py-4"
     >
+      {/* The residual chip pins above whichever phase renders below it. */}
+      <LastBatchChip />
       {phase === "empty" ? <EmptyQueue /> : null}
       {phase === "queued" ? (
         <div className="flex flex-col gap-4">

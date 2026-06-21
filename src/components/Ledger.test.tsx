@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DraftSnapshot } from "@/bindings/DraftSnapshot";
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
+import * as archive from "@/lib/archive";
 import { copyText, openPath, revealItem } from "@/lib/reveal";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
@@ -16,9 +17,11 @@ vi.mock("@/lib/archive", () => ({
   addItems: vi.fn(),
   reorder: vi.fn(),
   setNamingRule: vi.fn(),
+  setStartNumber: vi.fn(),
   setOutputDir: vi.fn(),
   runJob: vi.fn(),
   cancelJob: vi.fn(),
+  clearItems: vi.fn(),
   previewOutputName: vi.fn(),
   subscribeProgress: vi.fn(),
 }));
@@ -178,8 +181,9 @@ describe("Ledger", () => {
       },
     });
     render(<Ledger />);
-    // 2048 bytes total → "2 KB".
-    expect(screen.getByText(/2 KB/)).toBeTruthy();
+    // 2048 bytes total → "2.0 / 2.0 KB": formatBytes renders KB and larger with
+    // one fixed-width decimal (the row passes bytesTotal as both done and total).
+    expect(screen.getByText(/2\.0 \/ 2\.0 KB/)).toBeTruthy();
   });
 
   it("omits the size gracefully when no progress entry matches the row", () => {
@@ -293,6 +297,46 @@ describe("Ledger", () => {
       });
       render(<Ledger />);
       expect(screen.queryByRole("button", { name: /open folder/i })).toBeNull();
+    });
+  });
+
+  describe("Clear button", () => {
+    it("clears the results into a residual last batch when clicked", async () => {
+      // setStartNumber recomputes previews; give it a resolving default so the
+      // clearResults round-trip settles.
+      vi.mocked(archive.previewOutputName).mockResolvedValue("photo_001.zip");
+      vi.mocked(archive.setStartNumber).mockResolvedValue(
+        draftWith([], "/out"),
+      );
+      vi.mocked(archive.clearItems).mockResolvedValue(draftWith([], "/out"));
+      useJobStore.setState({
+        draft: draftWith(["/in/a.rar", "/in/b.rar", "/in/c.rar"]),
+        summary: MIXED_SUMMARY,
+      });
+      render(<Ledger />);
+
+      await userEvent.click(
+        screen.getByRole("button", { name: /clear results/i }),
+      );
+
+      const state = useJobStore.getState();
+      expect(state.cleared).toBe(true);
+      expect(state.lastBatch?.count).toBe(3);
+      expect(state.summary).toBeNull();
+      // Start # auto-continues from 1 by the 3-task count.
+      expect(vi.mocked(archive.setStartNumber)).toHaveBeenCalledWith(4);
+      expect(vi.mocked(archive.clearItems)).toHaveBeenCalledTimes(1);
+    });
+
+    it("labels the Clear control for assistive tech", () => {
+      useJobStore.setState({
+        draft: draftWith(["/in/a.rar"]),
+        summary: MIXED_SUMMARY,
+      });
+      render(<Ledger />);
+      expect(
+        screen.getByRole("button", { name: /clear results/i }),
+      ).toBeTruthy();
     });
   });
 

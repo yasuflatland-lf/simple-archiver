@@ -9,7 +9,7 @@ import type { ProgressEvent } from "@/bindings/ProgressEvent";
 // which share names (addItems, reorder, setNamingRule, ...).
 import * as archive from "@/lib/archive";
 import { messageFromReason } from "@/lib/errors";
-import { DEFAULT_START, DEFAULT_TEMPLATE } from "@/lib/naming";
+import { DEFAULT_START, DEFAULT_TEMPLATE, MAX_START } from "@/lib/naming";
 import { persistOutputDir } from "@/lib/output-dir-default";
 
 // Monotonic counter tagging each recomputePreviews run. A run only commits its
@@ -28,6 +28,20 @@ function draftEdit(draft: DraftSnapshot): Partial<JobState> {
     progress: null,
     taskIdByIndex: [],
   };
+}
+
+/**
+ * A snapshot of the most recently cleared run, kept so the residual "last batch"
+ * chip can summarize it (count + destination) and Undo can restore its Ledger.
+ * Only the single most-recent batch is retained — there is no run history.
+ */
+interface LastBatch {
+  /** The finished job's summary, restored verbatim by restoreResults(). */
+  summary: JobSummaryDto;
+  /** The destination the batch wrote to (the chip's Open target), or null. */
+  outputDir: string | null;
+  /** The number of tasks in the batch (drives the chip label + auto-continue). */
+  count: number;
 }
 
 /**
@@ -75,6 +89,18 @@ export interface JobState {
   running: boolean;
   /** The latest error message, or null when the last action succeeded. */
   error: string | null;
+  /**
+   * The most recently cleared run, kept so the residual chip can summarize it
+   * and Undo can restore its Ledger. Null when no run has been cleared (or the
+   * chip was discarded by queuing/running the next batch).
+   */
+  lastBatch: LastBatch | null;
+  /**
+   * True after a finished run was cleared: the canvas folds back to the drop
+   * zone while `lastBatch` pins the residual chip above it. Reset to false once
+   * the next batch is queued/run or the clear is undone.
+   */
+  cleared: boolean;
 
   /** Add file/folder paths to the draft, then recompute previews. */
   addItems: (paths: string[]) => Promise<void>;
@@ -109,6 +135,21 @@ export interface JobState {
    * test-only full reset.
    */
   reset: () => Promise<void>;
+  /**
+   * Fold the finished run's Ledger back to the drop zone, ready for the next
+   * batch. Stashes the current summary into `lastBatch` (so the residual chip
+   * and Undo can use it), advances Start # by the batch count (auto-continue,
+   * clamped to MAX_START), clears the queue, and nulls the transient job state
+   * like reset() — but KEEPS `lastBatch`. Files on disk are never touched; this
+   * only folds the list view. No-op when there is no finished summary.
+   */
+  clearResults: () => Promise<void>;
+  /**
+   * Undo the most recent clear: restore the stashed summary (returning the
+   * canvas to the Ledger), unset `cleared`, and drop `lastBatch`. No-op when
+   * there is no residual batch to restore.
+   */
+  restoreResults: () => void;
 }
 
 export const useJobStore = create<JobState>()((set, get) => ({
@@ -128,11 +169,15 @@ export const useJobStore = create<JobState>()((set, get) => ({
   taskIdByIndex: [],
   running: false,
   error: null,
+  lastBatch: null,
+  cleared: false,
 
   addItems: async (paths) => {
     try {
       const draft = await archive.addItems(paths);
-      set(draftEdit(draft));
+      // Queuing the next batch discards the residual chip: it only ever refers
+      // to the most recent completed run.
+      set({ ...draftEdit(draft), lastBatch: null, cleared: false });
       await get().recomputePreviews();
     } catch (reason) {
       set({ error: messageFromReason(reason) });
@@ -213,7 +258,14 @@ export const useJobStore = create<JobState>()((set, get) => ({
   },
 
   runJob: async () => {
-    set({ running: true, summary: null, error: null });
+    // Starting the next run supersedes the residual chip, just like queuing.
+    set({
+      running: true,
+      summary: null,
+      error: null,
+      lastBatch: null,
+      cleared: false,
+    });
     try {
       const summary = await archive.runJob();
       // Derive task ids from the latest progress if a job emitted any.
@@ -321,6 +373,51 @@ export const useJobStore = create<JobState>()((set, get) => ({
     } catch (reason) {
       set({ error: messageFromReason(reason) });
     }
+  },
+
+  clearResults: async () => {
+    const { summary, draft } = get();
+    // No finished run means nothing to clear; Clear is a no-op there.
+    if (summary === null) return;
+    const count = summary.results.length;
+    // Auto-continue: the next batch picks up where this one ended. Clamp to the
+    // field's max so a near-overflow start never exceeds the backend's u32.
+    const nextStart = Math.min(draft.startNumber + count, MAX_START);
+    // Stash the finished run BEFORE mutating, so the residual chip and Undo can
+    // summarize/restore it. setStartNumber recomputes previews against the new
+    // (empty) queue; clearItems empties the backend draft.
+    set({
+      lastBatch: { summary, outputDir: draft.outputDir, count },
+      cleared: true,
+    });
+    let clearedDraft: DraftSnapshot;
+    try {
+      // setStartNumber pushes the advanced start (and recomputes previews);
+      // clearItems empties the backend draft and returns the cleared snapshot.
+      await get().setStartNumber(nextStart);
+      clearedDraft = await archive.clearItems();
+    } catch (reason) {
+      set({ error: messageFromReason(reason) });
+      return;
+    }
+    // Mirror reset()'s transient wipe, but KEEP lastBatch so Undo still works.
+    // Store the cleared snapshot so the draft (empty queue + advanced start)
+    // stays in sync with the backend, just as reset() does.
+    set({
+      draft: clearedDraft,
+      summary: null,
+      progress: null,
+      taskIdByIndex: [],
+      previewNames: [],
+    });
+  },
+
+  restoreResults: () => {
+    const lastBatch = get().lastBatch;
+    // Nothing stashed means nothing to undo.
+    if (lastBatch === null) return;
+    // Return to the results/Ledger phase with the previously cleared summary.
+    set({ summary: lastBatch.summary, cleared: false, lastBatch: null });
   },
 }));
 

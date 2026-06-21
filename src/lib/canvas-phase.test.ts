@@ -51,4 +51,52 @@ describe("canvasPhase", () => {
       canvasPhase({ itemCount: 0, running: false, hasSummary: true }),
     ).toBe("results");
   });
+
+  // After Clear, the canvas returns to the drop zone even though a fresh summary
+  // is absent; the residual chip is rendered above the empty phase separately.
+  it("returns 'empty' when cleared with no items, no run, and no summary", () => {
+    expect(
+      canvasPhase({
+        itemCount: 0,
+        running: false,
+        hasSummary: false,
+        cleared: true,
+      }),
+    ).toBe("empty");
+  });
+
+  it("prefers 'running' over a cleared flag (a new run started after a clear)", () => {
+    expect(
+      canvasPhase({
+        itemCount: 0,
+        running: true,
+        hasSummary: false,
+        cleared: true,
+      }),
+    ).toBe("running");
+  });
+
+  it("prefers 'results' over a cleared flag (a fresh summary supersedes the clear)", () => {
+    expect(
+      canvasPhase({
+        itemCount: 0,
+        running: false,
+        hasSummary: true,
+        cleared: true,
+      }),
+    ).toBe("results");
+  });
+
+  it("returns 'empty' when cleared even if stale items linger (defensive)", () => {
+    // Clear empties the queue, but defend against a stale itemCount so the
+    // cleared canvas never falls through to the queued task list.
+    expect(
+      canvasPhase({
+        itemCount: 3,
+        running: false,
+        hasSummary: false,
+        cleared: true,
+      }),
+    ).toBe("empty");
+  });
 });

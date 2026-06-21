@@ -25,7 +25,7 @@ vi.mock("@/lib/archive", () => ({
 vi.mock("@/lib/output-dir-default", () => ({ persistOutputDir: vi.fn() }));
 
 import * as archive from "@/lib/archive";
-import { DEFAULT_TEMPLATE } from "@/lib/naming";
+import { DEFAULT_TEMPLATE, MAX_START } from "@/lib/naming";
 import { persistOutputDir } from "@/lib/output-dir-default";
 
 import { resetJobStore, useJobStore } from "./jobStore";
@@ -79,6 +79,8 @@ describe("jobStore initial state", () => {
     expect(state.taskIdByIndex).toEqual([]);
     expect(state.running).toBe(false);
     expect(state.error).toBeNull();
+    expect(state.lastBatch).toBeNull();
+    expect(state.cleared).toBe(false);
   });
 });
 
@@ -149,6 +151,30 @@ describe("addItems", () => {
 
     expect(useJobStore.getState().error).toBe("backend boom");
     expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);
+  });
+
+  it("discards the residual last-batch chip when the next batch is queued", async () => {
+    // Simulate a prior Clear leaving a residual chip; queuing a new batch must
+    // dismiss it so the chip only ever refers to the most recent completed run.
+    const lastBatch = {
+      summary: {
+        succeeded: [1],
+        cancelled: [],
+        failed: [],
+        results: [],
+      } as JobSummaryDto,
+      outputDir: "/out",
+      count: 1,
+    };
+    useJobStore.setState({ lastBatch, cleared: true });
+
+    const draft = makeDraft(1);
+    mockArchive.addItems.mockResolvedValue(draft);
+
+    await useJobStore.getState().addItems(["/a.rar"]);
+
+    expect(useJobStore.getState().lastBatch).toBeNull();
+    expect(useJobStore.getState().cleared).toBe(false);
   });
 });
 
@@ -566,6 +592,36 @@ describe("runJob", () => {
     expect(useJobStore.getState().summary).toEqual(summary);
   });
 
+  it("discards the residual last-batch chip when a new job starts", async () => {
+    // Running the next batch supersedes the residual chip, just like queuing.
+    const lastBatch = {
+      summary: {
+        succeeded: [1],
+        cancelled: [],
+        failed: [],
+        results: [],
+      } as JobSummaryDto,
+      outputDir: "/out",
+      count: 1,
+    };
+    useJobStore.setState({ lastBatch, cleared: true });
+
+    const summary: JobSummaryDto = {
+      succeeded: [1],
+      cancelled: [],
+      failed: [],
+      results: [],
+    };
+    mockArchive.runJob.mockResolvedValue(summary);
+
+    const pending = useJobStore.getState().runJob();
+    // The chip is dropped synchronously when the run starts.
+    expect(useJobStore.getState().lastBatch).toBeNull();
+    expect(useJobStore.getState().cleared).toBe(false);
+    await pending;
+    expect(useJobStore.getState().lastBatch).toBeNull();
+  });
+
   it("keeps the existing taskIdByIndex when no progress was emitted", async () => {
     // With progress === null, runJob falls back to the existing taskIdByIndex
     // instead of wiping it to []. Seed it via setState since addItems/reorder
@@ -775,5 +831,176 @@ describe("reset", () => {
     const state = useJobStore.getState();
     expect(state.error).toBe("backend boom");
     expect(state.draft).toEqual(originalDraft);
+  });
+});
+
+describe("clearResults", () => {
+  // A mixed three-task summary; only its length feeds the auto-continue count.
+  const SUMMARY: JobSummaryDto = {
+    succeeded: [10, 11],
+    cancelled: [],
+    failed: [{ taskId: 12, reason: "boom" }],
+    results: [
+      {
+        taskId: 10,
+        outputName: "out_1.zip",
+        outputPath: "/out/out_1.zip",
+        status: "succeeded",
+        reason: null,
+      },
+      {
+        taskId: 11,
+        outputName: "out_2.zip",
+        outputPath: "/out/out_2.zip",
+        status: "succeeded",
+        reason: null,
+      },
+      {
+        taskId: 12,
+        outputName: "out_3.zip",
+        outputPath: "/out/out_3.zip",
+        status: "failed",
+        reason: "boom",
+      },
+    ],
+  };
+
+  // clearResults advances Start # via setStartNumber, which recomputes previews.
+  // Give previewOutputName a resolving default so the recompute settles (other
+  // describe blocks leave a never-resolving impl behind, since vi.clearAllMocks
+  // resets call history but not implementations).
+  beforeEach(() => {
+    mockArchive.previewOutputName.mockResolvedValue("photo_001.zip");
+  });
+
+  it("does nothing when there is no finished summary", async () => {
+    await useJobStore.getState().clearResults();
+
+    expect(useJobStore.getState().cleared).toBe(false);
+    expect(useJobStore.getState().lastBatch).toBeNull();
+    expect(mockArchive.clearItems).not.toHaveBeenCalled();
+    expect(mockArchive.setStartNumber).not.toHaveBeenCalled();
+  });
+
+  it("stashes the summary into lastBatch, marks cleared, and nulls the summary", async () => {
+    useJobStore.setState({
+      draft: makeDraft(3, "photo_{n}", "/out", 1),
+      summary: SUMMARY,
+    });
+    // setStartNumber and clearItems both return refreshed drafts.
+    mockArchive.setStartNumber.mockResolvedValue(
+      makeDraft(3, "photo_{n}", "/out", 4),
+    );
+    mockArchive.clearItems.mockResolvedValue(
+      makeDraft(0, "photo_{n}", "/out", 4),
+    );
+
+    await useJobStore.getState().clearResults();
+
+    const state = useJobStore.getState();
+    expect(state.cleared).toBe(true);
+    expect(state.lastBatch).toEqual({
+      summary: SUMMARY,
+      outputDir: "/out",
+      count: 3,
+    });
+    expect(state.summary).toBeNull();
+    expect(state.progress).toBeNull();
+    expect(state.taskIdByIndex).toEqual([]);
+    expect(state.previewNames).toEqual([]);
+  });
+
+  it("auto-continues the start number by the batch count and clears the queue", async () => {
+    useJobStore.setState({
+      draft: makeDraft(3, "photo_{n}", "/out", 1),
+      summary: SUMMARY,
+    });
+    mockArchive.setStartNumber.mockResolvedValue(
+      makeDraft(3, "photo_{n}", "/out", 4),
+    );
+    mockArchive.clearItems.mockResolvedValue(
+      makeDraft(0, "photo_{n}", "/out", 4),
+    );
+
+    await useJobStore.getState().clearResults();
+
+    // Start # advances from 1 by the three-task count to 4.
+    expect(mockArchive.setStartNumber).toHaveBeenCalledWith(4);
+    expect(mockArchive.clearItems).toHaveBeenCalledTimes(1);
+  });
+
+  it("clamps the auto-continued start number to MAX_START", async () => {
+    // A start near u32::MAX plus the batch count must not overflow the field.
+    useJobStore.setState({
+      draft: makeDraft(3, "photo_{n}", "/out", MAX_START - 1),
+      summary: SUMMARY,
+    });
+    mockArchive.setStartNumber.mockResolvedValue(
+      makeDraft(3, "photo_{n}", "/out", MAX_START),
+    );
+    mockArchive.clearItems.mockResolvedValue(
+      makeDraft(0, "photo_{n}", "/out", MAX_START),
+    );
+
+    await useJobStore.getState().clearResults();
+
+    expect(mockArchive.setStartNumber).toHaveBeenCalledWith(MAX_START);
+  });
+
+  it("keeps lastBatch after the queue is cleared (Undo must still work)", async () => {
+    useJobStore.setState({
+      draft: makeDraft(3, "photo_{n}", "/out", 1),
+      summary: SUMMARY,
+    });
+    mockArchive.setStartNumber.mockResolvedValue(
+      makeDraft(3, "photo_{n}", "/out", 4),
+    );
+    mockArchive.clearItems.mockResolvedValue(
+      makeDraft(0, "photo_{n}", "/out", 4),
+    );
+
+    await useJobStore.getState().clearResults();
+
+    expect(useJobStore.getState().lastBatch).not.toBeNull();
+    expect(useJobStore.getState().lastBatch?.count).toBe(3);
+  });
+});
+
+describe("restoreResults", () => {
+  const SUMMARY: JobSummaryDto = {
+    succeeded: [1],
+    cancelled: [],
+    failed: [],
+    results: [
+      {
+        taskId: 1,
+        outputName: "out_1.zip",
+        outputPath: "/out/out_1.zip",
+        status: "succeeded",
+        reason: null,
+      },
+    ],
+  };
+
+  it("does nothing when there is no residual last batch", () => {
+    useJobStore.getState().restoreResults();
+
+    expect(useJobStore.getState().summary).toBeNull();
+    expect(useJobStore.getState().cleared).toBe(false);
+  });
+
+  it("restores the stashed summary, unsets cleared, and drops lastBatch", () => {
+    useJobStore.setState({
+      cleared: true,
+      summary: null,
+      lastBatch: { summary: SUMMARY, outputDir: "/out", count: 1 },
+    });
+
+    useJobStore.getState().restoreResults();
+
+    const state = useJobStore.getState();
+    expect(state.summary).toEqual(SUMMARY);
+    expect(state.cleared).toBe(false);
+    expect(state.lastBatch).toBeNull();
   });
 });
