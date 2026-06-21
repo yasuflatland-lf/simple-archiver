@@ -3,12 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 
-import {
-  computeStatus,
-  outputNameForTask,
-  statusVisual,
-  taskOutcomeFor,
-} from "./status";
+import { computeStatus, statusVisual, taskOutcomeFor } from "./status";
 
 describe("statusVisual", () => {
   it("maps succeeded to the unified 'Succeeded' label and the success tokens", () => {
@@ -142,19 +137,5 @@ describe("computeStatus", () => {
 
   it("returns 'Waiting' when not running and no summary yet", () => {
     expect(computeStatus(0, false, null, null, [10])).toBe("Waiting");
-  });
-});
-
-describe("outputNameForTask", () => {
-  it("maps a task id to its output preview name via the positional invariant", () => {
-    expect(outputNameForTask(4, ["a.zip", "b.zip"], [3, 4])).toBe("b.zip");
-  });
-
-  it("falls back to a 'task <id>' label when the id is not aligned", () => {
-    expect(outputNameForTask(99, ["a.zip", "b.zip"], [3, 4])).toBe("task 99");
-  });
-
-  it("falls back when the aligned preview name is missing", () => {
-    expect(outputNameForTask(4, ["a.zip"], [3, 4])).toBe("task 4");
   });
 });

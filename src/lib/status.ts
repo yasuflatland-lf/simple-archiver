@@ -5,17 +5,18 @@
  * unified label, the visual status-token classes, and a text icon (so status
  * is never communicated by color alone).
  *
- * Owning this in one place keeps the vocabulary consistent across the summary
- * panel and the per-row task list, and keeps the domain-state → visual-token
- * mapping in exactly one location.
+ * Owning this in one place keeps the vocabulary consistent across the Ledger
+ * and the per-row task list, and keeps the domain-state → visual-token mapping
+ * in exactly one location.
  */
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import { formatBytes } from "@/lib/format";
 
 // The three members MUST stay in sync with the keys of the backend `JobSummaryDto`
-// (`succeeded` | `cancelled` | `failed`). RunSummary/TaskList pass these as string
-// literals, so a renamed or added DTO bucket would silently leave this union stale.
+// (`succeeded` | `cancelled` | `failed`) and the `TaskStatusDto` wire union.
+// Ledger/TaskList pass these as string literals, so a renamed or added DTO bucket
+// would silently leave this union stale.
 export type TaskOutcome = "succeeded" | "cancelled" | "failed";
 
 export interface StatusVisual {
@@ -151,19 +152,4 @@ export function computeStatus(
   }
 
   return "Waiting";
-}
-
-/**
- * Map a failed task id back to its output preview name via the positional
- * alignment invariant (taskIdByIndex[i] <-> previewNames[i]); fall back to the
- * raw id when alignment is unavailable. Pure: no React/Tauri.
- */
-export function outputNameForTask(
-  taskId: number,
-  previewNames: string[],
-  taskIdByIndex: number[],
-): string {
-  const index = taskIdByIndex.indexOf(taskId);
-  const name = index >= 0 ? previewNames[index] : undefined;
-  return name ?? `task ${taskId}`;
 }
