@@ -63,13 +63,20 @@ export function ConfirmDialog({
         onClick={onCancel}
         aria-hidden="true"
       />
-      {/* Dialog panel — positioned above the backdrop; stop propagation so panel clicks do not reach the backdrop. */}
+      {/*
+        Dialog panel — positioned above the backdrop; stop propagation so panel
+        clicks do not reach the backdrop. A native <dialog open> defaults to
+        `width/height: fit-content` and Tailwind Preflight zeroes its margin,
+        which would collapse this flex container to the card and pin it
+        top-left. `m-0 h-full w-full` make the dialog fill the viewport so the
+        card stays centered on screen.
+      */}
       <dialog
         open
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
-        className="fixed inset-0 z-[51] flex items-center justify-center border-0 bg-transparent p-0"
+        className="fixed inset-0 z-[51] m-0 flex h-full w-full items-center justify-center border-0 bg-transparent p-0"
       >
         {/* Stop click propagation on the content card so clicks here do not bubble to the backdrop. */}
         <div
