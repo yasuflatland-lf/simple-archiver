@@ -22,10 +22,11 @@ import { selectFirstPreview, useJobStore } from "@/store/jobStore";
  * source of preview truth (firstPreview, via selectFirstPreview) joined with the
  * output directory — it runs no preview pipeline of its own.
  *
- * The rail is shrink-0 so it never collapses; on a viewport too short to fit its
- * natural height it scrolls internally (the right canvas is the primary
- * scroller). It is a labelled complementary landmark (an <aside>) so assistive
- * tech can jump straight to the output settings.
+ * The rail fills its resizable pane (the width is owned by AppShell via the
+ * pane separator); on a viewport too short to fit its natural height it scrolls
+ * internally (the right canvas is the primary scroller). It is a labelled
+ * complementary landmark (an <aside>) so assistive tech can jump straight to the
+ * output settings.
  */
 export function LeftRail() {
   const outputDir = useJobStore((s) => s.draft.outputDir);
@@ -56,7 +57,7 @@ export function LeftRail() {
   return (
     <aside
       aria-label="Output settings"
-      className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-muted/40 px-5 py-4"
+      className="flex min-h-0 w-full flex-col gap-4 overflow-y-auto bg-muted/40 px-5 py-4"
     >
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">

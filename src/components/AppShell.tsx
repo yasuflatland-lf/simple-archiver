@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
 
+import { PaneSeparator } from "@/components/PaneSeparator";
+import { usePaneResize } from "@/hooks/usePaneResize";
+import { cn } from "@/lib/utils";
+
 interface AppShellProps {
   /** The fixed left rail: output settings + the Run/Cancel control. */
   rail: ReactNode;
@@ -17,12 +21,18 @@ interface AppShellProps {
  * header and theme toggle were removed; the theme follows the OS).
  *
  * Scroll discipline: the canvas (passed as `children`, a labelled `main`) is the
- * only region that scrolls vertically. The rail is shrink-0 and scrolls only
- * internally on a viewport too short to fit its natural height; the footer is
- * always pinned. The optional banner sits across the top of the body so a
+ * only region that scrolls vertically. The rail pane is shrink-0 and scrolls
+ * only internally on a viewport too short to fit its natural height; the footer
+ * is always pinned. The optional banner sits across the top of the body so a
  * surfaced error is visible above both panes.
+ *
+ * The rail pane is user-resizable: a {@link PaneSeparator} between the two panes
+ * drives {@link usePaneResize}, which owns the rail width (drag, double-click
+ * reset, and persistence). While dragging, the body suppresses text selection
+ * and shows the col-resize cursor across both panes.
  */
 export function AppShell({ rail, banner, statusBar, children }: AppShellProps) {
+  const { railWidth, isDragging, separatorProps } = usePaneResize();
   return (
     <div
       data-testid="app-shell"
@@ -38,9 +48,19 @@ export function AppShell({ rail, banner, statusBar, children }: AppShellProps) {
       ) : null}
       <div
         data-testid="app-body"
-        className="flex min-h-0 flex-1 flex-row overflow-hidden"
+        className={cn(
+          "flex min-h-0 flex-1 flex-row overflow-hidden",
+          isDragging && "cursor-col-resize select-none",
+        )}
       >
-        {rail}
+        <div
+          data-testid="rail-pane"
+          className="flex min-h-0 shrink-0"
+          style={{ width: `${railWidth}px` }}
+        >
+          {rail}
+        </div>
+        <PaneSeparator isDragging={isDragging} {...separatorProps} />
         {children}
       </div>
       <footer className="shrink-0 border-t border-border bg-muted/40 px-6 py-3">
