@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { DraftSnapshot } from "@/bindings/DraftSnapshot";
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
+import type { OutputMode } from "@/bindings/OutputMode";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 
 /** Tauri event channel name emitted by the backend during an active archive job. */
@@ -38,6 +39,14 @@ export function setNamingRule(template: string): Promise<DraftSnapshot> {
  */
 export function setOutputDir(dir: string): Promise<DraftSnapshot> {
   return invoke<DraftSnapshot>("set_output_dir", { dir });
+}
+
+/**
+ * Set the batch output mode (re-zip vs extract-to-folder).
+ * Returns the updated draft snapshot.
+ */
+export function setOutputMode(mode: OutputMode): Promise<DraftSnapshot> {
+  return invoke<DraftSnapshot>("set_output_mode", { mode });
 }
 
 /**
