@@ -4,7 +4,7 @@
  * store and the NamingRuleForm can share one source of truth for the starting
  * template without a presentation -> store import cycle.
  */
-export const DEFAULT_TEMPLATE = "photo_{n:03}";
+export const DEFAULT_TEMPLATE = "photo_{n:02}";
 
 /**
  * The default sequence start number. 1 preserves the historical numbering, so

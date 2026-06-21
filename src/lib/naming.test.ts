@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_START, MAX_START, sanitizeStartNumber } from "./naming";
+import {
+  DEFAULT_START,
+  DEFAULT_TEMPLATE,
+  MAX_START,
+  sanitizeStartNumber,
+} from "./naming";
+
+describe("DEFAULT_TEMPLATE", () => {
+  it("seeds the name field with a two-digit sequence by default", () => {
+    expect(DEFAULT_TEMPLATE).toBe("photo_{n:02}");
+  });
+});
 
 describe("sanitizeStartNumber", () => {
   it("accepts non-negative integers verbatim", () => {
