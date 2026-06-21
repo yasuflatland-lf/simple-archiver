@@ -1074,3 +1074,177 @@ describe("restoreResults", () => {
     expect(state.lastBatch).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Row selection (keyboard select + delete)
+// ---------------------------------------------------------------------------
+
+describe("selectItem", () => {
+  beforeEach(() => {
+    useJobStore.setState({ draft: makeDraft(5) });
+  });
+
+  it("plain click selects only that row and sets the anchor", () => {
+    useJobStore.getState().selectItem(2, { meta: false, shift: false });
+
+    const state = useJobStore.getState();
+    expect(state.selectedIndices).toEqual([2]);
+    expect(state.selectionAnchor).toBe(2);
+  });
+
+  it("plain click replaces any previous selection", () => {
+    useJobStore.setState({ selectedIndices: [0, 1, 4], selectionAnchor: 0 });
+
+    useJobStore.getState().selectItem(3, { meta: false, shift: false });
+
+    expect(useJobStore.getState().selectedIndices).toEqual([3]);
+  });
+
+  it("meta click toggles the row into the selection (sorted), updating the anchor", () => {
+    useJobStore.setState({ selectedIndices: [0, 2], selectionAnchor: 2 });
+
+    useJobStore.getState().selectItem(1, { meta: true, shift: false });
+
+    const state = useJobStore.getState();
+    expect(state.selectedIndices).toEqual([0, 1, 2]);
+    expect(state.selectionAnchor).toBe(1);
+  });
+
+  it("meta click toggles an already-selected row back out", () => {
+    useJobStore.setState({ selectedIndices: [0, 2], selectionAnchor: 0 });
+
+    useJobStore.getState().selectItem(2, { meta: true, shift: false });
+
+    expect(useJobStore.getState().selectedIndices).toEqual([0]);
+  });
+
+  it("shift click selects the inclusive range from the anchor", () => {
+    useJobStore.setState({ selectedIndices: [1], selectionAnchor: 1 });
+
+    useJobStore.getState().selectItem(4, { meta: false, shift: true });
+
+    // Anchor stays at 1; the range 1..4 is selected.
+    const state = useJobStore.getState();
+    expect(state.selectedIndices).toEqual([1, 2, 3, 4]);
+    expect(state.selectionAnchor).toBe(1);
+  });
+
+  it("shift click selects the range when clicking above the anchor", () => {
+    useJobStore.setState({ selectedIndices: [3], selectionAnchor: 3 });
+
+    useJobStore.getState().selectItem(1, { meta: false, shift: true });
+
+    expect(useJobStore.getState().selectedIndices).toEqual([1, 2, 3]);
+  });
+
+  it("shift click with no anchor behaves like a plain click", () => {
+    useJobStore.setState({ selectedIndices: [], selectionAnchor: null });
+
+    useJobStore.getState().selectItem(2, { meta: false, shift: true });
+
+    const state = useJobStore.getState();
+    expect(state.selectedIndices).toEqual([2]);
+    expect(state.selectionAnchor).toBe(2);
+  });
+});
+
+describe("selectAll", () => {
+  it("selects every row index", () => {
+    useJobStore.setState({ draft: makeDraft(3) });
+
+    useJobStore.getState().selectAll();
+
+    expect(useJobStore.getState().selectedIndices).toEqual([0, 1, 2]);
+  });
+
+  it("is a no-op when the queue is empty", () => {
+    useJobStore.setState({ draft: makeDraft(0), selectedIndices: [] });
+
+    useJobStore.getState().selectAll();
+
+    expect(useJobStore.getState().selectedIndices).toEqual([]);
+  });
+});
+
+describe("clearSelection", () => {
+  it("empties the selection and the anchor", () => {
+    useJobStore.setState({ selectedIndices: [0, 1], selectionAnchor: 1 });
+
+    useJobStore.getState().clearSelection();
+
+    const state = useJobStore.getState();
+    expect(state.selectedIndices).toEqual([]);
+    expect(state.selectionAnchor).toBeNull();
+  });
+});
+
+describe("deleteSelected", () => {
+  it("removes the selected rows highest-index-first to avoid index shift", async () => {
+    useJobStore.setState({ draft: makeDraft(5), selectedIndices: [1, 3] });
+    mockArchive.removeItem.mockResolvedValue(makeDraft(4));
+
+    await useJobStore.getState().deleteSelected();
+
+    // Descending order so removing a higher index never shifts a lower one.
+    expect(mockArchive.removeItem.mock.calls.map((c) => c[0])).toEqual([3, 1]);
+    expect(mockArchive.clearItems).not.toHaveBeenCalled();
+  });
+
+  it("clears the whole queue in one call when every row is selected", async () => {
+    useJobStore.setState({ draft: makeDraft(3), selectedIndices: [0, 1, 2] });
+    mockArchive.clearItems.mockResolvedValue(makeDraft(0));
+
+    await useJobStore.getState().deleteSelected();
+
+    expect(mockArchive.clearItems).toHaveBeenCalledTimes(1);
+    expect(mockArchive.removeItem).not.toHaveBeenCalled();
+  });
+
+  it("ends with an empty selection", async () => {
+    useJobStore.setState({ draft: makeDraft(3), selectedIndices: [0] });
+    mockArchive.removeItem.mockResolvedValue(makeDraft(2));
+
+    await useJobStore.getState().deleteSelected();
+
+    expect(useJobStore.getState().selectedIndices).toEqual([]);
+  });
+
+  it("is a no-op when nothing is selected", async () => {
+    useJobStore.setState({ draft: makeDraft(3), selectedIndices: [] });
+
+    await useJobStore.getState().deleteSelected();
+
+    expect(mockArchive.removeItem).not.toHaveBeenCalled();
+    expect(mockArchive.clearItems).not.toHaveBeenCalled();
+  });
+});
+
+describe("selection invalidation", () => {
+  it("clears the selection when the draft is structurally edited", async () => {
+    useJobStore.setState({
+      draft: makeDraft(3),
+      selectedIndices: [0, 2],
+      selectionAnchor: 0,
+    });
+    mockArchive.reorder.mockResolvedValue(makeDraft(3));
+
+    await useJobStore.getState().reorder(0, 1);
+
+    const state = useJobStore.getState();
+    expect(state.selectedIndices).toEqual([]);
+    expect(state.selectionAnchor).toBeNull();
+  });
+
+  it("clears the selection on reset", async () => {
+    useJobStore.setState({
+      draft: makeDraft(3),
+      selectedIndices: [1],
+      selectionAnchor: 1,
+    });
+    mockArchive.clearItems.mockResolvedValue(makeDraft(0));
+
+    await useJobStore.getState().reset();
+
+    expect(useJobStore.getState().selectedIndices).toEqual([]);
+  });
+});

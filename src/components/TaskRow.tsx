@@ -1,5 +1,5 @@
 import { GripVertical, Trash2 } from "lucide-react";
-import { memo } from "react";
+import { memo, type MouseEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import type { SourceKind } from "@/bindings/SourceKind";
@@ -79,11 +79,16 @@ function TaskRowImpl({ index }: TaskRowProps) {
         liveEtaMs: live?.etaMs ?? null,
         isFirst: index === 0,
         isLast: index === s.draft.items.length - 1,
+        // A flat boolean: only this row re-renders when its own selected state
+        // flips, leaving the rest of the list untouched.
+        isSelected: s.selectedIndices.includes(index),
         // The action reference is stable across renders, so it is safe to
         // return directly for shallow comparison.
         reorder: s.reorder,
         // Same stability guarantee as `reorder`, safe for the shallow compare.
         removeItem: s.removeItem,
+        // Stable action reference, safe for the shallow compare.
+        selectItem: s.selectItem,
         // Compute the text status here so the selector exposes a flat string
         // rather than the progress/summary/taskIdByIndex collections.
         status: computeStatus(
@@ -108,12 +113,31 @@ function TaskRowImpl({ index }: TaskRowProps) {
   // reflow cannot strip the right-align padding spaces formatBytes emits.
   const liveLabel = `${formatBytes(row.liveBytesDone ?? 0, row.liveBytesTotal ?? 0)} · ETA ${formatEta(row.liveEtaMs)}`;
 
+  // Select this row on click. The action buttons (grip/up/down/delete) keep
+  // their own behavior, so clicks originating from a control are ignored; only
+  // a click on the row body selects. Selection is disabled while running, where
+  // the positional progress arrays must stay fixed.
+  const onRowClick = (event: MouseEvent<HTMLTableRowElement>) => {
+    if (row.running) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    row.selectItem(index, {
+      meta: event.metaKey || event.ctrlKey,
+      shift: event.shiftKey,
+    });
+  };
+
   // Drag affordances: dim the row being dragged and highlight the row the
-  // pointer is currently over as the drop target. The grab cursor lives on the
-  // grip handle (the only element that starts a drag), not the whole row.
+  // pointer is currently over as the drop target. A selected row carries the
+  // accent highlight (the project's selected-state token); the grab cursor
+  // lives on the grip handle (the only element that starts a drag), not the row.
   const rowClassName = [
     "border-b border-border/50 transition-colors",
-    dnd.isDragging ? "opacity-40" : "hover:bg-muted/30",
+    !row.running && "cursor-pointer",
+    dnd.isDragging
+      ? "opacity-40"
+      : row.isSelected
+        ? "bg-accent"
+        : "hover:bg-muted/30",
     dnd.isOver && "bg-primary/10",
     // Suppress text selection across the list while any row is being dragged.
     dnd.isDraggingAny && "select-none",
@@ -124,6 +148,8 @@ function TaskRowImpl({ index }: TaskRowProps) {
   return (
     <tr
       {...dnd.rowProps}
+      onClick={onRowClick}
+      aria-selected={row.isSelected}
       data-dragging={dnd.isDragging || undefined}
       data-drop-target={dnd.isOver || undefined}
       className={rowClassName}

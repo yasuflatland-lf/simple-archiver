@@ -3,6 +3,7 @@ import { ReorderDndProvider } from "@/components/reorder-dnd";
 import { TASK_COLUMNS } from "@/components/task-columns";
 import { TaskRow } from "@/components/TaskRow";
 import { useColumnResize } from "@/hooks/useColumnResize";
+import { useQueueSelectionKeys } from "@/hooks/useQueueSelectionKeys";
 import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
 
@@ -23,6 +24,9 @@ export function TaskList() {
   // Column widths are owned here so the hook state survives the empty-state
   // toggle below (the hook must run before any early return).
   const { widths, draggingKey, getSeparatorProps } = useColumnResize();
+  // Queue-scoped keyboard shortcuts (select all / delete / clear). Stable across
+  // renders, so it is safe to call before the early return below.
+  const onKeyDown = useQueueSelectionKeys();
 
   if (items.length === 0) {
     return (
@@ -39,7 +43,23 @@ export function TaskList() {
 
   return (
     <ReorderDndProvider>
-      <div className="overflow-x-auto">
+      {/* The selectable queue: role="grid" + aria-multiselectable + per-row
+          aria-selected is the ARIA pattern for row selection, and makes this an
+          interactive element so tabIndex/onKeyDown are valid. tabIndex makes it
+          focusable — clicking a non-focusable row focuses this nearest focusable
+          ancestor — which scopes the shortcuts here so they never hijack Cmd+A /
+          Delete inside text inputs. The role lives on this wrapper (not the
+          <table>) so the table keeps its native semantics. */}
+      <div
+        className="overflow-x-auto outline-none"
+        role="grid"
+        aria-label="Queue rows"
+        aria-multiselectable
+        aria-keyshortcuts="Control+A Meta+A Delete Backspace"
+        tabIndex={0}
+        data-testid="queue-region"
+        onKeyDown={onKeyDown}
+      >
         <table
           className="text-sm"
           style={{ tableLayout: "fixed", width: totalWidth }}
