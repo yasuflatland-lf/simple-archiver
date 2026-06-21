@@ -607,6 +607,19 @@ describe("TaskList pointer reorder", () => {
 
     expect(reorder).not.toHaveBeenCalled();
   });
+
+  it("renders the grip in a dedicated leading drag column", () => {
+    setItems(2);
+    render(<TaskList />);
+
+    // The drag column is first in the model and the first <col>/<td>.
+    expect(TASK_COLUMNS[0].key).toBe("drag");
+
+    const firstRow = bodyRows()[0];
+    const firstCell = firstRow.querySelector("td");
+    // The grip lives in the first cell of each row.
+    expect(firstCell?.contains(handle(0))).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
