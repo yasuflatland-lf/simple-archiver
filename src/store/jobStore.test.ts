@@ -11,6 +11,7 @@ vi.mock("@/lib/archive", () => ({
   setNamingRule: vi.fn(),
   setOutputDir: vi.fn(),
   setOutputMode: vi.fn(),
+  setConflictPolicy: vi.fn(),
   clearItems: vi.fn(),
   runJob: vi.fn(),
   cancelJob: vi.fn(),
@@ -325,6 +326,31 @@ describe("setOutputMode", () => {
 
     expect(spy).toHaveBeenCalledWith("folder");
     expect(useJobStore.getState().draft.outputMode).toBe("folder");
+  });
+});
+
+describe("setConflictPolicy", () => {
+  it("setConflictPolicy pushes the policy and stores the returned draft", async () => {
+    const spy = vi.spyOn(archive, "setConflictPolicy").mockResolvedValue({
+      items: [],
+      namingTemplate: null,
+      outputDir: "/out",
+      outputMode: "folder",
+      conflictPolicy: "overwrite",
+    });
+
+    await useJobStore.getState().setConflictPolicy("overwrite");
+
+    expect(spy).toHaveBeenCalledWith("overwrite");
+    expect(useJobStore.getState().draft.conflictPolicy).toBe("overwrite");
+  });
+
+  it("setConflictPolicy records the error when the wrapper rejects", async () => {
+    vi.spyOn(archive, "setConflictPolicy").mockRejectedValue("boom");
+
+    await useJobStore.getState().setConflictPolicy("skip");
+
+    expect(useJobStore.getState().error).toBe("boom");
   });
 });
 

@@ -17,6 +17,7 @@ import {
   previewOutputName,
   reorder,
   runJob,
+  setConflictPolicy,
   setNamingRule,
   setOutputDir,
   setOutputMode,
@@ -106,6 +107,23 @@ describe("archive client", () => {
         mode: "folder",
       });
       expect(snap.outputMode).toBe("folder");
+    });
+  });
+
+  describe("setConflictPolicy", () => {
+    it("invokes set_conflict_policy with the policy", async () => {
+      vi.mocked(invoke).mockResolvedValue({
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "folder",
+        conflictPolicy: "overwrite",
+      });
+      const snap = await setConflictPolicy("overwrite");
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_conflict_policy", {
+        policy: "overwrite",
+      });
+      expect(snap.conflictPolicy).toBe("overwrite");
     });
   });
 

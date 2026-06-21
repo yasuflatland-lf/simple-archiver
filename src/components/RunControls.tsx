@@ -1,6 +1,8 @@
 import { Check, CircleDot, Play } from "lucide-react";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   type Readiness,
   readinessFor,
@@ -53,7 +55,11 @@ function ReadinessChip({ readiness }: { readiness: Readiness }) {
 export function RunControls() {
   const itemCount = useJobStore((s) => s.draft.items.length);
   const outputDir = useJobStore((s) => s.draft.outputDir);
+  const outputMode = useJobStore((s) => s.draft.outputMode);
+  const conflictPolicy = useJobStore((s) => s.draft.conflictPolicy);
   const running = useJobStore((s) => s.running);
+
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   // Compute readiness once; derive the reason string from it so both the
   // Run button's accessible-disabled semantics and the ReadinessChip share
@@ -62,12 +68,34 @@ export function RunControls() {
   const runReason = runUnavailableReason(readiness);
   const runDisabled = runReason !== "";
 
+  // Overwrite in Folder mode is destructive (it removes existing folders before
+  // extracting), so it must be confirmed before the job starts.
+  const needsOverwriteConfirm =
+    outputMode === "folder" && conflictPolicy === "overwrite";
+
+  function startRun() {
+    useJobStore.getState().runJob();
+  }
+
   function handleRun() {
     // Run uses aria-disabled instead of the native disabled attribute so it stays
     // focusable and AT can announce the reason. Guard clicks explicitly because
     // aria-disabled does not suppress them.
     if (runDisabled) return;
-    useJobStore.getState().runJob();
+    if (needsOverwriteConfirm) {
+      setConfirmOpen(true);
+      return;
+    }
+    startRun();
+  }
+
+  function handleConfirmOverwrite() {
+    setConfirmOpen(false);
+    startRun();
+  }
+
+  function handleCancelOverwrite() {
+    setConfirmOpen(false);
   }
 
   function handleCancel() {
@@ -104,6 +132,15 @@ export function RunControls() {
           {runReason}
         </span>
       ) : null}
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Overwrite existing folders?"
+        description="Overwrite removes any existing destination folder before extracting. This cannot be undone."
+        confirmLabel="Overwrite and run"
+        cancelLabel="Cancel"
+        onConfirm={handleConfirmOverwrite}
+        onCancel={handleCancelOverwrite}
+      />
     </div>
   );
 }
