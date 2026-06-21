@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -676,6 +676,52 @@ describe("TaskList pointer reorder", () => {
     const firstCell = firstRow.querySelector("td");
     // The grip lives in the first cell of each row.
     expect(firstCell?.contains(handle(0))).toBe(true);
+  });
+
+  it("reorders when the row body is dragged past the threshold", () => {
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    setItems(3, { reorder });
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    stubRect(rows[2], 40);
+    // Press the row body (not the grip), then move well past 5px to arm + drop.
+    fireEvent.pointerDown(rows[0], { clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(rows[2], { clientX: 0, clientY: bottomHalf(40) });
+    fireEvent.pointerUp(rows[2], { clientX: 0, clientY: bottomHalf(40) });
+
+    expect(reorder).toHaveBeenCalledWith(0, 2);
+  });
+
+  it("treats a sub-threshold row-body press as a click, not a drag", () => {
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    setItems(3, { reorder });
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    stubRect(rows[1], 20);
+    fireEvent.pointerDown(rows[0], { clientX: 0, clientY: 0 });
+    // Move only 3px — below DRAG_THRESHOLD_PX (5).
+    fireEvent.pointerMove(rows[1], { clientX: 0, clientY: 3 });
+    fireEvent.pointerUp(rows[1], { clientX: 0, clientY: 3 });
+
+    expect(reorder).not.toHaveBeenCalled();
+  });
+
+  it("does not start a row drag when a button in the row is pressed", () => {
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    setItems(3, { reorder });
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    stubRect(rows[2], 40);
+    // Press the 'Move down' button, then move the pointer over a far row.
+    const moveDown = within(rows[0]).getByLabelText("Move down");
+    fireEvent.pointerDown(moveDown, { clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(rows[2], { clientX: 0, clientY: bottomHalf(40) });
+    fireEvent.pointerUp(rows[2], { clientX: 0, clientY: bottomHalf(40) });
+
+    expect(reorder).not.toHaveBeenCalled();
   });
 });
 

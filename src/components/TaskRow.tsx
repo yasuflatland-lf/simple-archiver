@@ -110,16 +110,19 @@ function TaskRowImpl({ index }: TaskRowProps) {
 
   // Drag affordances: dim the row being dragged; draw a 2px insertion line on the
   // edge where the row would land. A box-shadow (not a real element) avoids table
-  // layout shift. The grab cursor lives on the grip; the whole-row drag cursor is
-  // added in the row-body task.
+  // layout shift.
   const rowClassName = [
     "border-b border-border/50 transition-colors",
+    // The whole row is a drag surface; show grab at rest, grabbing mid-drag.
+    dnd.enabled && (dnd.isDraggingAny ? "cursor-grabbing" : "cursor-grab"),
     dnd.isDragging ? "opacity-40" : "hover:bg-muted/30",
     dnd.dropEdge === "top" && "shadow-[inset_0_2px_0_0_var(--color-primary)]",
     dnd.dropEdge === "bottom" &&
       "shadow-[inset_0_-2px_0_0_var(--color-primary)]",
-    // Suppress text selection across the list while any row is being dragged.
-    dnd.isDraggingAny && "select-none",
+    // While a drag is active, suppress text selection and stop touch-scroll from
+    // hijacking the gesture. Applied only mid-drag so the list stays scrollable
+    // and filenames stay selectable at rest.
+    dnd.isDraggingAny && "select-none touch-none",
   ]
     .filter(Boolean)
     .join(" ");
@@ -129,6 +132,7 @@ function TaskRowImpl({ index }: TaskRowProps) {
       {...dnd.rowProps}
       data-dragging={dnd.isDragging || undefined}
       data-drop-edge={dnd.dropEdge ?? undefined}
+      aria-roledescription="draggable item"
       className={rowClassName}
     >
       {/* Drag column: the grip is the explicit reorder signifier. Pointer-based (not
