@@ -112,6 +112,7 @@ export const useJobStore = create<JobState>()((set, get) => ({
     namingTemplate: null,
     outputDir: null,
     outputMode: "zip",
+    conflictPolicy: "autoRename",
   },
   previewNames: [],
   firstPreview: null,

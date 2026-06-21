@@ -11,13 +11,14 @@ use std::time::Duration;
 
 use simple_archiver_core::application::progress::JobProgress;
 use simple_archiver_core::application::progress_aggregator::JobSummary;
+use simple_archiver_core::domain::conflict_policy::ConflictPolicy as DomainConflictPolicy;
 use simple_archiver_core::domain::output_mode::OutputMode as DomainOutputMode;
 use simple_archiver_core::domain::source_item::SourceItem;
 use simple_archiver_core::domain::task_progress::TaskProgress;
 
 use super::dto::{
-    DraftItemDto, FailedTaskDto, JobSummaryDto, OutputMode as OutputModeDto, ProgressCounts,
-    ProgressEvent, SourceKind, TaskProgressDto,
+    ConflictPolicy as ConflictPolicyDto, DraftItemDto, FailedTaskDto, JobSummaryDto,
+    OutputMode as OutputModeDto, ProgressCounts, ProgressEvent, SourceKind, TaskProgressDto,
 };
 
 impl From<&TaskProgress> for ProgressCounts {
@@ -85,6 +86,24 @@ pub(crate) fn output_mode_from_domain(mode: DomainOutputMode) -> OutputModeDto {
     match mode {
         DomainOutputMode::Zip => OutputModeDto::Zip,
         DomainOutputMode::Folder => OutputModeDto::Folder,
+    }
+}
+
+/// Map the wire conflict policy to the domain conflict policy.
+pub(crate) fn conflict_policy_to_domain(policy: ConflictPolicyDto) -> DomainConflictPolicy {
+    match policy {
+        ConflictPolicyDto::AutoRename => DomainConflictPolicy::AutoRename,
+        ConflictPolicyDto::Skip => DomainConflictPolicy::Skip,
+        ConflictPolicyDto::Overwrite => DomainConflictPolicy::Overwrite,
+    }
+}
+
+/// Map the domain conflict policy to the wire conflict policy.
+pub(crate) fn conflict_policy_from_domain(policy: DomainConflictPolicy) -> ConflictPolicyDto {
+    match policy {
+        DomainConflictPolicy::AutoRename => ConflictPolicyDto::AutoRename,
+        DomainConflictPolicy::Skip => ConflictPolicyDto::Skip,
+        DomainConflictPolicy::Overwrite => ConflictPolicyDto::Overwrite,
     }
 }
 
@@ -217,6 +236,15 @@ mod tests {
                 kind: SourceKind::Zip,
             }
         );
+    }
+
+    #[test]
+    fn conflict_policy_maps_round_trip_through_domain() {
+        use super::super::dto::ConflictPolicy as Dto;
+        for dto in [Dto::AutoRename, Dto::Skip, Dto::Overwrite] {
+            let domain = conflict_policy_to_domain(dto);
+            assert_eq!(conflict_policy_from_domain(domain), dto);
+        }
     }
 
     #[test]

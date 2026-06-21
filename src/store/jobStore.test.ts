@@ -47,6 +47,7 @@ function makeDraft(
     namingTemplate,
     outputDir,
     outputMode: "zip",
+    conflictPolicy: "autoRename",
   };
 }
 
@@ -55,6 +56,7 @@ const INITIAL_DRAFT: DraftSnapshot = {
   namingTemplate: null,
   outputDir: null,
   outputMode: "zip",
+  conflictPolicy: "autoRename",
 };
 
 beforeEach(() => {
@@ -316,6 +318,7 @@ describe("setOutputMode", () => {
       namingTemplate: null,
       outputDir: "/out",
       outputMode: "folder",
+      conflictPolicy: "autoRename",
     });
 
     await useJobStore.getState().setOutputMode("folder");
@@ -348,6 +351,7 @@ describe("recomputePreviews", () => {
         namingTemplate: "photo_{n}",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       error: "stale error",
     });
@@ -383,6 +387,7 @@ describe("recomputePreviews", () => {
         namingTemplate: "a",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
     });
     const runA = useJobStore.getState().recomputePreviews();
@@ -396,6 +401,7 @@ describe("recomputePreviews", () => {
         namingTemplate: "b",
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
     });
     const runB = useJobStore.getState().recomputePreviews();
@@ -548,6 +554,7 @@ describe("reset", () => {
       namingTemplate: "photo_{n}",
       outputDir: "/out",
       outputMode: "zip",
+      conflictPolicy: "autoRename",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 
@@ -567,6 +574,7 @@ describe("reset", () => {
       namingTemplate: "photo_{n}",
       outputDir: "/out",
       outputMode: "zip",
+      conflictPolicy: "autoRename",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 
@@ -607,6 +615,7 @@ describe("reset", () => {
       namingTemplate: "photo_{n}",
       outputDir: "/out",
       outputMode: "zip",
+      conflictPolicy: "autoRename",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 
@@ -648,6 +657,7 @@ describe("reset", () => {
       namingTemplate: "photo_{n}",
       outputDir: "/out",
       outputMode: "zip",
+      conflictPolicy: "autoRename",
     };
     mockArchive.clearItems.mockResolvedValue(clearedDraft);
 

@@ -32,6 +32,7 @@ describe("OutputDirPicker", () => {
         namingTemplate: null,
         outputDir: "/my/output",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
     });
     render(<OutputDirPicker />);
@@ -47,6 +48,7 @@ describe("OutputDirPicker", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
     });
     render(<OutputDirPicker />);
@@ -63,6 +65,7 @@ describe("OutputDirPicker", () => {
         namingTemplate: null,
         outputDir: "/my/output",
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
     });
     render(<OutputDirPicker />);

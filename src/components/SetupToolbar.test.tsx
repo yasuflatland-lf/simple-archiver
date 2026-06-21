@@ -28,6 +28,7 @@ function withItems() {
       namingTemplate: null,
       outputDir: null,
       outputMode: "zip",
+      conflictPolicy: "autoRename",
     },
     setNamingRule: vi.fn(),
   });
@@ -109,6 +110,7 @@ describe("SetupToolbar", () => {
         namingTemplate: null,
         outputDir: null,
         outputMode: "zip",
+        conflictPolicy: "autoRename",
       },
       setNamingRule: vi.fn(),
     });
