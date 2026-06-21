@@ -104,7 +104,12 @@ export interface JobState {
 }
 
 export const useJobStore = create<JobState>()((set, get) => ({
-  draft: { items: [], namingTemplate: null, outputDir: null },
+  draft: {
+    items: [],
+    namingTemplate: null,
+    outputDir: null,
+    outputMode: "zip",
+  },
   previewNames: [],
   firstPreview: null,
   previewError: null,

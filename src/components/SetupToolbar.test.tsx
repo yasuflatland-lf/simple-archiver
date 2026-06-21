@@ -23,7 +23,12 @@ beforeEach(() => {
 
 function withItems() {
   useJobStore.setState({
-    draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+    draft: {
+      items: [ITEM],
+      namingTemplate: null,
+      outputDir: null,
+      outputMode: "zip",
+    },
     setNamingRule: vi.fn(),
   });
 }
@@ -99,7 +104,12 @@ describe("SetupToolbar", () => {
     const { rerender } = render(<SetupToolbar />);
     expect(screen.getByRole("button", { name: /add files/i })).toBeTruthy();
     useJobStore.setState({
-      draft: { items: [], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       setNamingRule: vi.fn(),
     });
     rerender(<SetupToolbar />);

@@ -3,20 +3,21 @@
 /**
  * Byte progress for a single task, keyed by its raw task id.
  */
-export type TaskProgressDto = { 
-/**
- * The raw task id.
- */
-taskId: number, 
-/**
- * Bytes processed so far.
- */
-bytesDone: number, 
-/**
- * Total bytes to process.
- */
-bytesTotal: number, 
-/**
- * Estimated time remaining for this task, in milliseconds; null when unknown.
- */
-etaMs: number | null, };
+export type TaskProgressDto = {
+  /**
+   * The raw task id.
+   */
+  taskId: number;
+  /**
+   * Bytes processed so far.
+   */
+  bytesDone: number;
+  /**
+   * Total bytes to process.
+   */
+  bytesTotal: number;
+  /**
+   * Estimated time remaining for this task, in milliseconds; null when unknown.
+   */
+  etaMs: number | null;
+};

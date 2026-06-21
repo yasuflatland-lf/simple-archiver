@@ -5,20 +5,21 @@ import type { TaskProgressDto } from "./TaskProgressDto";
 /**
  * An aggregated progress snapshot, adapted from [`JobProgress`] for the wire.
  */
-export type ProgressEvent = { 
-/**
- * Byte counters summed across all per-task entries (derived from `JobProgress::overall`).
- */
-overall: ProgressCounts, 
-/**
- * Estimated time remaining for the whole job, in milliseconds; null when unknown.
- */
-overallEtaMs: number | null, 
-/**
- * Per-task progress in the job's task order.
- */
-perTask: Array<TaskProgressDto>, 
-/**
- * Time elapsed since the job started, in milliseconds.
- */
-elapsedMs: number, };
+export type ProgressEvent = {
+  /**
+   * Byte counters summed across all per-task entries (derived from `JobProgress::overall`).
+   */
+  overall: ProgressCounts;
+  /**
+   * Estimated time remaining for the whole job, in milliseconds; null when unknown.
+   */
+  overallEtaMs: number | null;
+  /**
+   * Per-task progress in the job's task order.
+   */
+  perTask: Array<TaskProgressDto>;
+  /**
+   * Time elapsed since the job started, in milliseconds.
+   */
+  elapsedMs: number;
+};

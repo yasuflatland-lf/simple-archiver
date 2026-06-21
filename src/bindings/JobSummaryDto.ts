@@ -4,16 +4,17 @@ import type { FailedTaskDto } from "./FailedTaskDto";
 /**
  * The outcome of a finished job, adapted from [`JobSummary`] for the wire.
  */
-export type JobSummaryDto = { 
-/**
- * Raw ids of tasks that completed successfully, in job order.
- */
-succeeded: Array<number>, 
-/**
- * Raw ids of tasks that were cancelled, in job order.
- */
-cancelled: Array<number>, 
-/**
- * Tasks that failed, paired with their reason, in job order.
- */
-failed: Array<FailedTaskDto>, };
+export type JobSummaryDto = {
+  /**
+   * Raw ids of tasks that completed successfully, in job order.
+   */
+  succeeded: Array<number>;
+  /**
+   * Raw ids of tasks that were cancelled, in job order.
+   */
+  cancelled: Array<number>;
+  /**
+   * Tasks that failed, paired with their reason, in job order.
+   */
+  failed: Array<FailedTaskDto>;
+};

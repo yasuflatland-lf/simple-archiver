@@ -3,12 +3,13 @@
 /**
  * A pair of byte counters (done / total).
  */
-export type ProgressCounts = { 
-/**
- * Bytes processed so far.
- */
-bytesDone: number, 
-/**
- * Total bytes to process.
- */
-bytesTotal: number, };
+export type ProgressCounts = {
+  /**
+   * Bytes processed so far.
+   */
+  bytesDone: number;
+  /**
+   * Total bytes to process.
+   */
+  bytesTotal: number;
+};

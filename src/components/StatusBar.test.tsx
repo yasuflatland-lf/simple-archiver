@@ -26,6 +26,7 @@ describe("StatusBar", () => {
         ],
         namingTemplate: null,
         outputDir: null,
+        outputMode: "zip",
       },
     });
     render(<StatusBar />);
@@ -38,6 +39,7 @@ describe("StatusBar", () => {
         items: [{ path: "/a.rar", kind: "rar" }],
         namingTemplate: null,
         outputDir: null,
+        outputMode: "zip",
       },
       progress: null,
       summary: null,
@@ -99,6 +101,7 @@ describe("StatusBar Reset slot – visibility", () => {
         items: [ITEM],
         namingTemplate: null,
         outputDir: null,
+        outputMode: "zip",
       },
       running: false,
       summary: null,
@@ -113,6 +116,7 @@ describe("StatusBar Reset slot – visibility", () => {
         items: [ITEM],
         namingTemplate: null,
         outputDir: null,
+        outputMode: "zip",
       },
       running: true,
       summary: null,
@@ -129,6 +133,7 @@ describe("StatusBar Reset slot – visibility", () => {
         items: [ITEM],
         namingTemplate: null,
         outputDir: null,
+        outputMode: "zip",
       },
       running: false,
       summary: { succeeded: [1], cancelled: [], failed: [] },
@@ -147,7 +152,12 @@ describe("StatusBar Reset slot – label", () => {
 
   it("labels the button 'Clear' when summary is null", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       summary: null,
     });
@@ -157,7 +167,12 @@ describe("StatusBar Reset slot – label", () => {
 
   it("labels the button 'New batch' when summary is not null", () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       summary: {
         succeeded: [],
@@ -179,7 +194,12 @@ describe("StatusBar Reset slot – confirm dialog", () => {
 
   it("opens the dialog when the Reset button is clicked", async () => {
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       summary: null,
     });
@@ -193,7 +213,12 @@ describe("StatusBar Reset slot – confirm dialog", () => {
   it("calls reset() once when the user confirms the dialog (Clear flow)", async () => {
     const reset = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       summary: null,
       reset,
@@ -210,7 +235,12 @@ describe("StatusBar Reset slot – confirm dialog", () => {
   it("does not call reset() when the user cancels the dialog", async () => {
     const reset = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       summary: null,
       reset,
@@ -229,7 +259,12 @@ describe("StatusBar Reset slot – confirm dialog", () => {
   it("calls reset() once when confirming the 'New batch' dialog", async () => {
     const reset = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       summary: { succeeded: [1], cancelled: [], failed: [] },
       reset,
@@ -248,7 +283,12 @@ describe("StatusBar Reset slot – confirm dialog", () => {
   it("does not call reset() when cancelling the 'New batch' dialog", async () => {
     const reset = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       summary: { succeeded: [1], cancelled: [], failed: [] },
       reset,
@@ -267,7 +307,12 @@ describe("StatusBar Reset slot – confirm dialog", () => {
   it("closes the dialog after confirming", async () => {
     const reset = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       summary: null,
       reset,
@@ -287,7 +332,12 @@ describe("StatusBar Reset slot – confirm dialog", () => {
   it("closes the dialog after cancelling", async () => {
     const reset = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({
-      draft: { items: [ITEM], namingTemplate: null, outputDir: null },
+      draft: {
+        items: [ITEM],
+        namingTemplate: null,
+        outputDir: null,
+        outputMode: "zip",
+      },
       running: false,
       summary: null,
       reset,

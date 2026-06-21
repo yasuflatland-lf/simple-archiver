@@ -42,7 +42,12 @@ describe("OutputSettings", () => {
 
   it("shows the filename only and a hint when no destination is selected", () => {
     useJobStore.setState({
-      draft: { items: [], namingTemplate: "photo_{n:03}", outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: "photo_{n:03}",
+        outputDir: null,
+        outputMode: "zip",
+      },
       firstPreview: "photo_001.zip",
     });
     render(<OutputSettings />);
@@ -61,6 +66,7 @@ describe("OutputSettings", () => {
         items: [],
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
+        outputMode: "zip",
       },
       firstPreview: "photo_001.zip",
     });
@@ -75,7 +81,12 @@ describe("OutputSettings", () => {
 
   it("surfaces a template error from the store preview as an alert", () => {
     useJobStore.setState({
-      draft: { items: [], namingTemplate: "photo_{n", outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: "photo_{n",
+        outputDir: null,
+        outputMode: "zip",
+      },
       firstPreview: "",
       previewError: "invalid naming template: stray or malformed brace",
     });
@@ -92,6 +103,7 @@ describe("OutputSettings", () => {
         items: [],
         namingTemplate: "photo_{n",
         outputDir: "~/Archives",
+        outputMode: "zip",
       },
       firstPreview: "",
       previewError: "invalid naming template: stray or malformed brace",
@@ -122,6 +134,7 @@ describe("OutputSettings", () => {
         items: [{ path: "/a.rar", kind: "rar" }],
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
+        outputMode: "zip",
       },
       firstPreview: "photo_001.zip",
     });
@@ -147,6 +160,7 @@ describe("OutputSettings", () => {
         items: [],
         namingTemplate: "photo_{n",
         outputDir: "~/Archives",
+        outputMode: "zip",
       },
       firstPreview: "",
       previewError: "invalid naming template: stray or malformed brace",
@@ -169,6 +183,7 @@ describe("OutputSettings", () => {
         items: [],
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
+        outputMode: "zip",
       },
       firstPreview: null,
     });
@@ -183,7 +198,12 @@ describe("OutputSettings", () => {
   // destination-required hint remain.
   it("does not render the filename-only hero after a preview error with no destination", () => {
     useJobStore.setState({
-      draft: { items: [], namingTemplate: "photo_{n", outputDir: null },
+      draft: {
+        items: [],
+        namingTemplate: "photo_{n",
+        outputDir: null,
+        outputMode: "zip",
+      },
       firstPreview: "",
       previewError: "invalid naming template: stray or malformed brace",
     });
@@ -209,6 +229,7 @@ describe("OutputSettings", () => {
         items: [],
         namingTemplate: "photo_{n:03}",
         outputDir: "~/Archives",
+        outputMode: "zip",
       },
       firstPreview: "photo_001.zip",
     });
@@ -231,6 +252,7 @@ describe("OutputSettings", () => {
         items: [],
         namingTemplate: "photo_{n:03}",
         outputDir: null,
+        outputMode: "zip",
       },
       firstPreview: "photo_001.zip",
     });
