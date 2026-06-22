@@ -5,6 +5,7 @@
 
 use crate::application::ports::{PlaceError, Placer};
 use crate::domain::conflict_policy::ConflictPolicy;
+use crate::infrastructure::path_utils::next_free_path;
 use std::path::{Path, PathBuf};
 
 /// Copies extracted trees into the output directory without overwriting.
@@ -71,23 +72,13 @@ fn place_blocking(
 /// Return `desired` if it does not exist, else `desired (2)`, `desired (3)`, …
 /// on the final component until a free path is found.
 fn non_colliding(desired: &Path) -> PathBuf {
-    if !desired.exists() {
-        return desired.to_path_buf();
-    }
     let parent = desired.parent().unwrap_or_else(|| Path::new("."));
     let base = desired
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "archive".to_string());
-    // Counter starts at 2 so the first alternative reads "name (2)".
-    for n in 2..=u32::MAX {
-        let candidate = parent.join(format!("{base} ({n})"));
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    // Astronomically unreachable; fall back to the desired path.
-    desired.to_path_buf()
+    // Folder mode: append ` (n)` to the whole final component.
+    next_free_path(desired, |n| parent.join(format!("{base} ({n})")))
 }
 
 /// Recursively copy the directory tree at `src` into a fresh directory `dest`.

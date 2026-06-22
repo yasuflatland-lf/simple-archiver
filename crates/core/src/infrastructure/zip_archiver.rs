@@ -3,7 +3,7 @@
 use crate::application::compress_context::CompressContext;
 use crate::application::ports::{ArchiveError, Archiver};
 use crate::domain::conflict_policy::ConflictPolicy;
-use crate::infrastructure::path_utils::{classified_components, PathPart};
+use crate::infrastructure::path_utils::{classified_components, next_free_path, PathPart};
 use async_zip::base::write::ZipFileWriter;
 use async_zip::{Compression, ZipEntryBuilder};
 use std::path::{Path, PathBuf};
@@ -208,9 +208,6 @@ async fn resolve_destination(
 /// `photo_01.zip` → `photo_01 (2).zip`). The Folder placer appends ` (n)` to the
 /// whole final component; a file keeps its extension, so the suffix goes before it.
 fn non_colliding_zip(desired: &Path) -> PathBuf {
-    if !desired.exists() {
-        return desired.to_path_buf();
-    }
     let parent = desired.parent().unwrap_or_else(|| Path::new("."));
     let stem = desired
         .file_stem()
@@ -219,19 +216,14 @@ fn non_colliding_zip(desired: &Path) -> PathBuf {
     let ext = desired
         .extension()
         .map(|e| e.to_string_lossy().into_owned());
-    // Counter starts at 2 so the first alternative reads "stem (2).ext".
-    for n in 2..=u32::MAX {
+    // Zip mode: insert ` (n)` before the extension so the suffix is preserved.
+    next_free_path(desired, |n| {
         let file_name = match &ext {
             Some(ext) => format!("{stem} ({n}).{ext}"),
             None => format!("{stem} ({n})"),
         };
-        let candidate = parent.join(file_name);
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    // Astronomically unreachable; fall back to the desired path.
-    desired.to_path_buf()
+        parent.join(file_name)
+    })
 }
 
 /// Walk `root` and return the paths of every regular file it contains.
