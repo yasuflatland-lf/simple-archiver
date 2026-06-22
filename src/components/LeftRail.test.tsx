@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_RAIL_WIDTH } from "@/lib/rail-width";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
 import { LeftRail } from "./LeftRail";
@@ -111,6 +112,27 @@ describe("LeftRail", () => {
     render(<LeftRail />);
     expect(screen.getByRole("button", { name: /cancel/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^run$/i })).toBeNull();
+  });
+
+  it("scrolls horizontally instead of clipping the controls when the pane is narrow", () => {
+    render(<LeftRail />);
+    const region = screen.getByRole("complementary", {
+      name: /output settings/i,
+    });
+    // The rail scrolls on both axes: a pane narrower than the controls' design
+    // width shows a horizontal scrollbar rather than clipping/compressing them.
+    // `overflow-y-auto` would clip horizontal overflow, so the class must be the
+    // both-axes `overflow-auto`.
+    expect(region.className.split(/\s+/)).toContain("overflow-auto");
+  });
+
+  it("keeps the controls at least the default rail width so a narrow pane scrolls", () => {
+    render(<LeftRail />);
+    // The controls live in a content wrapper that never collapses below the
+    // default rail width; when the pane is dragged narrower, that wrapper
+    // overflows and the rail scrolls horizontally instead of compressing.
+    const content = screen.getByTestId("rail-content");
+    expect(content.style.minWidth).toBe(`${DEFAULT_RAIL_WIDTH}px`);
   });
 
   it("keeps Run accessibly disabled with a describedby reason when not ready", () => {
