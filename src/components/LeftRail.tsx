@@ -75,7 +75,10 @@ export function LeftRail() {
         className="flex min-h-full w-full flex-col gap-4 px-5 py-4"
         style={{ minWidth: `${DEFAULT_RAIL_WIDTH}px` }}
       >
-        <div className="flex items-center justify-between">
+        {/* OUTPUT header stacks the section label above the full-width mode
+          toggle. The toggle is the primary "what do you want to do?" choice, so
+          it gets its own prominent row rather than sharing the header line. */}
+        <div className="flex flex-col gap-2">
           <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
             OUTPUT
           </span>

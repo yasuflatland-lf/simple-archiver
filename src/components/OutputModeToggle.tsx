@@ -3,8 +3,8 @@ import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
 
 const OPTIONS: { value: OutputMode; label: string }[] = [
-  { value: "zip", label: ".zip file" },
-  { value: "folder", label: "Folder" },
+  { value: "zip", label: "Rebundle to zip file(s)" },
+  { value: "folder", label: "Unarchive to folders" },
 ];
 
 /**
@@ -12,6 +12,11 @@ const OPTIONS: { value: OutputMode; label: string }[] = [
  * mode pushes it into the store, which drives the conditional OUTPUT fields and
  * the hero path. Two `role="radio"` buttons in a `role="radiogroup"` keep it
  * keyboard- and screen-reader-friendly.
+ *
+ * This is the primary "what do you want to do?" decision, so it is deliberately
+ * the loudest control in the rail: a full-width pair of equal segments, larger
+ * type, and a strong brand-primary fill on the selected segment — heavier than
+ * the subtler `bg-accent` segmented controls elsewhere (e.g. ConflictPolicySelect).
  */
 export function OutputModeToggle() {
   const mode = useJobStore((s) => s.draft.outputMode);
@@ -25,7 +30,7 @@ export function OutputModeToggle() {
     <div
       role="radiogroup"
       aria-label="Output as"
-      className="inline-flex overflow-hidden rounded-md border border-border"
+      className="flex w-full overflow-hidden rounded-md border border-border shadow-sm"
     >
       {OPTIONS.map((opt) => {
         const selected = opt.value === mode;
@@ -41,10 +46,10 @@ export function OutputModeToggle() {
             aria-checked={selected}
             onClick={() => choose(opt.value)}
             className={cn(
-              "px-2.5 py-1 text-xs font-medium",
+              "flex-1 px-3 py-2 text-sm font-semibold transition-colors",
               selected
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground",
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
             )}
           >
             {opt.label}
