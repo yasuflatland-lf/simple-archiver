@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -131,6 +131,142 @@ describe("TaskRow", () => {
     );
 
     expect(removeItem).toHaveBeenCalledWith(1);
+  });
+
+  it("selects the row when a non-interactive cell is clicked", () => {
+    const selectItem = vi.fn();
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip"],
+      selectItem,
+    });
+    renderRow(0);
+
+    fireEvent.click(screen.getByText("archive.rar"));
+
+    expect(selectItem).toHaveBeenCalledWith(0, { meta: false, shift: false });
+  });
+
+  it("passes the Cmd/Ctrl and Shift modifiers from the click", () => {
+    const selectItem = vi.fn();
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip"],
+      selectItem,
+    });
+    renderRow(0);
+
+    fireEvent.click(screen.getByText("archive.rar"), {
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(selectItem).toHaveBeenCalledWith(0, { meta: true, shift: true });
+  });
+
+  it("does not select the row when the delete button is clicked", async () => {
+    const selectItem = vi.fn();
+    const removeItem = vi.fn().mockResolvedValue(undefined);
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip"],
+      selectItem,
+      removeItem,
+    });
+    const user = userEvent.setup();
+    renderRow(0);
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove archive.rar from queue" }),
+    );
+
+    expect(removeItem).toHaveBeenCalledWith(0);
+    expect(selectItem).not.toHaveBeenCalled();
+  });
+
+  it("does not select the row while a job is running", () => {
+    const selectItem = vi.fn();
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip"],
+      running: true,
+      progress: {
+        overall: { bytesDone: 0, bytesTotal: 0 },
+        overallEtaMs: null,
+        perTask: [],
+        elapsedMs: 0,
+      },
+      selectItem,
+    });
+    renderRow(0);
+
+    fireEvent.click(screen.getByText("archive.rar"));
+
+    expect(selectItem).not.toHaveBeenCalled();
+  });
+
+  it("marks the row aria-selected when its index is in the selection", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip"],
+      selectedIndices: [0],
+    });
+    renderRow(0);
+
+    expect(screen.getByRole("row").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("is not aria-selected when its index is not in the selection", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip"],
+      selectedIndices: [],
+    });
+    renderRow(0);
+
+    expect(screen.getByRole("row").getAttribute("aria-selected")).toBe("false");
   });
 
   it("disables the delete button while a job is running", () => {

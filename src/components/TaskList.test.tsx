@@ -822,6 +822,141 @@ describe("TaskList pointer reorder", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Keyboard selection + delete
+//
+// The queue region owns a scoped keydown handler: Cmd/Ctrl+A selects every row,
+// Delete/Backspace removes the selection, Escape clears it. The handler lives on
+// the focusable queue container (not the document) so it never hijacks Cmd+A or
+// Delete inside the naming-template input or elsewhere.
+// ---------------------------------------------------------------------------
+
+describe("TaskList keyboard selection", () => {
+  function setItems(n: number, extra: Record<string, unknown> = {}) {
+    useJobStore.setState({
+      draft: {
+        items: makeItems(n),
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: [],
+      ...extra,
+    });
+  }
+
+  function region() {
+    return screen.getByTestId("queue-region");
+  }
+
+  it("selects all rows on Cmd+A", () => {
+    const selectAll = vi.fn();
+    setItems(3, { selectAll });
+    render(<TaskList />);
+
+    fireEvent.keyDown(region(), { key: "a", metaKey: true });
+
+    expect(selectAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("selects all rows on Ctrl+A", () => {
+    const selectAll = vi.fn();
+    setItems(3, { selectAll });
+    render(<TaskList />);
+
+    fireEvent.keyDown(region(), { key: "a", ctrlKey: true });
+
+    expect(selectAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not select all on a bare 'a' without a modifier", () => {
+    const selectAll = vi.fn();
+    setItems(3, { selectAll });
+    render(<TaskList />);
+
+    fireEvent.keyDown(region(), { key: "a" });
+
+    expect(selectAll).not.toHaveBeenCalled();
+  });
+
+  it("deletes the selection on Delete", () => {
+    const deleteSelected = vi.fn().mockResolvedValue(undefined);
+    setItems(3, { selectedIndices: [0, 1], deleteSelected });
+    render(<TaskList />);
+
+    fireEvent.keyDown(region(), { key: "Delete" });
+
+    expect(deleteSelected).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes the selection on Backspace", () => {
+    const deleteSelected = vi.fn().mockResolvedValue(undefined);
+    setItems(3, { selectedIndices: [2], deleteSelected });
+    render(<TaskList />);
+
+    fireEvent.keyDown(region(), { key: "Backspace" });
+
+    expect(deleteSelected).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not delete when nothing is selected", () => {
+    const deleteSelected = vi.fn().mockResolvedValue(undefined);
+    setItems(3, { selectedIndices: [], deleteSelected });
+    render(<TaskList />);
+
+    fireEvent.keyDown(region(), { key: "Delete" });
+
+    expect(deleteSelected).not.toHaveBeenCalled();
+  });
+
+  it("clears the selection on Escape", () => {
+    const clearSelection = vi.fn();
+    setItems(3, { selectedIndices: [0], clearSelection });
+    render(<TaskList />);
+
+    fireEvent.keyDown(region(), { key: "Escape" });
+
+    expect(clearSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores the shortcuts while a job is running", () => {
+    const selectAll = vi.fn();
+    const deleteSelected = vi.fn().mockResolvedValue(undefined);
+    setItems(3, {
+      selectedIndices: [0],
+      selectAll,
+      deleteSelected,
+      running: true,
+      progress: {
+        overall: { bytesDone: 0, bytesTotal: 0 },
+        overallEtaMs: null,
+        perTask: [],
+        elapsedMs: 0,
+      },
+    });
+    render(<TaskList />);
+
+    fireEvent.keyDown(region(), { key: "a", metaKey: true });
+    fireEvent.keyDown(region(), { key: "Delete" });
+
+    expect(selectAll).not.toHaveBeenCalled();
+    expect(deleteSelected).not.toHaveBeenCalled();
+  });
+
+  it("does not respond to Cmd+A fired outside the queue region", () => {
+    const selectAll = vi.fn();
+    setItems(3, { selectAll });
+    render(<TaskList />);
+
+    // A keydown on the document body must not reach the scoped handler.
+    fireEvent.keyDown(document.body, { key: "a", metaKey: true });
+
+    expect(selectAll).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Column resize
 // ---------------------------------------------------------------------------
 

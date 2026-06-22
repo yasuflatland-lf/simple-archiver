@@ -3,6 +3,7 @@ import { EmptyQueue } from "@/components/EmptyQueue";
 import { LastBatchChip } from "@/components/LastBatchChip";
 import { Ledger } from "@/components/Ledger";
 import { OverallProgress } from "@/components/OverallProgress";
+import { ResetButton } from "@/components/ResetButton";
 import { TaskList } from "@/components/TaskList";
 import { canvasPhase } from "@/lib/canvas-phase";
 import { useJobStore } from "@/store/jobStore";
@@ -42,10 +43,13 @@ export function RightCanvas() {
       {phase === "empty" ? <EmptyQueue /> : null}
       {phase === "queued" ? (
         <div className="flex flex-col gap-4">
-          {/* Browse fallback for adding more sources once the queue is no longer
-              empty (drag-and-drop still works via the app-level DropOverlay). The
-              empty-state drop zone owns this affordance while the queue is empty. */}
-          <div className="flex justify-end">
+          {/* Queue toolbar: the destructive Clear (ResetButton) anchors the left
+              edge, while the browse fallback for adding more sources sits at the
+              right (drag-and-drop still works via the app-level DropOverlay). The
+              empty-state drop zone owns the browse affordance while the queue is
+              empty; ResetButton renders nothing until the queue is populated. */}
+          <div className="flex items-center justify-between gap-2">
+            <ResetButton />
             <AddSourceButtons />
           </div>
           <TaskList />

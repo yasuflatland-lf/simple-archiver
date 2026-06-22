@@ -69,6 +69,38 @@ describe("RightCanvas", () => {
     expect(screen.getByRole("button", { name: /add folder/i })).toBeTruthy();
   });
 
+  it("offers the Clear action in the queued-phase toolbar", () => {
+    // The reset (Clear) action now lives at the left of the queue toolbar, so it
+    // must render whenever the queue is populated and idle.
+    setItems(2);
+    render(<RightCanvas />);
+    expect(screen.getByRole("button", { name: /^clear$/i })).toBeTruthy();
+  });
+
+  it("does not render the Clear action in the empty phase", () => {
+    render(<RightCanvas />);
+    expect(
+      screen.queryByRole("button", { name: /clear|new batch/i }),
+    ).toBeNull();
+  });
+
+  it("does not render the Clear action while running", () => {
+    setItems(2);
+    useJobStore.setState({
+      running: true,
+      progress: {
+        overall: { bytesDone: 5, bytesTotal: 10 },
+        perTask: [{ taskId: 1, bytesDone: 5, bytesTotal: 10, etaMs: null }],
+        elapsedMs: 1,
+        overallEtaMs: null,
+      },
+    });
+    render(<RightCanvas />);
+    expect(
+      screen.queryByRole("button", { name: /clear|new batch/i }),
+    ).toBeNull();
+  });
+
   it("renders overall progress and the task list while running", () => {
     setItems(2);
     useJobStore.setState({

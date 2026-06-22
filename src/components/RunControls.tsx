@@ -1,7 +1,6 @@
 import { Check, CircleDot, Play } from "lucide-react";
 import * as React from "react";
 
-import { ResetButton } from "@/components/ResetButton";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -46,14 +45,14 @@ function ReadinessChip({ readiness }: { readiness: Readiness }) {
 
 /**
  * RunControls renders the queue's run row for the current state:
- *   - idle  (running === false): the reset action (Clear / New batch) anchored
- *     left, with the readiness chip + Run grouped at the right edge.
+ *   - idle  (running === false): the readiness chip + Run grouped at the right
+ *     edge.
  *   - active (running === true): Cancel only (Run is not in the DOM), kept at the
  *     right edge so the primary button does not jump when toggling Run↔Cancel.
  *
- * The destructive reset action and the primary brand Run sit at opposite ends of
- * the row to minimise misclicks; the right group is pushed right with `ml-auto`
- * so Run stays anchored even when the reset action is hidden (empty queue).
+ * Both states anchor the primary button (Run / Cancel) at the right edge so it
+ * never shifts position. The reset action (Clear / New batch) lives in the queue
+ * toolbar in the right canvas, not here.
  *
  * Run retains full accessible-disabled semantics (aria-disabled / aria-describedby /
  * sr-only reason span / title / handler guard) so assistive technology can announce
@@ -122,12 +121,8 @@ export function RunControls() {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      {/* Destructive reset at the left edge, kept clear of the primary CTA. It
-          renders nothing when the queue is empty; the right group's ml-auto then
-          keeps Run anchored right with no positional jump. */}
-      <ResetButton />
-      <div className="ml-auto flex items-center gap-2">
+    <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center gap-2">
         <ReadinessChip readiness={readiness} />
         <Button
           type="button"

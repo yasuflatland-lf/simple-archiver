@@ -229,3 +229,20 @@ describe("ResetButton – confirm dialog", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
+
+describe("ResetButton – affordance", () => {
+  beforeEach(() => resetJobStore());
+
+  // Soft-fill (secondary) gives the button visible mass so it reads as a button,
+  // while staying chromatically quiet so it does not compete with the brand Run.
+  it("uses the secondary soft-fill variant", () => {
+    useJobStore.setState({
+      draft: draftWith([ITEM]),
+      running: false,
+      summary: null,
+    });
+    render(<ResetButton />);
+    const btn = screen.getByRole("button", { name: /^clear$/i });
+    expect(btn.className).toContain("bg-secondary");
+  });
+});

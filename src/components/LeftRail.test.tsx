@@ -81,6 +81,20 @@ describe("LeftRail", () => {
     expect(screen.queryByLabelText("Start #")).toBeNull();
   });
 
+  it("places the If exists control above the Destination section in folder mode", () => {
+    setMode("folder", "/out");
+    render(<LeftRail />);
+    const conflictPolicy = screen.getByRole("radiogroup", {
+      name: /a folder already exists/i,
+    });
+    const destination = screen.getByText("Destination");
+    // The conflict policy must precede the Destination block in document order.
+    expect(
+      conflictPolicy.compareDocumentPosition(destination) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("renders the Output as mode toggle", () => {
     render(<LeftRail />);
     expect(screen.getByRole("radiogroup", { name: /output as/i })).toBeTruthy();

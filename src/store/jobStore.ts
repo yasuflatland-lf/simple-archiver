@@ -27,6 +27,10 @@ function draftEdit(draft: DraftSnapshot): Partial<JobState> {
     summary: null,
     progress: null,
     taskIdByIndex: [],
+    // A structural draft change re-indexes the rows, so any index-based row
+    // selection now points at the wrong rows and is dropped.
+    selectedIndices: [],
+    selectionAnchor: null,
   };
 }
 
@@ -101,6 +105,17 @@ export interface JobState {
    * the next batch is queued/run or the clear is undone.
    */
   cleared: boolean;
+  /**
+   * Indices of the currently selected queue rows (sorted ascending). Drives the
+   * row highlight and the keyboard delete. Index-based, so it is cleared whenever
+   * the draft is structurally edited (see {@link draftEdit}).
+   */
+  selectedIndices: number[];
+  /**
+   * The anchor row for a Shift range selection (the row a range extends from),
+   * or null when there is no active selection to extend from.
+   */
+  selectionAnchor: number | null;
 
   /** Add file/folder paths to the draft, then recompute previews. */
   addItems: (paths: string[]) => Promise<void>;
@@ -152,6 +167,25 @@ export interface JobState {
    * there is no residual batch to restore.
    */
   restoreResults: () => void;
+  /**
+   * Select the row at `index`, interpreting the click modifiers:
+   * - plain (no modifier): select only this row, anchoring future Shift ranges
+   *   here;
+   * - meta (Cmd/Ctrl): toggle this row in/out of the selection, re-anchoring here;
+   * - shift: select the inclusive range from the current anchor to this row
+   *   (behaves like a plain click when there is no anchor).
+   */
+  selectItem: (index: number, mods: { meta: boolean; shift: boolean }) => void;
+  /** Select every queued row. No-op when the queue is empty. */
+  selectAll: () => void;
+  /** Clear the row selection and its anchor. */
+  clearSelection: () => void;
+  /**
+   * Remove every selected row. Deleting all rows takes the single-call `reset()`
+   * path (same as Clear, without its dialog); otherwise the rows are removed
+   * highest-index-first so a removal never shifts a not-yet-removed index.
+   */
+  deleteSelected: () => Promise<void>;
 }
 
 export const useJobStore = create<JobState>()((set, get) => ({
@@ -173,6 +207,8 @@ export const useJobStore = create<JobState>()((set, get) => ({
   error: null,
   lastBatch: null,
   cleared: false,
+  selectedIndices: [],
+  selectionAnchor: null,
 
   addItems: async (paths) => {
     try {
@@ -277,6 +313,10 @@ export const useJobStore = create<JobState>()((set, get) => ({
       error: null,
       lastBatch: null,
       cleared: false,
+      // A run owns the positional progress arrays; drop any pending row selection
+      // so a stale highlight cannot linger over a now-running queue.
+      selectedIndices: [],
+      selectionAnchor: null,
     });
     try {
       const summary = await archive.runJob();
@@ -381,6 +421,8 @@ export const useJobStore = create<JobState>()((set, get) => ({
         taskIdByIndex: [],
         previewNames: [],
         firstPreview: null,
+        selectedIndices: [],
+        selectionAnchor: null,
       });
     } catch (reason) {
       set({ error: messageFromReason(reason) });
@@ -421,6 +463,8 @@ export const useJobStore = create<JobState>()((set, get) => ({
       progress: null,
       taskIdByIndex: [],
       previewNames: [],
+      selectedIndices: [],
+      selectionAnchor: null,
     });
   },
 
@@ -430,6 +474,60 @@ export const useJobStore = create<JobState>()((set, get) => ({
     if (lastBatch === null) return;
     // Return to the results/Ledger phase with the previously cleared summary.
     set({ summary: lastBatch.summary, cleared: false, lastBatch: null });
+  },
+
+  selectItem: (index, mods) => {
+    set((s) => {
+      // Shift extends the inclusive range from the anchor; with no anchor yet it
+      // degrades to a plain single-row selection.
+      if (mods.shift && s.selectionAnchor !== null) {
+        const lo = Math.min(s.selectionAnchor, index);
+        const hi = Math.max(s.selectionAnchor, index);
+        const range = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+        // Keep the anchor where it is so a further Shift click re-extends from it.
+        return { selectedIndices: range };
+      }
+      // Meta (Cmd/Ctrl) toggles a single row, re-anchoring on it.
+      if (mods.meta) {
+        const next = s.selectedIndices.includes(index)
+          ? s.selectedIndices.filter((i) => i !== index)
+          : [...s.selectedIndices, index].sort((a, b) => a - b);
+        return { selectedIndices: next, selectionAnchor: index };
+      }
+      // Plain click: select only this row and anchor here.
+      return { selectedIndices: [index], selectionAnchor: index };
+    });
+  },
+
+  selectAll: () => {
+    set((s) => {
+      const count = s.draft.items.length;
+      if (count === 0) return {};
+      return {
+        selectedIndices: Array.from({ length: count }, (_, i) => i),
+        selectionAnchor: 0,
+      };
+    });
+  },
+
+  clearSelection: () => set({ selectedIndices: [], selectionAnchor: null }),
+
+  deleteSelected: async () => {
+    const { selectedIndices, draft } = get();
+    if (selectedIndices.length === 0) return;
+    // Removing every row is exactly the Clear action: do it in one backend call
+    // (no per-row recompute) and skip the per-row loop below.
+    if (selectedIndices.length === draft.items.length) {
+      await get().reset();
+      return;
+    }
+    // Snapshot the targets before mutating: each removeItem clears the selection
+    // via draftEdit, and removing highest-index-first keeps the still-pending
+    // indices valid (a lower index never shifts when a higher row is removed).
+    const targets = [...selectedIndices].sort((a, b) => b - a);
+    for (const index of targets) {
+      await get().removeItem(index);
+    }
   },
 }));
 
