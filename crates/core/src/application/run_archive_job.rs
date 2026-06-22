@@ -109,18 +109,13 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
         let work: Vec<WorkItem> = job
             .tasks()
             .iter()
-            .map(|t| {
-                let dest = match mode {
-                    OutputMode::Zip => out_dir.join(t.output_name().as_str()),
-                    OutputMode::Folder => out_dir.join(t.source().output_stem()),
-                };
-                WorkItem {
-                    task: t.id(),
-                    source: t.source().clone(),
-                    dest,
-                    mode,
-                    policy,
-                }
+            .map(|t| WorkItem {
+                task: t.id(),
+                source: t.source().clone(),
+                // Single source of truth for the destination formula (domain).
+                dest: t.output_destination(&out_dir, mode),
+                mode,
+                policy,
             })
             .collect();
 
