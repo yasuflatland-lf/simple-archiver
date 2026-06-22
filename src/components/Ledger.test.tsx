@@ -130,6 +130,22 @@ describe("Ledger", () => {
     expect(screen.getByText("out_3.zip")).toBeTruthy();
   });
 
+  it("insets the sequence-number cell so the row numbers align with the sticky header", () => {
+    useJobStore.setState({
+      draft: draftWith(["/in/a.rar", "/in/b.rar", "/in/c.rar"]),
+      summary: MIXED_SUMMARY,
+    });
+    render(<Ledger />);
+
+    // The sticky header insets its status tally by px-4; without a matching left
+    // pad on the first body cell the row numbers hug the card's left border and
+    // fall out of alignment with the header. The number cell must carry pl-4 so
+    // the two left edges line up.
+    const firstRow = screen.getAllByRole("row")[0];
+    const numberCell = within(firstRow).getAllByRole("cell")[0];
+    expect(numberCell.className).toContain("pl-4");
+  });
+
   it("shows the failure reason inline on a failed row", () => {
     useJobStore.setState({
       draft: draftWith(["/in/a.rar", "/in/b.rar", "/in/c.rar"]),

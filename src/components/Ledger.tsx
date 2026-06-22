@@ -68,8 +68,11 @@ function LedgerRow({ index, result, source, size, onCopied }: LedgerRowProps) {
 
   return (
     <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-      {/* Sequence number */}
-      <td className="py-2 pr-3 font-mono text-muted-foreground">{index + 1}</td>
+      {/* Sequence number. pl-4 matches the sticky header's px-4 inset so the row
+          numbers line up with the status tally instead of hugging the card edge. */}
+      <td className="py-2 pl-4 pr-3 font-mono text-muted-foreground">
+        {index + 1}
+      </td>
 
       {/* source → output name */}
       <td className="py-2 pr-3 font-mono text-foreground">
