@@ -1,6 +1,6 @@
 [package]
 name = "simple-archiver"
-version = "0.6.0"
+version = "0.7.0"
 description = "Simple Archiver"
 authors = ["Yasuyuki Takeo"]
 edition = "2021"
