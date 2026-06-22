@@ -189,20 +189,24 @@
   animation: row-settle 700ms ease-out;
 }
 
-/* "Picked up" affordance for the row being dragged: a readable translucency plus
-   an accent tint and an elevation shadow so it visibly lifts off the list and
-   reads as grabbed (the old translucency-only cue was too subtle on the dark
-   table). `position`/`z-index` float it above its neighbours so the shadow is not
-   clipped by the next row's background. A static state, not motion, so it is kept
-   under prefers-reduced-motion. No FLIP slide runs while a row is held, so the
-   lift transform never competes with the drop animation. */
+/* "Picked up" affordance for the row being dragged: the row stays near-opaque so
+   it reads as a solid card lifted off the list — the earlier 0.6 translucency
+   ghosted the row and made the grab cue look weak on the dark table — and is
+   framed by an accent ring and floated on a deep elevation shadow so the lift is
+   unmistakable. `position`/`z-index` float it above its neighbours so neither the
+   ring nor the shadow is clipped by the next row's background. The first
+   box-shadow layer is the ring (a hard, zero-blur 2px spread in the primary
+   accent); the remaining layers are the soft drop shadow. A static state, not
+   motion, so it is kept under prefers-reduced-motion. No FLIP slide runs while a
+   row is held, so the lift transform never competes with the drop animation. */
 .row-dragging {
   position: relative;
   z-index: 1;
-  opacity: 0.6;
+  opacity: 0.95;
   background-color: var(--color-accent);
   box-shadow:
-    0 6px 16px -4px rgb(0 0 0 / 0.5),
-    0 2px 4px -2px rgb(0 0 0 / 0.4);
-  transform: translateY(-2px) scale(1.01);
+    0 0 0 2px var(--color-primary),
+    0 10px 24px -6px rgb(0 0 0 / 0.6),
+    0 3px 6px -3px rgb(0 0 0 / 0.5);
+  transform: translateY(-3px) scale(1.02);
 }
