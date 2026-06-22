@@ -398,6 +398,26 @@ describe("Ledger", () => {
       expect(within(cancelledRow).queryByText(/copied/i)).toBeNull();
     });
 
+    it("shows the Copied confirmation as a small popup anchored in the row, not morphed into the button", async () => {
+      vi.mocked(copyText).mockResolvedValue(undefined);
+      const { container } = render(<Ledger />);
+
+      const row = screen.getByText("out_1.zip").closest("tr") as HTMLElement;
+      const button = within(row).getByRole("button", { name: /copy/i });
+      await userEvent.click(button);
+      // Settle the async copy → state update before asserting on the popup.
+      await screen.findByText(/path was copied/i);
+
+      // The confirmation renders as a dedicated, absolutely-positioned popup that
+      // lives in the clicked row — not as text morphed into the Copy button.
+      const popup = container.querySelector(".copied-popup");
+      expect(popup).not.toBeNull();
+      expect(popup?.textContent).toMatch(/copied/i);
+      expect(popup?.className).toContain("absolute");
+      expect(row.contains(popup)).toBe(true);
+      expect(button.textContent ?? "").not.toMatch(/copied/i);
+    });
+
     it("surfaces an error when copying fails (and shows no affordance)", async () => {
       vi.mocked(copyText).mockRejectedValue(new Error("clipboard denied"));
       render(<Ledger />);

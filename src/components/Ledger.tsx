@@ -11,8 +11,10 @@ import { copyText, openPath } from "@/lib/reveal";
 import { statusVisual, type TaskOutcome } from "@/lib/status";
 import { useJobStore } from "@/store/jobStore";
 
-// How long a row's "Copied" affordance lingers before it reverts to the Copy icon.
-const COPIED_HINT_MS = 2000;
+// How long the "Copied" popup stays before it fades out and is removed. Mirrors
+// the copied-pop animation duration in App.css so the node is dropped just as the
+// fade completes.
+const COPIED_HINT_MS = 1500;
 
 // Outcome groups render in action-first order: failures first so the rows a user
 // must act on lead; successes last.
@@ -52,8 +54,9 @@ interface LedgerRowProps {
   source: string;
   /** Best-effort produced size, or null when unknown. */
   size: string | null;
-  /** Whether this row is currently showing its transient "Copied" affordance. */
-  copied: boolean;
+  /** When non-null, this row shows its transient "Copied" popup. The nonce keys
+   *  the popup so a repeat copy on the same row replays the pop-in animation. */
+  copiedNonce: number | null;
   /** Copy the row's output path and raise the in-row confirmation. */
   onCopy: (taskId: number, outputPath: string) => void;
 }
@@ -64,15 +67,15 @@ interface LedgerRowProps {
  * The per-row status is conveyed by the enclosing outcome group, so the row
  * carries no status chip. Failed rows render their reason in place of the size.
  * Copy writes the row's intended absolute output path to the clipboard; even a
- * failed row exposes it so the path can still be pasted. On success the button
- * morphs to "Copied" in place.
+ * failed row exposes it so the path can still be pasted. On success a small
+ * "Copied" popup pops in over the button and fades out on its own.
  */
 function LedgerRow({
   index,
   result,
   source,
   size,
-  copied,
+  copiedNonce,
   onCopy,
 }: LedgerRowProps) {
   return (
@@ -101,24 +104,34 @@ function LedgerRow({
         )}
       </td>
 
-      {/* Per-row Copy action with an in-place "Copied" confirmation. */}
+      {/* Per-row Copy action with a transient "Copied" popup confirmation. */}
       <td className="py-2 pr-4">
-        <div className="flex justify-end">
+        <div className="relative flex justify-end">
           <Button
             variant="ghost"
             size="sm"
             aria-label={`Copy path of ${result.outputName}`}
             onClick={() => onCopy(result.taskId, result.outputPath)}
           >
-            {copied ? (
-              <>
-                <Check aria-hidden="true" />
-                Copied
-              </>
-            ) : (
-              <Copy aria-hidden="true" />
-            )}
+            <Copy aria-hidden="true" />
           </Button>
+
+          {/* Decorative pop-in confirmation anchored above the button; the polite
+              announcement for assistive tech is the sr-only <output> in Ledger.
+              Keyed by nonce so a repeat copy replays the fade animation. */}
+          {copiedNonce !== null && (
+            <span
+              key={copiedNonce}
+              aria-hidden="true"
+              className="copied-popup pointer-events-none absolute bottom-full right-0 z-20 mb-1 flex items-center gap-1 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-xs font-medium text-popover-foreground shadow-md"
+            >
+              <Check
+                aria-hidden="true"
+                className="size-3.5 text-status-success-foreground"
+              />
+              Copied
+            </span>
+          )}
         </div>
       </td>
     </tr>
@@ -274,7 +287,9 @@ export function Ledger() {
                     result={result}
                     source={basename(items[index]?.path ?? "")}
                     size={sizeForTask(result.taskId, progress)}
-                    copied={copied?.taskId === result.taskId}
+                    copiedNonce={
+                      copied?.taskId === result.taskId ? copied.nonce : null
+                    }
                     onCopy={handleCopy}
                   />
                 ))}

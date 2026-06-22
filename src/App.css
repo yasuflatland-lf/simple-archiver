@@ -189,6 +189,32 @@
   animation: row-settle 700ms ease-out;
 }
 
+/* Per-row "Copied" confirmation: a small popup that pops in over the Copy button,
+   holds for a beat, then fades out on its own. The lifetime matches
+   COPIED_HINT_MS in Ledger.tsx, which removes the node as the fade completes. */
+@keyframes copied-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+}
+
+.copied-popup {
+  animation: copied-pop 1500ms ease-out forwards;
+}
+
 /* "Picked up" affordance for the row being dragged: the row stays near-opaque so
    it reads as a solid card lifted off the list — the earlier 0.6 translucency
    ghosted the row and made the grab cue look weak on the dark table — and is
