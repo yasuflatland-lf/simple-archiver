@@ -96,7 +96,10 @@ describe("App", () => {
       screen.getAllByRole("button", { name: /add files/i }).length,
     ).toBeGreaterThan(0);
     expect(screen.getByText("Name")).toBeDefined();
-    expect(screen.getByText("Destination")).toBeDefined();
+    // The OUTPUT rail now leads with the ResultPreview card instead of a
+    // standalone Destination row. On first mount (no destination) it shows the
+    // Required empty state.
+    expect(screen.getByText(/result preview/i)).toBeDefined();
     expect(screen.getByRole("button", { name: /^run$/i })).toBeDefined();
     // Main — empty-state CTA (replaces the old "No items yet" text)
     expect(screen.getByText(/drag .* drop files or folders/i)).toBeDefined();
