@@ -22,7 +22,6 @@ vi.mock("@/lib/archive", () => ({
 // reaches the real Tauri backend.
 vi.mock("@/lib/reveal", () => ({
   openPath: vi.fn(),
-  revealItem: vi.fn(),
   copyText: vi.fn(),
 }));
 
