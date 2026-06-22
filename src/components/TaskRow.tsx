@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { formatBytes, formatEta, progressPercent } from "@/lib/format";
 import { basename } from "@/lib/path";
 import { computeStatus } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
 
 // ---------------------------------------------------------------------------
@@ -154,6 +155,30 @@ function TaskRowImpl({ index }: TaskRowProps) {
       data-drop-target={dnd.isOver || undefined}
       className={rowClassName}
     >
+      {/* Reorder rail: the row's leading grab surface. The drag is pointer-based
+          (not HTML5) so it survives Tauri's webview drag-drop handler; keyboard
+          users reorder with the Actions up/down buttons, so the handle stays
+          aria-hidden. The whole cell is the grab zone — a grab cursor plus a
+          hover background give it a strong, discoverable affordance at rest.
+          `touch-none` keeps a touch drag from scrolling the list; `select-none`
+          keeps the press from starting a text selection (mirrors PaneSeparator). */}
+      <td className="py-2 pr-1 pl-1">
+        <span
+          {...dnd.handleProps}
+          data-testid={`reorder-handle-${index}`}
+          data-disabled={!dnd.enabled || undefined}
+          aria-hidden
+          className={cn(
+            "flex items-center justify-center rounded py-1.5 touch-none select-none transition-colors",
+            dnd.enabled
+              ? "cursor-grab active:cursor-grabbing text-muted-foreground hover:bg-muted hover:text-foreground"
+              : "cursor-not-allowed text-muted-foreground/30",
+          )}
+        >
+          <GripVertical className="size-4 shrink-0" />
+        </span>
+      </td>
+
       {/* Sequence number */}
       <td className="py-2 pr-3 text-muted-foreground font-mono">{index + 1}</td>
 
@@ -200,28 +225,10 @@ function TaskRowImpl({ index }: TaskRowProps) {
         )}
       </td>
 
-      {/* Actions: drag handle + keyboard-accessible up/down buttons + delete */}
+      {/* Actions: keyboard-accessible up/down buttons + delete. The reorder grip
+          now lives in the leading rail cell, not here. */}
       <td className="py-2">
         <div className="flex items-center gap-1">
-          {/* Grip handle: starts a pointer drag to reorder this row. The drag is
-              pointer-based (not HTML5) so it survives Tauri's webview drag-drop
-              handler; keyboard users reorder with the up/down buttons instead,
-              so the handle stays aria-hidden. `touch-none` keeps a touch drag
-              from scrolling the list; `select-none` keeps the press from
-              starting a text selection (mirrors PaneSeparator). */}
-          <span
-            {...dnd.handleProps}
-            data-testid={`reorder-handle-${index}`}
-            data-disabled={!dnd.enabled || undefined}
-            aria-hidden
-            className={`flex items-center touch-none select-none text-muted-foreground/60 ${
-              dnd.enabled
-                ? "cursor-grab active:cursor-grabbing"
-                : "cursor-not-allowed opacity-30"
-            }`}
-          >
-            <GripVertical className="size-4 shrink-0" />
-          </span>
           <button
             type="button"
             aria-label="Move up"

@@ -38,6 +38,26 @@ describe("TaskRow", () => {
     expect(screen.getByText("out_001.zip")).toBeTruthy();
   });
 
+  it("renders the reorder grip as the row's leading cell", () => {
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: ["out_001.zip"],
+    });
+    renderRow(0);
+
+    const firstCell = screen.getByRole("row").querySelector("td");
+    expect(
+      firstCell?.querySelector('[data-testid="reorder-handle-0"]'),
+    ).toBeTruthy();
+  });
+
   it("renders the kind badge with text 'zip' for a zip item", () => {
     useJobStore.setState({
       draft: {

@@ -610,6 +610,75 @@ describe("TaskList pointer reorder", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Drag-handle column (leading grip rail)
+//
+// The reorder grip lives in a dedicated leading column at the row's left edge —
+// a recognizable "drag rail" — rather than tucked into the trailing Actions
+// column. The rail carries a strong, discoverable affordance (grab cursor + a
+// hover background) so it reads as grabbable at rest.
+// ---------------------------------------------------------------------------
+
+describe("TaskList drag-handle column", () => {
+  function setItems(n: number, extra: Record<string, unknown> = {}) {
+    useJobStore.setState({
+      draft: {
+        items: makeItems(n),
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: [],
+      ...extra,
+    });
+  }
+
+  it("orders the drag-handle column first and the actions column last", () => {
+    expect(TASK_COLUMNS[0].key).toBe("drag");
+    expect(TASK_COLUMNS[0].resizable).toBe(false);
+    expect(TASK_COLUMNS[TASK_COLUMNS.length - 1].key).toBe("actions");
+  });
+
+  it("renders the grip in each row's leading cell (left of the number)", () => {
+    setItems(2);
+    render(<TaskList />);
+
+    const rows = screen.getAllByRole("row").slice(1);
+    rows.forEach((row, i) => {
+      const firstCell = row.querySelector("td");
+      expect(
+        firstCell?.querySelector(`[data-testid="reorder-handle-${i}"]`),
+      ).toBeTruthy();
+    });
+  });
+
+  it("no longer renders the grip in the trailing Actions cell", () => {
+    setItems(2);
+    render(<TaskList />);
+
+    const rows = screen.getAllByRole("row").slice(1);
+    rows.forEach((row, i) => {
+      const cells = row.querySelectorAll("td");
+      const lastCell = cells[cells.length - 1];
+      expect(
+        lastCell.querySelector(`[data-testid="reorder-handle-${i}"]`),
+      ).toBeNull();
+    });
+  });
+
+  it("gives the idle grip a strong, grabbable affordance", () => {
+    setItems(1);
+    render(<TaskList />);
+
+    const grip = screen.getByTestId("reorder-handle-0");
+    expect(grip.className).toContain("cursor-grab");
+    // The rail darkens on hover so the grab zone is discoverable at a glance.
+    expect(grip.className).toContain("hover:bg-");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Keyboard selection + delete
 //
 // The queue region owns a scoped keydown handler: Cmd/Ctrl+A selects every row,

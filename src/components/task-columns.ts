@@ -10,6 +10,7 @@
 
 /** Stable identifiers for the queue table's columns, in render order. */
 export type TaskColumnKey =
+  | "drag"
   | "index"
   | "kind"
   | "source"
@@ -34,12 +35,22 @@ export interface TaskColumnDef {
 export const MAX_COLUMN_WIDTH = 800;
 
 /**
- * The queue table columns in render order. `#` and `Actions` are fixed-width
- * (no handle); the four content columns between them are resizable. Defaults sum
- * to a comfortable table width that fills a typical canvas without forcing a
- * horizontal scroll.
+ * The queue table columns in render order. The leading `drag` rail, `#`, and
+ * `Actions` are fixed-width (no handle); the four content columns between `#`
+ * and `Actions` are resizable. Defaults sum to a comfortable table width that
+ * fills a typical canvas without forcing a horizontal scroll.
  */
 export const TASK_COLUMNS: TaskColumnDef[] = [
+  {
+    // Leading reorder rail: holds only the drag grip, at the row's left edge.
+    // Empty header label — the grip is aria-hidden and keyboard users reorder
+    // with the Actions up/down buttons.
+    key: "drag",
+    label: "",
+    defaultWidth: 40,
+    minWidth: 40,
+    resizable: false,
+  },
   {
     key: "index",
     label: "#",
@@ -76,10 +87,12 @@ export const TASK_COLUMNS: TaskColumnDef[] = [
     resizable: true,
   },
   {
+    // The grip moved to the leading `drag` rail, so Actions now holds only the
+    // up/down and delete controls and tightens accordingly.
     key: "actions",
     label: "Actions",
-    defaultWidth: 150,
-    minWidth: 150,
+    defaultWidth: 120,
+    minWidth: 120,
     resizable: false,
   },
 ];
