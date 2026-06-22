@@ -183,7 +183,7 @@ impl JobDraft {
     /// Branches on [`output_mode`]:
     /// - [`OutputMode::Zip`]: requires both a naming template and an output
     ///   directory, then calls [`ArchiveJob::plan_with_start`] with the draft's
-    ///   start number.
+    ///   start number and conflict policy.
     /// - [`OutputMode::Folder`]: requires only an output directory (no template),
     ///   then calls [`ArchiveJob::plan_extract`].
     ///
@@ -205,12 +205,14 @@ impl JobDraft {
                     .ok_or_else(|| "naming rule not set".to_string())?;
                 // Reuse the rule parsed in `set_template`; the template is
                 // never re-parsed here. Numbering starts at the draft's
-                // start_number (default 1).
+                // start_number (default 1). The conflict policy is threaded in so
+                // Zip output resolves collisions just like Folder mode does.
                 ArchiveJob::plan_with_start(
                     self.items.clone(),
                     template.rule.clone(),
                     OutputDirectory::new(out_dir.clone()),
                     self.start_number,
+                    self.conflict_policy,
                 )
                 .map_err(|e| e.to_string())
             }
@@ -758,6 +760,27 @@ mod tests {
         draft.set_conflict_policy(ConflictPolicy::Overwrite);
         let job = draft.build().expect("folder draft should build");
         assert_eq!(job.conflict_policy(), ConflictPolicy::Overwrite);
+    }
+
+    /// In Zip mode the chosen conflict policy also threads into the planned job,
+    /// so the archiver can resolve an existing-output collision (it previously
+    /// hardcoded AutoRename and ignored the user's choice).
+    #[test]
+    fn set_conflict_policy_threads_into_zip_job() {
+        let mut draft = JobDraft::new(); // defaults to Zip mode
+        draft.add_items(vec![SourceItem::ZipFile(PathBuf::from("/in/a.zip"))]);
+        draft.set_template("file{n}".to_string()).unwrap();
+        draft.set_out_dir(PathBuf::from("/out"));
+
+        // Default is AutoRename.
+        let job = draft.build().expect("zip draft should build");
+        assert_eq!(job.output_mode(), OutputMode::Zip);
+        assert_eq!(job.conflict_policy(), ConflictPolicy::AutoRename);
+
+        // Setting Skip carries through to the built Zip job.
+        draft.set_conflict_policy(ConflictPolicy::Skip);
+        let job = draft.build().expect("zip draft should build");
+        assert_eq!(job.conflict_policy(), ConflictPolicy::Skip);
     }
 
     // ── RunState ──────────────────────────────────────────────────────────────

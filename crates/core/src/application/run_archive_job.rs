@@ -236,7 +236,11 @@ async fn run_one<A: Archiver, E: Extractor, P: Placer>(
         OutputMode::Zip => {
             let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
             let ctx = CompressContext::new(item.task, reporter, cancellation_token);
-            map_archive_result(archiver.compress(prepared.dir(), &item.dest, &ctx).await)
+            map_archive_result(
+                archiver
+                    .compress(prepared.dir(), &item.dest, item.policy, &ctx)
+                    .await,
+            )
         }
         OutputMode::Folder => {
             // A folder source has no archive to extract in Folder mode, so there
@@ -359,6 +363,9 @@ mod tests {
         calls: Arc<AtomicUsize>,
         live: Arc<AtomicUsize>,
         max_live: Arc<AtomicUsize>,
+        // Records the conflict policy handed to each `compress` call, so a test
+        // can prove the job's policy threads all the way through to the archiver.
+        seen_policies: Arc<Mutex<Vec<ConflictPolicy>>>,
     }
     impl FakeArchiver {
         fn new() -> Self {
@@ -369,11 +376,16 @@ mod tests {
                 calls: Arc::new(AtomicUsize::new(0)),
                 live: Arc::new(AtomicUsize::new(0)),
                 max_live: Arc::new(AtomicUsize::new(0)),
+                seen_policies: Arc::new(Mutex::new(Vec::new())),
             }
         }
 
         fn call_count(&self) -> Arc<AtomicUsize> {
             self.calls.clone()
+        }
+
+        fn seen_policies(&self) -> Arc<Mutex<Vec<ConflictPolicy>>> {
+            self.seen_policies.clone()
         }
     }
     impl Archiver for FakeArchiver {
@@ -381,8 +393,10 @@ mod tests {
             &self,
             _src: &Path,
             dest: &Path,
+            policy: ConflictPolicy,
             ctx: &CompressContext,
         ) -> Result<(), ArchiveError> {
+            self.seen_policies.lock().unwrap().push(policy);
             self.calls.fetch_add(1, Ordering::SeqCst);
             self.live.fetch_add(1, Ordering::SeqCst);
             ctx.report(5, 10);
@@ -527,6 +541,46 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
+    /// A Zip-mode job's conflict policy threads all the way to the archiver:
+    /// every `compress` call receives the job's policy. The Zip path previously
+    /// dropped the policy, so an existing-output collision always failed instead
+    /// of honoring AutoRename/Skip/Overwrite.
+    #[tokio::test]
+    async fn zip_job_threads_conflict_policy_through_to_the_archiver() {
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("a.rar")),
+            SourceItem::RarFile(PathBuf::from("b.rar")),
+        ];
+        let job = ArchiveJob::plan_with_start(
+            items,
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+            1,
+            ConflictPolicy::Overwrite,
+        )
+        .unwrap();
+        let fake = Arc::new(FakeArchiver::new());
+        let seen = fake.seen_policies();
+        let engine = RunArchiveJob::new(
+            fake,
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        assert_eq!(summary.succeeded.len(), 2, "both tasks compress");
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 2, "one compress call per task");
+        assert!(
+            seen.iter().all(|p| *p == ConflictPolicy::Overwrite),
+            "every compress call must receive the job's policy, got {seen:?}"
+        );
+    }
+
     #[tokio::test]
     async fn rar_task_cancelled_before_start_emits_cancel_and_does_not_extract() {
         let job = ArchiveJob::plan(
@@ -656,6 +710,7 @@ mod tests {
             &self,
             _src: &Path,
             dest: &Path,
+            _policy: ConflictPolicy,
             ctx: &CompressContext,
         ) -> Result<(), ArchiveError> {
             let name = dest.file_name().unwrap().to_string_lossy().to_string();
