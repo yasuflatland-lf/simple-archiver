@@ -1,8 +1,10 @@
 //! The stable task identity and the archive-task entity.
 
 use crate::domain::file_name::OutputFileName;
+use crate::domain::output_mode::OutputMode;
 use crate::domain::source_item::SourceItem;
 use crate::domain::task_status::{IllegalTransition, TaskEvent, TaskStatus};
+use std::path::{Path, PathBuf};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TaskId
@@ -80,6 +82,21 @@ impl ArchiveTask {
     /// Return a reference to the current lifecycle status.
     pub fn status(&self) -> &TaskStatus {
         &self.status
+    }
+
+    /// Compute this task's output destination path under `out_dir` (pure path
+    /// math; performs no IO).
+    ///
+    /// This is the single source of truth for the per-task destination formula:
+    /// `Zip` joins the validated output filename, `Folder` joins the source's
+    /// output stem. Both the engine (`RunArchiveJob`) and the presentation layer
+    /// (`task_path_meta`) consume this so the "where the file lands" computation
+    /// can never drift between them.
+    pub fn output_destination(&self, out_dir: &Path, mode: OutputMode) -> PathBuf {
+        match mode {
+            OutputMode::Zip => out_dir.join(self.output_name().as_str()),
+            OutputMode::Folder => out_dir.join(self.source().output_stem()),
+        }
     }
 
     // ── Crate-internal mutators ───────────────────────────────────────────────
@@ -361,5 +378,26 @@ mod tests {
         task.apply_event(TaskEvent::StartExtracting).unwrap();
         task.set_output_name(make_output_name("other"));
         assert_eq!(task.status(), &TaskStatus::Extracting);
+    }
+
+    // ── output_destination (SSOT for the per-task output path) ──────────────────
+
+    #[test]
+    fn output_destination_zip_joins_output_name() {
+        // Zip mode: out_dir / <output filename> (e.g. "foo.zip").
+        let task = make_task(1); // output_name stem "foo" -> "foo.zip"
+        let out_dir = std::path::PathBuf::from("/out");
+        let dest = task.output_destination(&out_dir, OutputMode::Zip);
+        assert_eq!(dest, out_dir.join("foo.zip"));
+    }
+
+    #[test]
+    fn output_destination_folder_joins_source_output_stem() {
+        // Folder mode: out_dir / <source output stem>. A RarFile("a.rar")
+        // source has the stem "a", independent of the output filename.
+        let task = make_task(1);
+        let out_dir = std::path::PathBuf::from("/out");
+        let dest = task.output_destination(&out_dir, OutputMode::Folder);
+        assert_eq!(dest, out_dir.join("a"));
     }
 }
