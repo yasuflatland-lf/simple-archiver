@@ -3,6 +3,7 @@ import { memo, type MouseEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import type { SourceKind } from "@/bindings/SourceKind";
+import { useReorderAnimationRow } from "@/components/reorder-animation";
 import { useReorderRow } from "@/components/reorder-dnd";
 import { Progress } from "@/components/ui/progress";
 import { formatBytes, formatEta, progressPercent } from "@/lib/format";
@@ -82,10 +83,7 @@ function TaskRowImpl({ index }: TaskRowProps) {
         // A flat boolean: only this row re-renders when its own selected state
         // flips, leaving the rest of the list untouched.
         isSelected: s.selectedIndices.includes(index),
-        // The action reference is stable across renders, so it is safe to
-        // return directly for shallow comparison.
-        reorder: s.reorder,
-        // Same stability guarantee as `reorder`, safe for the shallow compare.
+        // Stable action reference, safe for the shallow compare.
         removeItem: s.removeItem,
         // Stable action reference, safe for the shallow compare.
         selectItem: s.selectItem,
@@ -106,6 +104,11 @@ function TaskRowImpl({ index }: TaskRowProps) {
   // row during an active drag only; a drag never overlaps a running job, so
   // this does not interact with the per-tick render isolation above.
   const dnd = useReorderRow(index);
+
+  // Both reorder paths (these buttons and the drag drop) route through the
+  // animated reorder so the slide + settle highlight fire identically;
+  // `justMoved` flags this row right after it landed.
+  const { animatedReorder, justMoved } = useReorderAnimationRow(index);
 
   if (!row.exists) return null;
 
@@ -148,6 +151,9 @@ function TaskRowImpl({ index }: TaskRowProps) {
     // hijacking the gesture. Applied only mid-drag so the list stays scrollable
     // and filenames stay selectable at rest.
     dnd.isDraggingAny && "select-none touch-none",
+    // A one-shot accent fade on the row that was just moved, so the eye lands on
+    // where it settled. Kept under prefers-reduced-motion (the slide is not).
+    justMoved && "row-settle",
   ]
     .filter(Boolean)
     .join(" ");
@@ -157,6 +163,8 @@ function TaskRowImpl({ index }: TaskRowProps) {
       {...dnd.rowProps}
       onClick={onRowClick}
       aria-selected={row.isSelected}
+      data-row-index={index}
+      data-just-moved={justMoved || undefined}
       data-dragging={dnd.isDragging || undefined}
       data-drop-edge={dnd.dropEdge ?? undefined}
       aria-roledescription="draggable item"
@@ -237,7 +245,7 @@ function TaskRowImpl({ index }: TaskRowProps) {
             type="button"
             aria-label="Move up"
             disabled={row.isFirst || row.running}
-            onClick={() => row.reorder(index, index - 1)}
+            onClick={() => void animatedReorder(index, index - 1)}
             className={REORDER_BUTTON_CLASS}
           >
             ▲
@@ -246,7 +254,7 @@ function TaskRowImpl({ index }: TaskRowProps) {
             type="button"
             aria-label="Move down"
             disabled={row.isLast || row.running}
-            onClick={() => row.reorder(index, index + 1)}
+            onClick={() => void animatedReorder(index, index + 1)}
             className={REORDER_BUTTON_CLASS}
           >
             ▼

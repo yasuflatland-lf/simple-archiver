@@ -173,3 +173,18 @@
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* One-shot settle highlight for a row that was just reordered: a brief accent
+   wash that fades out, drawing the eye to where the row landed. */
+@keyframes row-settle {
+  from {
+    background-color: var(--color-accent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.row-settle {
+  animation: row-settle 700ms ease-out;
+}

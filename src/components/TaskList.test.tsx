@@ -1,6 +1,13 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
@@ -1032,5 +1039,184 @@ describe("TaskList column resize", () => {
 
     fireEvent.pointerUp(handle, { clientX: 180, buttons: 1, pointerId: 1 });
     expect(handle.getAttribute("data-dragging")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FLIP slide
+// ---------------------------------------------------------------------------
+
+// A reorder action that actually mutates the draft so the slide's layout effect
+// fires (the real store does this via the backend; here we splice locally).
+function installReorderingStore(n: number) {
+  const reorder = vi.fn(async (from: number, to: number) => {
+    useJobStore.setState((s) => {
+      const items = [...s.draft.items];
+      const [moved] = items.splice(from, 1);
+      items.splice(to, 0, moved);
+      return { draft: { ...s.draft, items } };
+    });
+  });
+  useJobStore.setState({
+    draft: {
+      items: makeItems(n),
+      namingTemplate: null,
+      startNumber: 1,
+      outputDir: null,
+      outputMode: "zip",
+      conflictPolicy: "autoRename",
+    },
+    previewNames: [],
+    reorder,
+  });
+  return reorder;
+}
+
+// jsdom has no Element.prototype.animate (Web Animations API), so install a mock
+// to give the FLIP slide a surface to call and assert against.
+function installAnimateMock() {
+  const animate = vi.fn(
+    (_keyframes?: unknown, _options?: unknown) =>
+      ({
+        finished: Promise.resolve(),
+        cancel: vi.fn(),
+      }) as unknown as Animation,
+  );
+  (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+  return animate;
+}
+
+function restoreAnimateMock() {
+  delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+}
+
+// A reduced-motion matchMedia stub (matches: true).
+function stubReducedMotion() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }),
+  );
+}
+
+describe("TaskList reorder slide", () => {
+  afterEach(() => {
+    restoreAnimateMock();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("animates the moved rows with a translateY slide on reorder", async () => {
+    // jsdom has no layout, so stand in distinct tops keyed by data-row-index.
+    vi.spyOn(
+      HTMLTableRowElement.prototype,
+      "getBoundingClientRect",
+    ).mockImplementation(function (this: HTMLElement) {
+      const i = Number(this.dataset.rowIndex ?? 0);
+      return { top: i * 20, height: 20 } as DOMRect;
+    });
+    const animate = installAnimateMock();
+
+    installReorderingStore(3);
+    const user = userEvent.setup();
+    render(<TaskList />);
+
+    await user.click(screen.getAllByRole("button", { name: /move down/i })[0]);
+
+    await waitFor(() => expect(animate).toHaveBeenCalled());
+    const [keyframes] = animate.mock.calls[0];
+    expect(JSON.stringify(keyframes)).toContain("translateY");
+  });
+
+  it("does not slide when the user prefers reduced motion", async () => {
+    stubReducedMotion();
+    const animate = installAnimateMock();
+
+    const reorder = installReorderingStore(3);
+    const user = userEvent.setup();
+    render(<TaskList />);
+
+    await user.click(screen.getAllByRole("button", { name: /move down/i })[0]);
+
+    await waitFor(() => expect(reorder).toHaveBeenCalledWith(0, 1));
+    expect(animate).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Settle highlight + announcement
+// ---------------------------------------------------------------------------
+
+describe("TaskList reorder feedback", () => {
+  afterEach(() => {
+    restoreAnimateMock();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("marks the moved row as just-moved then clears it", async () => {
+    // Fake timers drive the clear; fireEvent (not userEvent) avoids the
+    // userEvent/fake-timer interaction that hangs the async click.
+    vi.useFakeTimers();
+    installReorderingStore(3);
+    render(<TaskList />);
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: /move down/i })[0]);
+    });
+
+    // archive1.rar (was row 0) is now at row 1 and flagged just-moved.
+    const movedRow = screen.getByText("archive1.rar").closest("tr");
+    expect(movedRow?.getAttribute("data-just-moved")).toBe("true");
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(movedRow?.getAttribute("data-just-moved")).toBeNull();
+  });
+
+  it("announces the move in the polite live region", async () => {
+    installReorderingStore(3);
+    const user = userEvent.setup();
+    render(<TaskList />);
+
+    await user.click(screen.getAllByRole("button", { name: /move down/i })[0]);
+
+    await waitFor(() =>
+      // Strip the zero-width re-announce pad before comparing the spoken text.
+      expect(
+        screen.getByTestId("reorder-live").textContent?.replace(/\u200B/g, ""),
+      ).toBe("Moved archive1.rar to position 2"),
+    );
+  });
+
+  it("still highlights and announces under reduced motion", async () => {
+    stubReducedMotion();
+    const animate = installAnimateMock();
+
+    installReorderingStore(3);
+    const user = userEvent.setup();
+    render(<TaskList />);
+
+    await user.click(screen.getAllByRole("button", { name: /move down/i })[0]);
+
+    await waitFor(() =>
+      // Strip the zero-width re-announce pad before comparing the spoken text.
+      expect(
+        screen.getByTestId("reorder-live").textContent?.replace(/\u200B/g, ""),
+      ).toBe("Moved archive1.rar to position 2"),
+    );
+    const movedRow = screen.getByText("archive1.rar").closest("tr");
+    expect(movedRow?.getAttribute("data-just-moved")).toBe("true");
+    expect(animate).not.toHaveBeenCalled();
   });
 });
