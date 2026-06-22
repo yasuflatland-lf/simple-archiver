@@ -187,9 +187,9 @@ pub async fn run_job_inner(
     job_summary_dto(summary, &meta)
 }
 
-/// Recompute each task's `(id, output base name, absolute output path)` from the
-/// planned job, mirroring the engine's destination formula in `run_archive_job`:
-/// Zip mode joins the output filename, Folder mode joins the source's output stem.
+/// Recompute each task's id, output base name, and absolute output path from the
+/// planned job. The absolute path is computed by the domain SSOT
+/// `ArchiveTask::output_destination`, so it cannot diverge from the engine.
 ///
 /// `PathBuf` is rendered to a lossy UTF-8 `String` at this wire boundary.
 fn task_path_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
@@ -198,12 +198,21 @@ fn task_path_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
     job.tasks()
         .iter()
         .map(|t| {
-            let name = match mode {
+            let output_name = match mode {
                 DomainOutputMode::Zip => t.output_name().as_str().to_string(),
                 DomainOutputMode::Folder => t.source().output_stem(),
             };
-            let path = out_dir.join(&name).to_string_lossy().into_owned();
-            (t.id(), name, path)
+            // Absolute output path comes from the domain SSOT so it can never
+            // drift from the engine's destination formula.
+            let output_path = t
+                .output_destination(out_dir, mode)
+                .to_string_lossy()
+                .into_owned();
+            TaskPathMeta {
+                id: t.id(),
+                output_name,
+                output_path,
+            }
         })
         .collect()
 }

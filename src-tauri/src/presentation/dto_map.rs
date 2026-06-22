@@ -61,12 +61,17 @@ impl From<&JobProgress> for ProgressEvent {
 }
 
 /// Per-task output metadata the presentation layer recomputes from the planned
-/// job: `(task id, output base name, absolute output path)`, in job/task order.
+/// job: task id, output base name, and absolute output path, in job/task order.
 ///
 /// This is the bridge that lets the wire summary carry output paths without the
-/// core engine producing them — the engine returns task ids only, and the path
-/// formula is mirrored here at the IPC boundary (see `commands::run_job_inner`).
-pub type TaskPathMeta = (TaskId, String, String);
+/// core engine producing them — the engine returns task ids only. The path is
+/// computed via the domain SSOT `ArchiveTask::output_destination` (see
+/// `commands::task_path_meta`).
+pub(crate) struct TaskPathMeta {
+    pub(crate) id: TaskId,
+    pub(crate) output_name: String,
+    pub(crate) output_path: String,
+}
 
 /// Build a [`JobSummaryDto`] from the engine's [`JobSummary`] plus per-task
 /// output metadata.
@@ -95,8 +100,8 @@ pub(crate) fn job_summary_dto(summary: JobSummary, meta: &[TaskPathMeta]) -> Job
 
     let results = meta
         .iter()
-        .map(|(id, output_name, output_path)| {
-            let raw = id.get();
+        .map(|m| {
+            let raw = m.id.get();
             let (status, reason) = status_by_id.get(&raw).cloned().unwrap_or_else(|| {
                 (
                     TaskStatusDto::Failed,
@@ -105,8 +110,8 @@ pub(crate) fn job_summary_dto(summary: JobSummary, meta: &[TaskPathMeta]) -> Job
             });
             TaskResultDto {
                 task_id: raw,
-                output_name: output_name.clone(),
-                output_path: output_path.clone(),
+                output_name: m.output_name.clone(),
+                output_path: m.output_path.clone(),
                 status,
                 reason,
             }
@@ -274,16 +279,21 @@ mod tests {
         .unwrap()
     }
 
-    /// Build the `(id, name, abs path)` meta for a Zip job, mirroring the engine's
-    /// destination formula `out_dir.join(t.output_name())`.
+    /// Build the per-task meta for a Zip job, computing the path via the domain
+    /// SSOT `ArchiveTask::output_destination` so the test asserts the production
+    /// formula.
     fn zip_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
         let out_dir = job.output_directory().path();
+        let mode = job.output_mode();
         job.tasks()
             .iter()
-            .map(|t| {
-                let name = t.output_name().as_str().to_string();
-                let path = out_dir.join(&name).to_string_lossy().into_owned();
-                (t.id(), name, path)
+            .map(|t| TaskPathMeta {
+                id: t.id(),
+                output_name: t.output_name().as_str().to_string(),
+                output_path: t
+                    .output_destination(out_dir, mode)
+                    .to_string_lossy()
+                    .into_owned(),
             })
             .collect()
     }
@@ -366,13 +376,17 @@ mod tests {
 
         // Build meta the same way the command does for Folder mode.
         let out_dir = job.output_directory().path();
+        let mode = job.output_mode();
         let meta: Vec<TaskPathMeta> = job
             .tasks()
             .iter()
-            .map(|t| {
-                let stem = t.source().output_stem();
-                let path = out_dir.join(&stem).to_string_lossy().into_owned();
-                (t.id(), stem, path)
+            .map(|t| TaskPathMeta {
+                id: t.id(),
+                output_name: t.source().output_stem(),
+                output_path: t
+                    .output_destination(out_dir, mode)
+                    .to_string_lossy()
+                    .into_owned(),
             })
             .collect();
 
