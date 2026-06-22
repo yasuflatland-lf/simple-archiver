@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { SourceKind } from "@/bindings/SourceKind";
 import { pickDirectory } from "@/lib/dialog";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
@@ -15,7 +16,7 @@ function setDraft(over: Partial<ReturnType<typeof base>> = {}) {
 }
 function base() {
   return {
-    items: [] as { path: string; kind: "rar" | "zip" }[],
+    items: [] as { path: string; kind: SourceKind }[],
     namingTemplate: null as string | null,
     startNumber: 1,
     outputDir: null as string | null,
@@ -78,6 +79,16 @@ describe("ResultPreview", () => {
 
     expect(screen.getByText("vacation/")).toBeTruthy();
     expect(screen.getByText(/1 archive\b/i)).toBeTruthy();
+  });
+
+  it("preserves a dotted folder name in folder mode (matches backend output_stem)", () => {
+    setDraft({
+      outputDir: "/out",
+      outputMode: "folder",
+      items: [{ path: "/photos/vacation.2024", kind: "folder" }],
+    });
+    render(<ResultPreview />);
+    expect(screen.getByText("vacation.2024/")).toBeTruthy();
   });
 
   it("shows the preview error as an alert in zip mode", () => {

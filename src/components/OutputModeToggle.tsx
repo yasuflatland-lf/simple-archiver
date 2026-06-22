@@ -38,8 +38,8 @@ export function OutputModeToggle() {
         className={cn(
           "absolute inset-y-1 rounded-full bg-primary shadow-sm transition-[left,right] duration-200 ease-out motion-reduce:transition-none",
           mode === "zip"
-            ? "left-1 right-1/2 mr-0.5"
-            : "left-1/2 right-1 ml-0.5",
+            ? "left-1 right-1/2 mr-0.5" // half-unit gutter at the pill's midline (gap between the two thumb positions)
+            : "left-1/2 right-1 ml-0.5", // half-unit gutter at the pill's midline (gap between the two thumb positions)
         )}
       />
       {OPTIONS.map((opt) => {
