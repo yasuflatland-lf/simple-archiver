@@ -9,8 +9,13 @@ import type { ProgressEvent } from "@/bindings/ProgressEvent";
 // which share names (addItems, reorder, setNamingRule, ...).
 import * as archive from "@/lib/archive";
 import { messageFromReason } from "@/lib/errors";
-import { DEFAULT_START, DEFAULT_TEMPLATE, MAX_START } from "@/lib/naming";
+import {
+  DEFAULT_START,
+  DEFAULT_TEMPLATE,
+  nextStartAfterBatch,
+} from "@/lib/naming";
 import { persistOutputDir } from "@/lib/output-dir-default";
+import { taskIdsFromProgress } from "@/lib/status";
 
 // Monotonic counter tagging each recomputePreviews run. A run only commits its
 // result if it is still the latest; otherwise a slower batch could overwrite a
@@ -330,7 +335,7 @@ export const useJobStore = create<JobState>()((set, get) => ({
       // Derive task ids from the latest progress if a job emitted any.
       const progress = get().progress;
       const taskIdByIndex = progress
-        ? progress.perTask.map((t) => t.taskId)
+        ? taskIdsFromProgress(progress)
         : get().taskIdByIndex;
       set({ summary, running: false, taskIdByIndex });
     } catch (reason) {
@@ -349,7 +354,7 @@ export const useJobStore = create<JobState>()((set, get) => ({
   },
 
   applyProgress: (event) => {
-    set({ progress: event, taskIdByIndex: event.perTask.map((t) => t.taskId) });
+    set({ progress: event, taskIdByIndex: taskIdsFromProgress(event) });
   },
 
   recomputePreviews: async () => {
@@ -441,9 +446,9 @@ export const useJobStore = create<JobState>()((set, get) => ({
     // No finished run means nothing to clear; Clear is a no-op there.
     if (summary === null) return;
     const count = summary.results.length;
-    // Auto-continue: the next batch picks up where this one ended. Clamp to the
-    // field's max so a near-overflow start never exceeds the backend's u32.
-    const nextStart = Math.min(draft.startNumber + count, MAX_START);
+    // Auto-continue: the next batch picks up where this one ended (clamped to
+    // the backend's u32 max). The clamp itself lives in lib/naming, unit-tested.
+    const nextStart = nextStartAfterBatch(draft.startNumber, count);
     // Stash the finished run BEFORE mutating, so the residual chip and Undo can
     // summarize/restore it. setStartNumber recomputes previews against the new
     // (empty) queue; clearItems empties the backend draft.
