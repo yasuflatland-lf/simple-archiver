@@ -131,16 +131,18 @@ function TaskRowImpl({ index }: TaskRowProps) {
     });
   };
 
-  // Drag affordances: dim the row being dragged; draw a 2px insertion line on the
-  // edge where the row would land (a box-shadow, not a real element, avoids table
-  // layout shift). A non-dragged selected row carries the accent highlight. The
-  // whole row is a drag surface, so the grab cursor lives on the row itself.
+  // Drag affordances: lift the row being dragged so it reads as "picked up"
+  // (translucent + accent tint + elevation, via the `row-dragging` class); draw a
+  // 2px insertion line on the edge where the row would land (a box-shadow, not a
+  // real element, avoids table layout shift). A non-dragged selected row carries
+  // the accent highlight. The whole row is a drag surface, so the grab cursor
+  // lives on the row itself.
   const rowClassName = [
     "border-b border-border/50 transition-colors",
     // The whole row is a drag surface; show grab at rest, grabbing mid-drag.
     dnd.enabled && (dnd.isDraggingAny ? "cursor-grabbing" : "cursor-grab"),
     dnd.isDragging
-      ? "opacity-40"
+      ? "row-dragging"
       : row.isSelected
         ? "bg-accent"
         : "hover:bg-muted/30",

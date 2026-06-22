@@ -224,8 +224,15 @@ export const useJobStore = create<JobState>()((set, get) => ({
 
   reorder: async (from, to) => {
     try {
+      // A structural edit clears the selection (draftEdit), but if the moved row
+      // was the only selected one, follow it to its new index so keyboard reorder
+      // can chain and the eye keeps track of the row. Drag/button paths get the
+      // same harmless follow when their row happens to be the sole selection.
+      const sel = get().selectedIndices;
+      const followsMovedRow = sel.length === 1 && sel[0] === from;
       const draft = await archive.reorder(from, to);
       set(draftEdit(draft));
+      if (followsMovedRow) set({ selectedIndices: [to], selectionAnchor: to });
       await get().recomputePreviews();
     } catch (reason) {
       set({ error: messageFromReason(reason) });

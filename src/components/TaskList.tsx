@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useCallback, useRef, type KeyboardEvent } from "react";
 
 import { ColumnResizeHandle } from "@/components/ColumnResizeHandle";
 import {
@@ -9,6 +9,7 @@ import { ReorderDndProvider } from "@/components/reorder-dnd";
 import { TASK_COLUMNS } from "@/components/task-columns";
 import { TaskRow } from "@/components/TaskRow";
 import { useColumnResize } from "@/hooks/useColumnResize";
+import { useQueueReorderKeys } from "@/hooks/useQueueReorderKeys";
 import { useQueueSelectionKeys } from "@/hooks/useQueueSelectionKeys";
 import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
@@ -32,12 +33,24 @@ export function TaskList() {
   const { widths, draggingKey, getSeparatorProps } = useColumnResize();
   // Queue-scoped keyboard shortcuts (select all / delete / clear). Stable across
   // renders, so it is safe to call before the early return below.
-  const onKeyDown = useQueueSelectionKeys();
+  const onSelectionKeys = useQueueSelectionKeys();
   // The table ref lets the reorder animation measure rows; the hook owns the
   // FLIP slide and exposes the animated reorder both reorder paths route through.
   const tableRef = useRef<HTMLTableElement>(null);
   const { animatedReorder, justMovedIndex, liveMessage } =
     useReorderAnimation(tableRef);
+  // Arrow keys move the single selected row, routing through the same animated
+  // reorder so the slide/settle/announce match drag and the buttons.
+  const onReorderKeys = useQueueReorderKeys(animatedReorder);
+  // One handler for the grid: the two hooks own disjoint keys (arrows vs
+  // select-all/delete/clear), so the order is immaterial.
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLElement>) => {
+      onReorderKeys(event);
+      onSelectionKeys(event);
+    },
+    [onReorderKeys, onSelectionKeys],
+  );
 
   if (items.length === 0) {
     return (
