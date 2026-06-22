@@ -76,9 +76,8 @@ describe("run → summary flow", () => {
     );
 
     render(<Ledger />);
-    // The "<label> <n>" form is unique to the header tally (row badges show only
-    // the bare label).
-    expect(screen.getByText(/Succeeded\s*1/)).toBeTruthy();
+    // The header subline summarises the projected outcomes.
+    expect(screen.getByText(/1 succeeded/i)).toBeTruthy();
     expect(screen.getByText("out_2.zip")).toBeTruthy();
     expect(screen.getByText(/unrar error: boom/)).toBeTruthy();
   });
