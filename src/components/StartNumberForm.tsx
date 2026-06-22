@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DEFAULT_START, sanitizeStartNumber } from "@/lib/naming";
+import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
 
 // Wait this long after the last keystroke before pushing the start number into
@@ -21,7 +22,9 @@ export const DEBOUNCE_MS = 200;
  * The field keeps its own raw text so a partial edit (empty, "-", "1.") is
  * representable while typing; only a sanitized integer is pushed to the store.
  */
-export function StartNumberForm() {
+export function StartNumberForm({
+  hideLabel = false,
+}: { hideLabel?: boolean } = {}) {
   // Source the initial value from the store so a non-default draft start (future
   // session restore, or a seeded test) shows the correct value rather than the
   // compile-time default.
@@ -59,7 +62,10 @@ export function StartNumberForm() {
     <div className="flex flex-col gap-1.5">
       <Label
         htmlFor="start-number"
-        className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground"
+        className={cn(
+          "text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground",
+          hideLabel && "sr-only",
+        )}
       >
         Start #
       </Label>

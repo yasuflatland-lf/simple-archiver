@@ -47,9 +47,18 @@ export function LeftRail() {
             <ConflictPolicySelect />
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            <NamingRuleForm />
-            <StartNumberForm />
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground">
+              Naming
+            </span>
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <NamingRuleForm hideLabel />
+              </div>
+              <div className="w-20">
+                <StartNumberForm hideLabel />
+              </div>
+            </div>
           </div>
         )}
 

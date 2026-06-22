@@ -63,9 +63,12 @@ describe("LeftRail", () => {
     expect(screen.getByRole("button", { name: /choose folder/i })).toBeTruthy();
   });
 
-  it("renders Naming and Start # in zip mode", () => {
+  it("renders a single Naming heading with Name and Start # inline in zip mode", () => {
     setMode("zip", "/out");
     render(<LeftRail />);
+    // One visible group heading.
+    expect(screen.getByText("Naming")).toBeTruthy();
+    // Both inputs keep their accessible labels (rendered sr-only).
     expect(screen.getByLabelText("Name")).toBeTruthy();
     expect(screen.getByLabelText("Start #")).toBeTruthy();
     // The folder-mode collision policy must be absent in zip mode.

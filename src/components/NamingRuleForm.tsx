@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DEFAULT_TEMPLATE } from "@/lib/naming";
+import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
 
 // Re-export so existing importers (and tests) keep a stable entry point while
@@ -24,7 +25,9 @@ export const DEBOUNCE_MS = 200;
  * template input) so it stacks cleanly in the left rail, keeping its
  * label/input association intact for a11y.
  */
-export function NamingRuleForm() {
+export function NamingRuleForm({
+  hideLabel = false,
+}: { hideLabel?: boolean } = {}) {
   // Source the initial value from the store so a non-default draft template
   // (future session restore, or a seeded test) shows the correct value rather
   // than always starting from the compile-time default. Fall back to the
@@ -65,7 +68,10 @@ export function NamingRuleForm() {
     <div className="flex flex-col gap-1.5">
       <Label
         htmlFor="naming-template"
-        className="text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground"
+        className={cn(
+          "text-xs font-medium uppercase tracking-[0.96px] text-muted-foreground",
+          hideLabel && "sr-only",
+        )}
       >
         Name
       </Label>
