@@ -1,4 +1,10 @@
+import { useRef } from "react";
+
 import { ColumnResizeHandle } from "@/components/ColumnResizeHandle";
+import {
+  ReorderAnimationProvider,
+  useReorderAnimation,
+} from "@/components/reorder-animation";
 import { ReorderDndProvider } from "@/components/reorder-dnd";
 import { TASK_COLUMNS } from "@/components/task-columns";
 import { TaskRow } from "@/components/TaskRow";
@@ -27,6 +33,11 @@ export function TaskList() {
   // Queue-scoped keyboard shortcuts (select all / delete / clear). Stable across
   // renders, so it is safe to call before the early return below.
   const onKeyDown = useQueueSelectionKeys();
+  // The table ref lets the reorder animation measure rows; the hook owns the
+  // FLIP slide and exposes the animated reorder both reorder paths route through.
+  const tableRef = useRef<HTMLTableElement>(null);
+  const { animatedReorder, justMovedIndex, liveMessage } =
+    useReorderAnimation(tableRef);
 
   if (items.length === 0) {
     return (
@@ -42,62 +53,73 @@ export function TaskList() {
   const totalWidth = TASK_COLUMNS.reduce((sum, c) => sum + widths[c.key], 0);
 
   return (
-    <ReorderDndProvider>
-      {/* The selectable queue: role="grid" + aria-multiselectable + per-row
+    <ReorderAnimationProvider
+      animatedReorder={animatedReorder}
+      justMovedIndex={justMovedIndex}
+    >
+      <ReorderDndProvider>
+        {/* The selectable queue: role="grid" + aria-multiselectable + per-row
           aria-selected is the ARIA pattern for row selection, and makes this an
           interactive element so tabIndex/onKeyDown are valid. tabIndex makes it
           focusable — clicking a non-focusable row focuses this nearest focusable
           ancestor — which scopes the shortcuts here so they never hijack Cmd+A /
           Delete inside text inputs. The role lives on this wrapper (not the
           <table>) so the table keeps its native semantics. */}
-      <div
-        className="overflow-x-auto outline-none"
-        role="grid"
-        aria-label="Queue rows"
-        aria-multiselectable
-        aria-keyshortcuts="Control+A Meta+A Delete Backspace"
-        tabIndex={0}
-        data-testid="queue-region"
-        onKeyDown={onKeyDown}
-      >
-        <table
-          className="text-sm"
-          style={{ tableLayout: "fixed", width: totalWidth }}
+        <div
+          className="overflow-x-auto outline-none"
+          role="grid"
+          aria-label="Queue rows"
+          aria-multiselectable
+          aria-keyshortcuts="Control+A Meta+A Delete Backspace"
+          tabIndex={0}
+          data-testid="queue-region"
+          onKeyDown={onKeyDown}
         >
-          <colgroup>
-            {TASK_COLUMNS.map((c) => (
-              <col key={c.key} style={{ width: widths[c.key] }} />
-            ))}
-          </colgroup>
-          <thead>
-            <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <table
+            ref={tableRef}
+            className="text-sm"
+            style={{ tableLayout: "fixed", width: totalWidth }}
+          >
+            <colgroup>
               {TASK_COLUMNS.map((c) => (
-                <th
-                  key={c.key}
-                  className={cn("pb-2 pr-3", c.resizable && "relative")}
-                >
-                  {c.label}
-                  {c.resizable && (
-                    <ColumnResizeHandle
-                      columnKey={c.key}
-                      isDragging={draggingKey === c.key}
-                      {...getSeparatorProps(c.key)}
-                    />
-                  )}
-                </th>
+                <col key={c.key} style={{ width: widths[c.key] }} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((_item, i) => (
-              // rows are a positional, backend-ordered list with no per-row local state;
-              // item paths may legitimately duplicate, so index keys are correct here.
-              // oxlint-disable-next-line react/no-array-index-key
-              <TaskRow index={i} key={i} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </ReorderDndProvider>
+            </colgroup>
+            <thead>
+              <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {TASK_COLUMNS.map((c) => (
+                  <th
+                    key={c.key}
+                    className={cn("pb-2 pr-3", c.resizable && "relative")}
+                  >
+                    {c.label}
+                    {c.resizable && (
+                      <ColumnResizeHandle
+                        columnKey={c.key}
+                        isDragging={draggingKey === c.key}
+                        {...getSeparatorProps(c.key)}
+                      />
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((_item, i) => (
+                // rows are a positional, backend-ordered list with no per-row local state;
+                // item paths may legitimately duplicate, so index keys are correct here.
+                // oxlint-disable-next-line react/no-array-index-key
+                <TaskRow index={i} key={i} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </ReorderDndProvider>
+      {/* Polite, visually-hidden announcement of the last reorder. `output` has
+          an implicit status (polite live) role; aria-live is kept explicit. */}
+      <output data-testid="reorder-live" aria-live="polite" className="sr-only">
+        {liveMessage}
+      </output>
+    </ReorderAnimationProvider>
   );
 }

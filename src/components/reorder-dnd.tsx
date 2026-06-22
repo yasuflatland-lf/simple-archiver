@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { useAnimatedReorder } from "@/components/reorder-animation";
 import { useJobStore } from "@/store/jobStore";
 
 type RowPointerEvent = ReactPointerEvent<HTMLElement>;
@@ -50,7 +51,7 @@ const ReorderDndContext = createContext<ReorderDndContextValue | null>(null);
  */
 export function ReorderDndProvider({ children }: { children: ReactNode }) {
   const running = useJobStore((s) => s.running);
-  const reorder = useJobStore((s) => s.reorder);
+  const animatedReorder = useAnimatedReorder();
   const count = useJobStore((s) => s.draft.items.length);
 
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
@@ -135,10 +136,10 @@ export function ReorderDndProvider({ children }: { children: ReactNode }) {
       // The store's reorder is remove-then-insert: removing `from` shifts every
       // gap after it left by one, so a gap past `from` maps to `gap - 1`.
       const to = gap <= from ? gap : gap - 1;
-      if (to !== from) void reorder(from, to);
+      if (to !== from) void animatedReorder(from, to);
     }
     reset();
-  }, [enabled, reorder, reset]);
+  }, [enabled, animatedReorder, reset]);
 
   // End the gesture on any release/cancel anywhere so a drag never gets stuck.
   // A still-pending (un-armed) press needs no window backstop: the row's own
