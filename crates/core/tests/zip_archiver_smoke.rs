@@ -7,6 +7,7 @@
 
 use simple_archiver_core::application::compress_context::CompressContext;
 use simple_archiver_core::application::ports::Archiver;
+use simple_archiver_core::domain::conflict_policy::ConflictPolicy;
 use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -45,7 +46,12 @@ async fn compress_folder_produces_a_readable_zip() {
     let out_path = out_dir.path().join("out.zip");
 
     ZipArchiver::new()
-        .compress(src.path(), &out_path, &CompressContext::detached())
+        .compress(
+            src.path(),
+            &out_path,
+            ConflictPolicy::AutoRename,
+            &CompressContext::detached(),
+        )
         .await
         .unwrap();
 
@@ -62,7 +68,12 @@ async fn output_inside_source_is_not_self_included() {
     let out_path = src.path().join("out.zip");
 
     ZipArchiver::new()
-        .compress(src.path(), &out_path, &CompressContext::detached())
+        .compress(
+            src.path(),
+            &out_path,
+            ConflictPolicy::AutoRename,
+            &CompressContext::detached(),
+        )
         .await
         .unwrap();
 

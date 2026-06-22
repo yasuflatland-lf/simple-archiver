@@ -36,12 +36,21 @@ pub trait Archiver: Send + Sync {
     /// Compress every regular file under `src_dir` into the zip at `dest_zip`,
     /// reporting cumulative byte progress through `ctx`. Each file is recorded
     /// under its `/`-separated path relative to `src_dir`; empty directories are
-    /// dropped; the output zip is never included in itself. Implementations must
-    /// **not** overwrite an existing `dest_zip`.
+    /// dropped; the output zip is never included in itself.
+    ///
+    /// When `dest_zip` already exists, the collision is resolved by `policy`
+    /// (mirroring [`Placer::place`] for Folder mode):
+    /// - [`ConflictPolicy::AutoRename`]: write a sibling `name (2).zip`,
+    ///   `name (3).zip`, … (the ` (n)` is inserted before the extension), leaving
+    ///   the existing file untouched.
+    /// - [`ConflictPolicy::Skip`]: leave the existing file untouched and write
+    ///   nothing — reported as a successful no-op (`Ok(())`).
+    /// - [`ConflictPolicy::Overwrite`]: remove the existing file, then write.
     fn compress(
         &self,
         src_dir: &Path,
         dest_zip: &Path,
+        policy: ConflictPolicy,
         ctx: &CompressContext,
     ) -> impl Future<Output = Result<(), ArchiveError>> + Send;
 }

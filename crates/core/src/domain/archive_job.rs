@@ -143,10 +143,11 @@ pub struct ArchiveJob {
 }
 
 impl ArchiveJob {
-    /// Plan a new job numbering items from 1.
+    /// Plan a new job numbering items from 1, using the default
+    /// [`ConflictPolicy::AutoRename`].
     ///
-    /// Equivalent to [`plan_with_start`] with `start = 1`: item at index `i` gets
-    /// `TaskId(i + 1)` and output name `rule.resolve(i + 1)`.
+    /// Equivalent to [`plan_with_start`] with `start = 1` and the default policy:
+    /// item at index `i` gets `TaskId(i + 1)` and output name `rule.resolve(i + 1)`.
     ///
     /// [`plan_with_start`]: ArchiveJob::plan_with_start
     pub fn plan(
@@ -154,7 +155,7 @@ impl ArchiveJob {
         rule: NamingRule,
         out_dir: OutputDirectory,
     ) -> Result<Self, PlanError> {
-        Self::plan_with_start(items, rule, out_dir, 1)
+        Self::plan_with_start(items, rule, out_dir, 1, ConflictPolicy::default())
     }
 
     /// Plan a new job numbering items from `start`, deriving each task's output
@@ -164,6 +165,10 @@ impl ArchiveJob {
     /// 1-based `TaskId(i + 1)` as its stable identity (independent of `start`).
     /// The `SequenceNumber` is a transient argument to name resolution — it is
     /// derived from position and is NOT stored on the task. `start` may be `0`.
+    ///
+    /// `policy` is the [`ConflictPolicy`] applied when an output zip already
+    /// exists at run time (Zip mode resolves collisions through the archiver,
+    /// symmetrically to how Folder mode resolves them through the placer).
     ///
     /// Returns [`PlanError::Empty`] when `items` is empty,
     /// [`PlanError::SequenceOverflow`] when the numbering range
@@ -176,6 +181,7 @@ impl ArchiveJob {
         rule: NamingRule,
         out_dir: OutputDirectory,
         start: u32,
+        policy: ConflictPolicy,
     ) -> Result<Self, PlanError> {
         if items.is_empty() {
             return Err(PlanError::Empty);
@@ -221,8 +227,8 @@ impl ArchiveJob {
             rule,
             out_dir,
             mode: OutputMode::Zip,
-            // Zip mode never collides via the placer; default to the safe policy.
-            policy: ConflictPolicy::default(),
+            // Zip mode resolves collisions through the archiver at run time.
+            policy,
         })
     }
 
@@ -471,6 +477,12 @@ mod tests {
             .collect()
     }
 
+    /// The default conflict policy, for `plan_with_start` call sites whose
+    /// assertions are independent of the policy.
+    fn policy() -> ConflictPolicy {
+        ConflictPolicy::default()
+    }
+
     /// Build an `OutputFileName` from a plain stem (test convenience).
     fn name(stem: &str) -> OutputFileName {
         OutputFileName::from_stem(FileStem::new(stem).unwrap())
@@ -525,7 +537,8 @@ mod tests {
 
     #[test]
     fn plan_with_start_numbers_names_from_start_but_keeps_one_based_ids() {
-        let job = ArchiveJob::plan_with_start(sources(3), rule("file{n}"), out_dir(), 5).unwrap();
+        let job = ArchiveJob::plan_with_start(sources(3), rule("file{n}"), out_dir(), 5, policy())
+            .unwrap();
         assert_eq!(
             id_name_pairs(&job),
             vec![
@@ -538,7 +551,8 @@ mod tests {
 
     #[test]
     fn plan_with_start_allows_zero() {
-        let job = ArchiveJob::plan_with_start(sources(3), rule("{n:02}"), out_dir(), 0).unwrap();
+        let job = ArchiveJob::plan_with_start(sources(3), rule("{n:02}"), out_dir(), 0, policy())
+            .unwrap();
         assert_eq!(
             id_name_pairs(&job),
             vec![
@@ -552,7 +566,8 @@ mod tests {
     #[test]
     fn plan_with_start_grows_digits_past_the_pad_width() {
         // printf semantics: {n:02} is a minimum width, so 100 renders as "100".
-        let job = ArchiveJob::plan_with_start(sources(3), rule("{n:02}"), out_dir(), 99).unwrap();
+        let job = ArchiveJob::plan_with_start(sources(3), rule("{n:02}"), out_dir(), 99, policy())
+            .unwrap();
         assert_eq!(
             id_name_pairs(&job),
             vec![
@@ -566,7 +581,8 @@ mod tests {
     #[test]
     fn plan_with_start_rejects_u32_overflow() {
         // Numbering 2 items from u32::MAX would need u32::MAX + 1.
-        let result = ArchiveJob::plan_with_start(sources(2), rule("file{n}"), out_dir(), u32::MAX);
+        let result =
+            ArchiveJob::plan_with_start(sources(2), rule("file{n}"), out_dir(), u32::MAX, policy());
         assert_eq!(
             result,
             Err(PlanError::SequenceOverflow {
@@ -580,8 +596,31 @@ mod tests {
     fn plan_numbers_from_one_by_default() {
         let default = ArchiveJob::plan(sources(3), rule("file{n}"), out_dir()).unwrap();
         let explicit =
-            ArchiveJob::plan_with_start(sources(3), rule("file{n}"), out_dir(), 1).unwrap();
+            ArchiveJob::plan_with_start(sources(3), rule("file{n}"), out_dir(), 1, policy())
+                .unwrap();
         assert_eq!(id_name_pairs(&default), id_name_pairs(&explicit));
+    }
+
+    #[test]
+    fn plan_defaults_zip_conflict_policy_to_auto_rename() {
+        let job = ArchiveJob::plan(sources(1), rule("file{n}"), out_dir()).unwrap();
+        assert_eq!(job.conflict_policy(), ConflictPolicy::AutoRename);
+    }
+
+    #[test]
+    fn plan_with_start_stores_the_given_conflict_policy() {
+        // A Zip-mode job must carry the caller's chosen policy (not a hardcoded
+        // default), so the engine can resolve output collisions accordingly.
+        let job = ArchiveJob::plan_with_start(
+            sources(1),
+            rule("file{n}"),
+            out_dir(),
+            1,
+            ConflictPolicy::Overwrite,
+        )
+        .unwrap();
+        assert_eq!(job.output_mode(), OutputMode::Zip);
+        assert_eq!(job.conflict_policy(), ConflictPolicy::Overwrite);
     }
 
     // ── plan: empty ───────────────────────────────────────────────────────────
