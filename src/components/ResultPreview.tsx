@@ -80,11 +80,7 @@ export function ResultPreview() {
         </button>
       </div>
 
-      {outputMode === "zip" && previewError ? (
-        <p role="alert" className="text-sm text-destructive">
-          {previewError}
-        </p>
-      ) : outputMode === "folder" ? (
+      {outputMode === "folder" ? (
         <div className="flex items-center gap-2">
           <Folder aria-hidden="true" className="size-5 text-primary" />
           <span className="font-mono text-sm font-semibold text-foreground">
@@ -98,7 +94,12 @@ export function ResultPreview() {
             </span>
           ) : null}
         </div>
+      ) : previewError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {previewError}
+        </p>
       ) : (
+        // Folder mode is handled above, so the trailing else is the zip ready/loading state.
         <div className="flex items-center gap-2">
           <Package aria-hidden="true" className="size-5 text-primary" />
           {firstPreview ? (

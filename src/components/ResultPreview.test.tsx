@@ -87,4 +87,16 @@ describe("ResultPreview", () => {
 
     expect(screen.getByRole("alert").textContent).toContain("bad template");
   });
+
+  it("shows a loading placeholder in zip mode while the preview is pending", () => {
+    setDraft({
+      outputDir: "/out",
+      outputMode: "zip",
+      items: [{ path: "/a.rar", kind: "rar" }],
+    });
+    useJobStore.setState({ firstPreview: null, previewError: null });
+    render(<ResultPreview />);
+
+    expect(screen.getByText(/preparing preview/i)).toBeTruthy();
+  });
 });
