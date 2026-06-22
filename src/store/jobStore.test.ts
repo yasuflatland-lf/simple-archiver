@@ -229,6 +229,48 @@ describe("reorder", () => {
     expect(useJobStore.getState().error).toBe("bad index");
     expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);
   });
+
+  it("keeps the moved row selected at its new index when it was the sole selection", async () => {
+    // Keyboard reorder relies on this: the dragged/moved row stays selected so the
+    // arrows can chain and the eye keeps track of the row across the move.
+    useJobStore.setState({ selectedIndices: [2], selectionAnchor: 2 });
+    mockArchive.reorder.mockResolvedValue(makeDraft(3));
+
+    await useJobStore.getState().reorder(2, 0);
+
+    expect(useJobStore.getState().selectedIndices).toEqual([0]);
+    expect(useJobStore.getState().selectionAnchor).toBe(0);
+  });
+
+  it("clears the selection when the moved row was not the sole selection", async () => {
+    // Multi-selection (or moving a row other than the single selected one) has no
+    // single row to follow, so the re-indexing drops the selection as before.
+    useJobStore.setState({ selectedIndices: [0, 1], selectionAnchor: 0 });
+    mockArchive.reorder.mockResolvedValue(makeDraft(3));
+
+    await useJobStore.getState().reorder(2, 0);
+
+    expect(useJobStore.getState().selectedIndices).toEqual([]);
+    expect(useJobStore.getState().selectionAnchor).toBeNull();
+  });
+
+  it("clears the selection when the sole selected row is not the one moved", async () => {
+    useJobStore.setState({ selectedIndices: [1], selectionAnchor: 1 });
+    mockArchive.reorder.mockResolvedValue(makeDraft(3));
+
+    await useJobStore.getState().reorder(2, 0);
+
+    expect(useJobStore.getState().selectedIndices).toEqual([]);
+  });
+
+  it("leaves the selection untouched on a failed reorder", async () => {
+    useJobStore.setState({ selectedIndices: [1], selectionAnchor: 1 });
+    mockArchive.reorder.mockRejectedValue(new Error("bad index"));
+
+    await useJobStore.getState().reorder(1, 0);
+
+    expect(useJobStore.getState().selectedIndices).toEqual([1]);
+  });
 });
 
 describe("removeItem", () => {

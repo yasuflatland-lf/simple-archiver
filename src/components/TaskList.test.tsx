@@ -225,6 +225,72 @@ describe("TaskList reorder buttons", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Arrow-key reorder
+// ---------------------------------------------------------------------------
+
+describe("TaskList keyboard reorder", () => {
+  function seed(
+    reorder: (from: number, to: number) => Promise<void>,
+    selectedIndices: number[],
+  ) {
+    useJobStore.setState({
+      draft: {
+        items: makeItems(3),
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: [],
+      selectedIndices,
+      selectionAnchor: selectedIndices.length === 1 ? selectedIndices[0] : null,
+      reorder,
+    });
+  }
+
+  it("moves the single selected row down on ArrowDown", () => {
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    seed(reorder, [0]);
+
+    render(<TaskList />);
+    fireEvent.keyDown(screen.getByTestId("queue-region"), { key: "ArrowDown" });
+
+    expect(reorder).toHaveBeenCalledWith(0, 1);
+  });
+
+  it("moves the single selected row up on ArrowUp", () => {
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    seed(reorder, [2]);
+
+    render(<TaskList />);
+    fireEvent.keyDown(screen.getByTestId("queue-region"), { key: "ArrowUp" });
+
+    expect(reorder).toHaveBeenCalledWith(2, 1);
+  });
+
+  it("does not reorder when no row is selected", () => {
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    seed(reorder, []);
+
+    render(<TaskList />);
+    fireEvent.keyDown(screen.getByTestId("queue-region"), { key: "ArrowDown" });
+
+    expect(reorder).not.toHaveBeenCalled();
+  });
+
+  it("does not reorder the bottom selected row past the edge", () => {
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    seed(reorder, [2]);
+
+    render(<TaskList />);
+    fireEvent.keyDown(screen.getByTestId("queue-region"), { key: "ArrowDown" });
+
+    expect(reorder).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Status column
 // ---------------------------------------------------------------------------
 
@@ -602,6 +668,18 @@ describe("TaskList pointer reorder", () => {
     // Non-target rows must carry no insertion line.
     expect(rows[0].getAttribute("data-drop-edge")).toBeNull();
     expect(rows[1].getAttribute("data-drop-edge")).toBeNull();
+  });
+
+  it("applies the lifted grab class to the row being dragged", () => {
+    setItems(3);
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    // Pressing the grip arms the drag immediately, so the row is "picked up".
+    fireEvent.pointerDown(handle(0));
+
+    expect(rows[0].className).toContain("row-dragging");
+    expect(rows[1].className).not.toContain("row-dragging");
   });
 
   it("shows a top drop-line on an interior row hovered at its upper half", () => {
