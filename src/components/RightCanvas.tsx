@@ -16,7 +16,7 @@ import { useJobStore } from "@/store/jobStore";
  *   queued  → the waiting TaskList,
  *   running → OverallProgress pinned to the top of the canvas + the TaskList
  *             (each row keeps its own live progress),
- *   results → the Inline Ledger (per-row Reveal/Copy + status tally header).
+ *   results → the Inline Ledger (per-row Copy + status tally header).
  *
  * After a finished run is cleared, the canvas returns to the drop zone with the
  * residual {@link LastBatchChip} pinned above it (whenever a last batch exists).

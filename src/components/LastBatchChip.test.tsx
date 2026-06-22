@@ -26,7 +26,6 @@ vi.mock("@/lib/archive", () => ({
 // Mock the opener wrapper so the chip's Open action never reaches Tauri.
 vi.mock("@/lib/reveal", () => ({
   openPath: vi.fn(),
-  revealItem: vi.fn(),
   copyText: vi.fn(),
 }));
 

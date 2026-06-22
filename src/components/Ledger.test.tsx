@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,7 +6,7 @@ import type { DraftSnapshot } from "@/bindings/DraftSnapshot";
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import * as archive from "@/lib/archive";
-import { copyText, openPath, revealItem } from "@/lib/reveal";
+import { copyText, openPath } from "@/lib/reveal";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
 import { Ledger } from "./Ledger";
@@ -29,14 +29,12 @@ vi.mock("@/lib/archive", () => ({
 // Mock the opener/clipboard wrapper so the row actions never reach Tauri.
 vi.mock("@/lib/reveal", () => ({
   openPath: vi.fn(),
-  revealItem: vi.fn(),
   copyText: vi.fn(),
 }));
 
 beforeEach(() => {
   resetJobStore();
   vi.mocked(openPath).mockReset();
-  vi.mocked(revealItem).mockReset();
   vi.mocked(copyText).mockReset();
 });
 
@@ -218,20 +216,17 @@ describe("Ledger", () => {
       });
     });
 
-    it("Reveal on a succeeded row reveals that row's output path", async () => {
-      vi.mocked(revealItem).mockResolvedValue(undefined);
+    it("offers no Reveal action on any row (the column was removed)", () => {
       render(<Ledger />);
-
-      const succeededRow = screen.getByText("out_1.zip").closest("tr");
-      expect(succeededRow).not.toBeNull();
-      await userEvent.click(
-        within(succeededRow as HTMLElement).getByRole("button", {
-          name: /reveal/i,
-        }),
+      expect(screen.queryAllByRole("button", { name: /reveal/i })).toHaveLength(
+        0,
       );
-
-      expect(vi.mocked(revealItem)).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(revealItem)).toHaveBeenCalledWith("/out/out_1.zip");
+      // Every result row keeps exactly its single Copy action.
+      for (const name of ["out_1.zip", "out_2.zip", "out_3.zip"]) {
+        const row = screen.getByText(name).closest("tr") as HTMLElement;
+        expect(within(row).getAllByRole("button")).toHaveLength(1);
+        expect(within(row).getByRole("button", { name: /copy/i })).toBeTruthy();
+      }
     });
 
     it("Copy on a row copies that row's output path", async () => {
@@ -247,29 +242,88 @@ describe("Ledger", () => {
 
       expect(vi.mocked(copyText)).toHaveBeenCalledTimes(1);
       expect(vi.mocked(copyText)).toHaveBeenCalledWith("/out/out_1.zip");
+      // The success affordance appears (and we await it to settle the state
+      // update so the assertions above run inside act()).
+      await screen.findByText(/path was copied/i);
     });
 
-    it("disables Reveal on a failed row (no on-disk output exists)", () => {
+    it("Copy is available even on a failed row (the path can still be pasted)", async () => {
+      vi.mocked(copyText).mockResolvedValue(undefined);
       render(<Ledger />);
+
       const failedRow = screen.getByText("out_3.zip").closest("tr");
-      const reveal = within(failedRow as HTMLElement).getByRole("button", {
-        name: /reveal/i,
-      });
-      expect((reveal as HTMLButtonElement).disabled).toBe(true);
+      await userEvent.click(
+        within(failedRow as HTMLElement).getByRole("button", {
+          name: /copy/i,
+        }),
+      );
+
+      expect(vi.mocked(copyText)).toHaveBeenCalledWith("/out/out_3.zip");
+      await screen.findByText(/path was copied/i);
     });
 
-    it("surfaces an error when revealing fails", async () => {
-      vi.mocked(revealItem).mockRejectedValue(new Error("no such file"));
+    it("shows a 'Path was copied' affordance near the pointer after copying", async () => {
+      vi.mocked(copyText).mockResolvedValue(undefined);
+      render(<Ledger />);
+
+      const succeededRow = screen.getByText("out_1.zip").closest("tr");
+      // fireEvent (not userEvent) so we can supply pointer coordinates; the
+      // affordance is positioned at the click point.
+      fireEvent.click(
+        within(succeededRow as HTMLElement).getByRole("button", {
+          name: /copy/i,
+        }),
+        { clientX: 123, clientY: 456 },
+      );
+
+      const hint = await screen.findByText(/path was copied/i);
+      // Fixed-position pill anchored at the pointer's viewport coordinates.
+      expect(hint.style.left).toBe("123px");
+      expect(hint.style.top).toBe("456px");
+    });
+
+    it("dismisses the copied affordance after a few seconds", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.mocked(copyText).mockResolvedValue(undefined);
+        render(<Ledger />);
+
+        const succeededRow = screen.getByText("out_1.zip").closest("tr");
+        fireEvent.click(
+          within(succeededRow as HTMLElement).getByRole("button", {
+            name: /copy/i,
+          }),
+          { clientX: 10, clientY: 20 },
+        );
+        // Flush the async copy → state update that mounts the affordance.
+        await act(async () => {
+          await Promise.resolve();
+        });
+        expect(screen.getByText(/path was copied/i)).toBeTruthy();
+
+        // After the timeout elapses, the affordance is gone.
+        act(() => {
+          vi.advanceTimersByTime(5000);
+        });
+        expect(screen.queryByText(/path was copied/i)).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("surfaces an error when copying fails (and shows no affordance)", async () => {
+      vi.mocked(copyText).mockRejectedValue(new Error("clipboard denied"));
       render(<Ledger />);
 
       const succeededRow = screen.getByText("out_1.zip").closest("tr");
       await userEvent.click(
         within(succeededRow as HTMLElement).getByRole("button", {
-          name: /reveal/i,
+          name: /copy/i,
         }),
       );
 
-      expect(useJobStore.getState().error).toBe("no such file");
+      expect(useJobStore.getState().error).toBe("clipboard denied");
+      expect(screen.queryByText(/path was copied/i)).toBeNull();
     });
   });
 
@@ -362,8 +416,7 @@ describe("Ledger", () => {
       render(<Ledger />);
 
       expect(screen.getByRole("status", { name: /run summary/i })).toBeTruthy();
-      // Icon buttons carry accessible names.
-      expect(screen.getByRole("button", { name: /reveal/i })).toBeTruthy();
+      // The per-row Copy icon button carries an accessible name.
       expect(screen.getByRole("button", { name: /copy/i })).toBeTruthy();
     });
   });
