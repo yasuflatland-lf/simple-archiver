@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { JobSummaryDto } from "@/bindings/JobSummaryDto";
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
 
-import { computeStatus, statusVisual, taskOutcomeFor } from "./status";
+import {
+  computeStatus,
+  statusVisual,
+  taskIdsFromProgress,
+  taskOutcomeFor,
+} from "./status";
 
 describe("statusVisual", () => {
   it("maps succeeded to the unified 'Succeeded' label and the success tokens", () => {
@@ -137,5 +142,30 @@ describe("computeStatus", () => {
 
   it("returns 'Waiting' when not running and no summary yet", () => {
     expect(computeStatus(0, false, null, null, [10])).toBe("Waiting");
+  });
+});
+
+describe("taskIdsFromProgress", () => {
+  it("returns an empty list for an empty perTask array", () => {
+    const progress: ProgressEvent = {
+      overall: { bytesDone: 0, bytesTotal: 0 },
+      overallEtaMs: null,
+      perTask: [],
+      elapsedMs: 0,
+    };
+    expect(taskIdsFromProgress(progress)).toEqual([]);
+  });
+
+  it("projects perTask entries to their task ids in order", () => {
+    const progress: ProgressEvent = {
+      overall: { bytesDone: 30, bytesTotal: 60 },
+      overallEtaMs: 1000,
+      perTask: [
+        { taskId: 7, bytesDone: 10, bytesTotal: 20, etaMs: null },
+        { taskId: 3, bytesDone: 20, bytesTotal: 40, etaMs: 500 },
+      ],
+      elapsedMs: 250,
+    };
+    expect(taskIdsFromProgress(progress)).toEqual([7, 3]);
   });
 });

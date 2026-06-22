@@ -17,6 +17,15 @@ export const DEFAULT_START = 1;
 export const MAX_START = 4_294_967_295; // u32::MAX
 
 /**
+ * The start number for the next batch after one of `count` tasks ran with the
+ * given `start`: advance by the batch count, clamped to `MAX_START` so the
+ * auto-continue never exceeds the backend's `u32` start field. Pure: no IPC.
+ */
+export function nextStartAfterBatch(start: number, count: number): number {
+  return Math.min(start + count, MAX_START);
+}
+
+/**
  * Parse a start-number input string into a valid start value, or `null` when the
  * input is not a usable integer (empty / non-numeric / fractional). Negative
  * values clamp to 0; values above `MAX_START` clamp to the maximum. Callers treat

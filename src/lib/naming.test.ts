@@ -4,6 +4,7 @@ import {
   DEFAULT_START,
   DEFAULT_TEMPLATE,
   MAX_START,
+  nextStartAfterBatch,
   sanitizeStartNumber,
 } from "./naming";
 
@@ -40,5 +41,18 @@ describe("sanitizeStartNumber", () => {
 
   it("exposes a default of 1", () => {
     expect(DEFAULT_START).toBe(1);
+  });
+});
+
+describe("nextStartAfterBatch", () => {
+  it("advances the start by the batch count", () => {
+    expect(nextStartAfterBatch(1, 3)).toBe(4);
+    expect(nextStartAfterBatch(0, 0)).toBe(0);
+    expect(nextStartAfterBatch(10, 5)).toBe(15);
+  });
+
+  it("clamps the advanced start to MAX_START", () => {
+    expect(nextStartAfterBatch(MAX_START, 1)).toBe(MAX_START);
+    expect(nextStartAfterBatch(MAX_START - 2, 5)).toBe(MAX_START);
   });
 });

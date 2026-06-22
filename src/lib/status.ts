@@ -57,6 +57,15 @@ export function statusVisual(outcome: TaskOutcome): StatusVisual {
 }
 
 /**
+ * Project a progress event to the per-task ids in the job's task order. The
+ * store keeps this index-aligned with `draft.items` as `taskIdByIndex`. Pure:
+ * no React/Tauri — the single owner of the ProgressEvent → task-id projection.
+ */
+export function taskIdsFromProgress(progress: ProgressEvent): number[] {
+  return progress.perTask.map((t) => t.taskId);
+}
+
+/**
  * The resolved outcome of a single task once a job has finished.
  *
  * It widens the three terminal `TaskOutcome` buckets with two non-bucket
