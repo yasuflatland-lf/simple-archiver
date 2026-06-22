@@ -118,9 +118,8 @@ describe("Ledger", () => {
     });
     render(<Ledger />);
 
-    const rows = screen.getAllByRole("row");
-    // 3 result rows (the sticky header is not a table row).
-    expect(rows.length).toBe(3);
+    // Count data rows by their Copy action (group-heading rows have no button).
+    expect(screen.getAllByRole("button", { name: /copy/i })).toHaveLength(3);
 
     expect(screen.getByText("a.rar")).toBeTruthy();
     expect(screen.getByText("b.rar")).toBeTruthy();
@@ -137,12 +136,11 @@ describe("Ledger", () => {
     });
     render(<Ledger />);
 
-    // The sticky header insets its status tally by px-4; without a matching left
-    // pad on the first body cell the row numbers hug the card's left border and
-    // fall out of alignment with the header. The number cell must carry pl-4 so
-    // the two left edges line up.
-    const firstRow = screen.getAllByRole("row")[0];
-    const numberCell = within(firstRow).getAllByRole("cell")[0];
+    // The header insets its content by px-4; the number cell must carry pl-4 so
+    // the row numbers line up with it. Target a known data row (grouping reorders
+    // rows, so the first DOM row is a group heading, not a data row).
+    const row = screen.getByText("out_1.zip").closest("tr") as HTMLElement;
+    const numberCell = within(row).getAllByRole("cell")[0];
     expect(numberCell.className).toContain("pl-4");
   });
 
@@ -155,18 +153,94 @@ describe("Ledger", () => {
     expect(screen.getByText(/unrar error: boom/)).toBeTruthy();
   });
 
-  it("tallies the header counts from the results status, not recomputed", () => {
+  it("orders groups failures-first, successes-last", () => {
     useJobStore.setState({
       draft: draftWith(["/in/a.rar", "/in/b.rar", "/in/c.rar"]),
       summary: MIXED_SUMMARY,
     });
     render(<Ledger />);
-    // 1 succeeded, 1 cancelled, 1 failed. The counts (with their number) live in
-    // the sticky header; the per-row status badges render only the bare label, so
-    // matching "<label> <n>" uniquely resolves the header tally.
-    expect(screen.getByText(/Succeeded\s*1/)).toBeTruthy();
-    expect(screen.getByText(/Cancelled\s*1/)).toBeTruthy();
-    expect(screen.getByText(/Failed\s*1/)).toBeTruthy();
+    // out_3.zip is the failed row, out_1.zip the succeeded row: failures first.
+    const failed = screen.getByText("out_3.zip");
+    const succeeded = screen.getByText("out_1.zip");
+    expect(
+      failed.compareDocumentPosition(succeeded) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("renders a group heading with the count for each non-empty outcome", () => {
+    useJobStore.setState({
+      draft: draftWith(["/in/a.rar", "/in/b.rar", "/in/c.rar"]),
+      summary: MIXED_SUMMARY,
+    });
+    render(<Ledger />);
+    expect(screen.getByText(/Failed\s*·\s*1/)).toBeTruthy();
+    expect(screen.getByText(/Cancelled\s*·\s*1/)).toBeTruthy();
+    expect(screen.getByText(/Succeeded\s*·\s*1/)).toBeTruthy();
+  });
+
+  it("omits a group heading for an outcome with no results", () => {
+    useJobStore.setState({
+      draft: draftWith(["/in/a.rar"]),
+      summary: {
+        succeeded: [10],
+        cancelled: [],
+        failed: [],
+        results: [
+          {
+            taskId: 10,
+            outputName: "out_1.zip",
+            outputPath: "/out/out_1.zip",
+            status: "succeeded",
+            reason: null,
+          },
+        ],
+      },
+    });
+    render(<Ledger />);
+    expect(screen.queryByText(/Failed\s*·/)).toBeNull();
+    expect(screen.queryByText(/Cancelled\s*·/)).toBeNull();
+    expect(screen.getByText(/Succeeded\s*·\s*1/)).toBeTruthy();
+  });
+
+  it("numbers rows by original job order after grouping reorders them", () => {
+    useJobStore.setState({
+      draft: draftWith(["/in/a.rar", "/in/b.rar", "/in/c.rar"]),
+      summary: MIXED_SUMMARY,
+    });
+    render(<Ledger />);
+    // Failed (out_3.zip) is index 2 in results → number 3, even though it leads.
+    const failedRow = screen
+      .getByText("out_3.zip")
+      .closest("tr") as HTMLElement;
+    expect(within(failedRow).getAllByRole("cell")[0].textContent).toBe("3");
+  });
+
+  it("summarises the batch in the header with per-outcome counts", () => {
+    useJobStore.setState({
+      draft: draftWith(["/in/a.rar", "/in/b.rar", "/in/c.rar"]),
+      summary: MIXED_SUMMARY,
+    });
+    render(<Ledger />);
+    // Total + a subline that omits zero categories.
+    expect(screen.getByText(/3 archives/i)).toBeTruthy();
+    expect(screen.getByText(/1 succeeded/i)).toBeTruthy();
+    expect(screen.getByText(/1 cancelled/i)).toBeTruthy();
+    expect(screen.getByText(/1 failed/i)).toBeTruthy();
+  });
+
+  it("gives Open folder primary emphasis and Clear an outline treatment", () => {
+    useJobStore.setState({
+      draft: draftWith(["/in/a.rar"], "/out"),
+      summary: MIXED_SUMMARY,
+    });
+    render(<Ledger />);
+    expect(
+      screen.getByRole("button", { name: /open folder/i }).className,
+    ).toContain("bg-primary");
+    expect(
+      screen.getByRole("button", { name: /clear results/i }).className,
+    ).toContain("border");
   });
 
   it("shows the per-row size from the last progress event keyed by task id", () => {
@@ -278,53 +352,50 @@ describe("Ledger", () => {
       await screen.findByText(/path was copied/i);
     });
 
-    it("shows a 'Path was copied' affordance near the pointer after copying", async () => {
-      vi.mocked(copyText).mockResolvedValue(undefined);
-      render(<Ledger />);
-
-      const succeededRow = screen.getByText("out_1.zip").closest("tr");
-      // fireEvent (not userEvent) so we can supply pointer coordinates; the
-      // affordance is positioned at the click point.
-      fireEvent.click(
-        within(succeededRow as HTMLElement).getByRole("button", {
-          name: /copy/i,
-        }),
-        { clientX: 123, clientY: 456 },
-      );
-
-      const hint = await screen.findByText(/path was copied/i);
-      // Fixed-position pill anchored at the pointer's viewport coordinates.
-      expect(hint.style.left).toBe("123px");
-      expect(hint.style.top).toBe("456px");
-    });
-
-    it("dismisses the copied affordance after a few seconds", async () => {
+    it("marks the clicked row as Copied and reverts after the timeout", async () => {
       vi.useFakeTimers();
       try {
         vi.mocked(copyText).mockResolvedValue(undefined);
         render(<Ledger />);
 
-        const succeededRow = screen.getByText("out_1.zip").closest("tr");
+        const succeededRow = screen
+          .getByText("out_1.zip")
+          .closest("tr") as HTMLElement;
         fireEvent.click(
-          within(succeededRow as HTMLElement).getByRole("button", {
-            name: /copy/i,
-          }),
-          { clientX: 10, clientY: 20 },
+          within(succeededRow).getByRole("button", { name: /copy/i }),
         );
-        // Flush the async copy → state update that mounts the affordance.
+        // Flush the async copy → state update that flips the row into Copied.
         await act(async () => {
           await Promise.resolve();
         });
-        expect(screen.getByText(/path was copied/i)).toBeTruthy();
+        expect(within(succeededRow).getByText(/copied/i)).toBeTruthy();
 
-        // After the timeout elapses, the affordance is gone.
+        // After the timeout elapses, the row reverts to the bare Copy action.
         act(() => {
-          vi.advanceTimersByTime(5000);
+          vi.advanceTimersByTime(2000);
         });
-        expect(screen.queryByText(/path was copied/i)).toBeNull();
+        expect(within(succeededRow).queryByText(/copied/i)).toBeNull();
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it("only marks the row that was clicked as Copied", async () => {
+      vi.mocked(copyText).mockResolvedValue(undefined);
+      render(<Ledger />);
+
+      const succeededRow = screen
+        .getByText("out_1.zip")
+        .closest("tr") as HTMLElement;
+      const cancelledRow = screen
+        .getByText("out_2.zip")
+        .closest("tr") as HTMLElement;
+      await userEvent.click(
+        within(succeededRow).getByRole("button", { name: /copy/i }),
+      );
+
+      expect(within(succeededRow).getByText(/copied/i)).toBeTruthy();
+      expect(within(cancelledRow).queryByText(/copied/i)).toBeNull();
     });
 
     it("surfaces an error when copying fails (and shows no affordance)", async () => {
@@ -434,6 +505,42 @@ describe("Ledger", () => {
       expect(screen.getByRole("status", { name: /run summary/i })).toBeTruthy();
       // The per-row Copy icon button carries an accessible name.
       expect(screen.getByRole("button", { name: /copy/i })).toBeTruthy();
+    });
+  });
+
+  describe("proportion bar", () => {
+    it("renders one segment per non-empty outcome", () => {
+      useJobStore.setState({
+        draft: draftWith(["/in/a.rar", "/in/b.rar", "/in/c.rar"]),
+        summary: MIXED_SUMMARY,
+      });
+      const { container } = render(<Ledger />);
+      const bar = container.querySelector(".ledger-segment-bar");
+      expect(bar).not.toBeNull();
+      expect((bar as HTMLElement).children).toHaveLength(3);
+    });
+
+    it("renders a single segment when every task shares one outcome", () => {
+      useJobStore.setState({
+        draft: draftWith(["/in/a.rar"]),
+        summary: {
+          succeeded: [10],
+          cancelled: [],
+          failed: [],
+          results: [
+            {
+              taskId: 10,
+              outputName: "out_1.zip",
+              outputPath: "/out/out_1.zip",
+              status: "succeeded",
+              reason: null,
+            },
+          ],
+        },
+      });
+      const { container } = render(<Ledger />);
+      const bar = container.querySelector(".ledger-segment-bar");
+      expect((bar as HTMLElement).children).toHaveLength(1);
     });
   });
 });

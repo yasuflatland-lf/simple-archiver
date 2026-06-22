@@ -1,4 +1,4 @@
-import { Copy, Eraser, FolderOpen } from "lucide-react";
+import { Check, Copy, Delete, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { ProgressEvent } from "@/bindings/ProgressEvent";
@@ -8,12 +8,15 @@ import { messageFromReason } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import { basename } from "@/lib/path";
 import { copyText, openPath } from "@/lib/reveal";
-import { statusVisual } from "@/lib/status";
+import { statusVisual, type TaskOutcome } from "@/lib/status";
 import { useJobStore } from "@/store/jobStore";
 
-// How long the transient "Path was copied" affordance lingers near the pointer
-// after a successful per-row Copy before it fades away on its own.
+// How long a row's "Copied" affordance lingers before it reverts to the Copy icon.
 const COPIED_HINT_MS = 2000;
+
+// Outcome groups render in action-first order: failures first so the rows a user
+// must act on lead; successes last.
+const GROUP_ORDER: TaskOutcome[] = ["failed", "cancelled", "succeeded"];
 
 // Run an IPC-touching action and surface a failure through the shared store
 // error path rather than swallowing it, mirroring the other event handlers
@@ -42,34 +45,40 @@ function sizeForTask(
 }
 
 interface LedgerRowProps {
-  /** Position in the results list, used for the source-basename lookup. */
+  /** Original job-order position (preserved across grouping) for the number cell. */
   index: number;
   result: TaskResultDto;
   /** Source basename, resolved by the parent from draft.items[index]. */
   source: string;
   /** Best-effort produced size, or null when unknown. */
   size: string | null;
-  /**
-   * Raise the transient "Path was copied" affordance at the given viewport
-   * coordinates after this row's path is successfully copied.
-   */
-  onCopied: (x: number, y: number) => void;
+  /** Whether this row is currently showing its transient "Copied" affordance. */
+  copied: boolean;
+  /** Copy the row's output path and raise the in-row confirmation. */
+  onCopy: (taskId: number, outputPath: string) => void;
 }
 
 /**
- * One ledger row: `# | source → output name | size | status | Copy`.
+ * One ledger row: `# | source → output name | size-or-reason | Copy`.
  *
+ * The per-row status is conveyed by the enclosing outcome group, so the row
+ * carries no status chip. Failed rows render their reason in place of the size.
  * Copy writes the row's intended absolute output path to the clipboard; even a
- * failed row exposes it so the path can still be pasted. On success it raises a
- * transient "Path was copied" affordance at the pointer via `onCopied`.
+ * failed row exposes it so the path can still be pasted. On success the button
+ * morphs to "Copied" in place.
  */
-function LedgerRow({ index, result, source, size, onCopied }: LedgerRowProps) {
-  const visual = statusVisual(result.status);
-
+function LedgerRow({
+  index,
+  result,
+  source,
+  size,
+  copied,
+  onCopy,
+}: LedgerRowProps) {
   return (
     <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-      {/* Sequence number. pl-4 matches the sticky header's px-4 inset so the row
-          numbers line up with the status tally instead of hugging the card edge. */}
+      {/* Sequence number. pl-4 matches the header's px-4 inset so the row numbers
+          line up with the header instead of hugging the card edge. */}
       <td className="py-2 pl-4 pr-3 font-mono text-muted-foreground">
         {index + 1}
       </td>
@@ -83,44 +92,32 @@ function LedgerRow({ index, result, source, size, onCopied }: LedgerRowProps) {
         <span>{result.outputName}</span>
       </td>
 
-      {/* Size (omitted when unknown) */}
-      <td className="py-2 pr-3 font-mono text-muted-foreground">
-        {size ?? ""}
-      </td>
-
-      {/* Status glyph + label; failed rows carry the reason inline */}
-      <td className="py-2 pr-3">
-        <span
-          className={`inline-flex items-center gap-1.5 rounded px-2 py-1 font-medium ${visual.className}`}
-        >
-          <span aria-hidden="true">{visual.icon}</span>
-          {visual.label}
-        </span>
-        {result.status === "failed" && result.reason !== null && (
-          <span className="ml-2 font-mono text-status-danger-foreground">
-            {result.reason}
-          </span>
+      {/* size for non-failed rows; the failure reason (emphasised) for failed rows */}
+      <td className="py-2 pr-3 font-mono text-xs">
+        {result.status === "failed" ? (
+          <span className="text-status-danger-foreground">{result.reason}</span>
+        ) : (
+          <span className="text-muted-foreground">{size ?? ""}</span>
         )}
       </td>
 
-      {/* Per-row actions */}
-      <td className="py-2">
-        <div className="flex gap-1">
+      {/* Per-row Copy action with an in-place "Copied" confirmation. */}
+      <td className="py-2 pr-4">
+        <div className="flex justify-end">
           <Button
             variant="ghost"
-            size="icon"
+            size="sm"
             aria-label={`Copy path of ${result.outputName}`}
-            onClick={(event) => {
-              // Capture the pointer position now; the synthetic event is not
-              // available once the async copy resolves.
-              const { clientX, clientY } = event;
-              runOrReportError(async () => {
-                await copyText(result.outputPath);
-                onCopied(clientX, clientY);
-              });
-            }}
+            onClick={() => onCopy(result.taskId, result.outputPath)}
           >
-            <Copy aria-hidden="true" />
+            {copied ? (
+              <>
+                <Check aria-hidden="true" />
+                Copied
+              </>
+            ) : (
+              <Copy aria-hidden="true" />
+            )}
           </Button>
         </div>
       </td>
@@ -130,12 +127,11 @@ function LedgerRow({ index, result, source, size, onCopied }: LedgerRowProps) {
 
 /**
  * The Inline Ledger is the completion view shown in the right canvas after a job
- * finishes. It replaces the old RunSummary panel: a sticky header with the
- * status tally + an "Open folder" affordance, then one row per task carrying its
- * source → output name, produced size, status, and a per-row Copy action.
+ * finishes. Results are grouped by outcome (failures first), each group labelled
+ * with its count, and every row carries a per-row Copy action.
  *
- * Pure projection of the backend JobSummaryDto: the header counts are tallied
- * from `summary.results[].status` (never recomputed independently) and failure
+ * Pure projection of the backend JobSummaryDto: the counts are tallied from
+ * `summary.results[].status` (never recomputed independently) and failure
  * reasons come verbatim from each result. Renders nothing until a summary exists.
  */
 export function Ledger() {
@@ -145,20 +141,18 @@ export function Ledger() {
   const outputDir = useJobStore((s) => s.draft.outputDir);
   const clearResults = useJobStore((s) => s.clearResults);
 
-  // Transient per-row "Path was copied" affordance, anchored at the pointer.
-  // `nonce` changes the object identity on every copy so a repeat copy re-arms
-  // the dismiss timer and repositions the pill even when the text is unchanged.
-  const [copiedHint, setCopiedHint] = useState<{
-    x: number;
-    y: number;
+  // The task id whose row currently shows "Copied". `nonce` re-arms the dismiss
+  // timer and re-announces on a repeat copy even when the same row is copied.
+  const [copied, setCopied] = useState<{
+    taskId: number;
     nonce: number;
   } | null>(null);
 
   useEffect(() => {
-    if (copiedHint === null) return;
-    const timer = setTimeout(() => setCopiedHint(null), COPIED_HINT_MS);
+    if (copied === null) return;
+    const timer = setTimeout(() => setCopied(null), COPIED_HINT_MS);
     return () => clearTimeout(timer);
-  }, [copiedHint]);
+  }, [copied]);
 
   if (summary === null) return null;
 
@@ -167,14 +161,34 @@ export function Ledger() {
   const cancelled = results.filter((r) => r.status === "cancelled").length;
   const failed = results.filter((r) => r.status === "failed").length;
 
-  const counts = [
-    { visual: statusVisual("succeeded"), n: succeeded },
-    { visual: statusVisual("cancelled"), n: cancelled },
-    { visual: statusVisual("failed"), n: failed },
-  ];
+  // Header subline: per-outcome counts, omitting zero categories.
+  const sublineParts: string[] = [];
+  if (succeeded) sublineParts.push(`${succeeded} succeeded`);
+  if (cancelled) sublineParts.push(`${cancelled} cancelled`);
+  if (failed) sublineParts.push(`${failed} failed`);
+  const subline = sublineParts.join(" · ");
 
-  const showCopiedHint = (x: number, y: number) =>
-    setCopiedHint((prev) => ({ x, y, nonce: (prev?.nonce ?? 0) + 1 }));
+  // Proportion bar segments in a stable visual order, omitting empty ones. The
+  // status-*-foreground tokens are already registered (used as text colors), so
+  // the bg-* variants resolve.
+  const segments = [
+    { key: "succeeded", n: succeeded, bg: "bg-status-success-foreground" },
+    { key: "cancelled", n: cancelled, bg: "bg-status-warning-foreground" },
+    { key: "failed", n: failed, bg: "bg-status-danger-foreground" },
+  ].filter((s) => s.n > 0);
+
+  // Preserve each row's original job-order number before grouping reorders them.
+  const entries = results.map((result, index) => ({ result, index }));
+  const groups = GROUP_ORDER.map((outcome) => ({
+    outcome,
+    items: entries.filter((e) => e.result.status === outcome),
+  })).filter((g) => g.items.length > 0);
+
+  const handleCopy = (taskId: number, outputPath: string) =>
+    runOrReportError(async () => {
+      await copyText(outputPath);
+      setCopied((prev) => ({ taskId, nonce: (prev?.nonce ?? 0) + 1 }));
+    });
 
   // <output> carries an implicit ARIA role of "status" (and implicit aria-live),
   // so the ledger is announced to assistive tech and tests resolve it via
@@ -186,25 +200,23 @@ export function Ledger() {
         aria-label="Run summary"
         className="flex flex-col rounded-md border border-border bg-card text-sm"
       >
-        {/* Sticky header: status tally + the whole-job "find my files" action. */}
+        {/* Sticky header: batch summary + the whole-job actions. Open folder is
+            the primary next action; Clear is the quieter outline dismiss. */}
         <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-t-md border-b border-border bg-card px-4 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {counts.map(({ visual, n }) => (
-              <span
-                key={visual.label}
-                className={`inline-flex items-center gap-1.5 rounded px-2 py-1 font-medium ${visual.className}`}
-              >
-                <span aria-hidden="true">{visual.icon}</span>
-                {visual.label} {n}
-              </span>
-            ))}
+          <div>
+            <div className="font-semibold text-foreground">
+              {results.length} archives
+            </div>
+            {subline !== "" && (
+              <div className="text-xs text-muted-foreground">{subline}</div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
             {/* Guarded on outputDir so it never opens a null path. */}
             {outputDir !== null && (
               <Button
-                variant="outline"
+                variant="default"
                 size="sm"
                 aria-label="Open folder"
                 onClick={() => runOrReportError(() => openPath(outputDir))}
@@ -223,40 +235,59 @@ export function Ledger() {
               aria-label="Clear results"
               onClick={() => runOrReportError(() => clearResults())}
             >
-              <Eraser aria-hidden="true" />
+              <Delete aria-hidden="true" />
               Clear
             </Button>
           </div>
         </div>
 
-        {/* One row per task, in job order. */}
+        {/* Proportion bar (decorative; counts are read out via the subline). */}
+        <div
+          aria-hidden="true"
+          className="ledger-segment-bar flex h-1.5 overflow-hidden"
+        >
+          {segments.map((s) => (
+            <div key={s.key} className={s.bg} style={{ flexGrow: s.n }} />
+          ))}
+        </div>
+
+        {/* Grouped rows: one tbody per non-empty outcome, failures first. */}
         <table className="w-full text-left">
-          <tbody>
-            {results.map((result, index) => (
-              <LedgerRow
-                key={result.taskId}
-                index={index}
-                result={result}
-                source={basename(items[index]?.path ?? "")}
-                size={sizeForTask(result.taskId, progress)}
-                onCopied={showCopiedHint}
-              />
-            ))}
-          </tbody>
+          {groups.map((group) => {
+            const visual = statusVisual(group.outcome);
+            return (
+              <tbody key={group.outcome}>
+                <tr>
+                  <th
+                    colSpan={4}
+                    scope="rowgroup"
+                    className={`px-4 py-1.5 text-left text-xs font-semibold ${visual.className}`}
+                  >
+                    <span aria-hidden="true">{visual.icon}</span> {visual.label}{" "}
+                    · {group.items.length}
+                  </th>
+                </tr>
+                {group.items.map(({ result, index }) => (
+                  <LedgerRow
+                    key={result.taskId}
+                    index={index}
+                    result={result}
+                    source={basename(items[index]?.path ?? "")}
+                    size={sizeForTask(result.taskId, progress)}
+                    copied={copied?.taskId === result.taskId}
+                    onCopy={handleCopy}
+                  />
+                ))}
+              </tbody>
+            );
+          })}
         </table>
       </output>
 
-      {/* Transient confirmation that floats in near the pointer after a Copy
-          and fades on its own. Pointer-events-none so it never intercepts a
-          follow-up click; its own <output> announces the copy to assistive
-          tech without disturbing the run-summary region above. */}
-      {copiedHint !== null && (
-        <output
-          key={copiedHint.nonce}
-          aria-live="polite"
-          className="copied-hint pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-[150%] rounded-md border border-border bg-popover px-2 py-1 text-xs font-medium text-popover-foreground shadow-md"
-          style={{ left: copiedHint.x, top: copiedHint.y }}
-        >
+      {/* Visually-hidden, polite announcement of a successful copy. Keyed by nonce
+          so a repeat copy re-announces even though the text is unchanged. */}
+      {copied !== null && (
+        <output key={copied.nonce} aria-live="polite" className="sr-only">
           Path was copied
         </output>
       )}
