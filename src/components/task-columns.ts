@@ -10,6 +10,7 @@
 
 /** Stable identifiers for the queue table's columns, in render order. */
 export type TaskColumnKey =
+  | "drag"
   | "index"
   | "kind"
   | "source"
@@ -40,6 +41,15 @@ export const MAX_COLUMN_WIDTH = 800;
  * horizontal scroll.
  */
 export const TASK_COLUMNS: TaskColumnDef[] = [
+  {
+    // Dedicated drag affordance: a fixed, narrow leftmost column whose grip is
+    // the explicit "grab here to reorder" signifier. No handle, no header label.
+    key: "drag",
+    label: "",
+    defaultWidth: 36,
+    minWidth: 36,
+    resizable: false,
+  },
   {
     key: "index",
     label: "#",

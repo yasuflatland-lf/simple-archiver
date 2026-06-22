@@ -116,7 +116,9 @@ function TaskRowImpl({ index }: TaskRowProps) {
   // Select this row on click. The action buttons (grip/up/down/delete) keep
   // their own behavior, so clicks originating from a control are ignored; only
   // a click on the row body selects. Selection is disabled while running, where
-  // the positional progress arrays must stay fixed.
+  // the positional progress arrays must stay fixed. A click is distinct from a
+  // drag: the row-body drag only arms past a small move threshold, so a plain
+  // click still selects.
   const onRowClick = (event: MouseEvent<HTMLTableRowElement>) => {
     if (row.running) return;
     if ((event.target as HTMLElement).closest("button")) return;
@@ -126,21 +128,26 @@ function TaskRowImpl({ index }: TaskRowProps) {
     });
   };
 
-  // Drag affordances: dim the row being dragged and highlight the row the
-  // pointer is currently over as the drop target. A selected row carries the
-  // accent highlight (the project's selected-state token); the grab cursor
-  // lives on the grip handle (the only element that starts a drag), not the row.
+  // Drag affordances: dim the row being dragged; draw a 2px insertion line on the
+  // edge where the row would land (a box-shadow, not a real element, avoids table
+  // layout shift). A non-dragged selected row carries the accent highlight. The
+  // whole row is a drag surface, so the grab cursor lives on the row itself.
   const rowClassName = [
     "border-b border-border/50 transition-colors",
-    !row.running && "cursor-pointer",
+    // The whole row is a drag surface; show grab at rest, grabbing mid-drag.
+    dnd.enabled && (dnd.isDraggingAny ? "cursor-grabbing" : "cursor-grab"),
     dnd.isDragging
       ? "opacity-40"
       : row.isSelected
         ? "bg-accent"
         : "hover:bg-muted/30",
-    dnd.isOver && "bg-primary/10",
-    // Suppress text selection across the list while any row is being dragged.
-    dnd.isDraggingAny && "select-none",
+    dnd.dropEdge === "top" && "shadow-[inset_0_2px_0_0_var(--color-primary)]",
+    dnd.dropEdge === "bottom" &&
+      "shadow-[inset_0_-2px_0_0_var(--color-primary)]",
+    // While a drag is active, suppress text selection and stop touch-scroll from
+    // hijacking the gesture. Applied only mid-drag so the list stays scrollable
+    // and filenames stay selectable at rest.
+    dnd.isDraggingAny && "select-none touch-none",
   ]
     .filter(Boolean)
     .join(" ");
@@ -151,9 +158,32 @@ function TaskRowImpl({ index }: TaskRowProps) {
       onClick={onRowClick}
       aria-selected={row.isSelected}
       data-dragging={dnd.isDragging || undefined}
-      data-drop-target={dnd.isOver || undefined}
+      data-drop-edge={dnd.dropEdge ?? undefined}
+      aria-roledescription="draggable item"
       className={rowClassName}
     >
+      {/* Drag column: the grip is the explicit reorder signifier. Pointer-based (not
+          HTML5) so it survives Tauri's webview drag-drop handler; keyboard users
+          reorder with the up/down buttons, so the grip stays aria-hidden. `touch-none`
+          keeps a touch drag from scrolling the list; `select-none` keeps the press
+          from starting a text selection (mirrors PaneSeparator). */}
+      <td className="py-2 pl-1">
+        <span
+          {...dnd.handleProps}
+          data-testid={`reorder-handle-${index}`}
+          data-reorder-handle
+          data-disabled={!dnd.enabled || undefined}
+          aria-hidden
+          className={`flex items-center justify-center touch-none select-none transition-colors ${
+            dnd.enabled
+              ? "cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground"
+              : "cursor-not-allowed text-muted-foreground/40"
+          }`}
+        >
+          <GripVertical className="size-4 shrink-0" />
+        </span>
+      </td>
+
       {/* Sequence number */}
       <td className="py-2 pr-3 text-muted-foreground font-mono">{index + 1}</td>
 
@@ -200,28 +230,9 @@ function TaskRowImpl({ index }: TaskRowProps) {
         )}
       </td>
 
-      {/* Actions: drag handle + keyboard-accessible up/down buttons + delete */}
+      {/* Actions: keyboard-accessible up/down buttons + delete */}
       <td className="py-2">
         <div className="flex items-center gap-1">
-          {/* Grip handle: starts a pointer drag to reorder this row. The drag is
-              pointer-based (not HTML5) so it survives Tauri's webview drag-drop
-              handler; keyboard users reorder with the up/down buttons instead,
-              so the handle stays aria-hidden. `touch-none` keeps a touch drag
-              from scrolling the list; `select-none` keeps the press from
-              starting a text selection (mirrors PaneSeparator). */}
-          <span
-            {...dnd.handleProps}
-            data-testid={`reorder-handle-${index}`}
-            data-disabled={!dnd.enabled || undefined}
-            aria-hidden
-            className={`flex items-center touch-none select-none text-muted-foreground/60 ${
-              dnd.enabled
-                ? "cursor-grab active:cursor-grabbing"
-                : "cursor-not-allowed opacity-30"
-            }`}
-          >
-            <GripVertical className="size-4 shrink-0" />
-          </span>
           <button
             type="button"
             aria-label="Move up"

@@ -12,34 +12,29 @@ import {
 
 import { useJobStore } from "@/store/jobStore";
 
-// ---------------------------------------------------------------------------
-// Context
-// ---------------------------------------------------------------------------
-
 type RowPointerEvent = ReactPointerEvent<HTMLElement>;
 
+/** Smallest pointer travel (px) that turns a row-body press into a drag. */
+const DRAG_THRESHOLD_PX = 5;
+
 interface ReorderDndContextValue {
-  /** Whether rows may be reordered at all (false while a job is running). */
   enabled: boolean;
-  /** Index of the row currently being dragged, or null. */
   draggingIndex: number | null;
-  /** Index of the row currently hovered as the drop target, or null. */
-  overIndex: number | null;
-  start: (index: number, event: RowPointerEvent) => void;
-  over: (index: number) => void;
-  drop: (index: number) => void;
+  /** Insertion gap g in [0, count]: the dragged row lands before row g. */
+  overGap: number | null;
+  count: number;
+  startImmediate: (index: number, event: RowPointerEvent) => void;
+  startDeferred: (index: number, event: RowPointerEvent) => void;
+  pointerMoveOnRow: (index: number, event: RowPointerEvent) => void;
+  drop: () => void;
 }
 
 const ReorderDndContext = createContext<ReorderDndContextValue | null>(null);
 
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
-
 /**
  * ReorderDndProvider owns the ephemeral drag state (which row is being dragged,
- * which row is the current drop target) and translates a pointer-drag gesture
- * into a single `reorder(from, to)` store action.
+ * which insertion gap is the current drop target) and translates a pointer-drag
+ * gesture into a single `reorder(from, to)` store action.
  *
  * Pointer events — not HTML5 drag-and-drop — drive the gesture on purpose: the
  * app needs Tauri's native webview drag-drop handler enabled so files/folders
@@ -56,57 +51,98 @@ const ReorderDndContext = createContext<ReorderDndContextValue | null>(null);
 export function ReorderDndProvider({ children }: { children: ReactNode }) {
   const running = useJobStore((s) => s.running);
   const reorder = useJobStore((s) => s.reorder);
+  const count = useJobStore((s) => s.draft.items.length);
 
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
-  // Mirror the active drag source synchronously so the pointer handlers (and the
-  // window-level teardown below) read it without waiting for a state flush.
+  const [overGap, setOverGap] = useState<number | null>(null);
+  // Mirror the active drag source and gap synchronously so the pointer handlers
+  // (and the window-level teardown) read them without waiting for a state flush.
   const draggingRef = useRef<number | null>(null);
+  const overGapRef = useRef<number | null>(null);
+  // Origin of a row-body press that has not yet passed the drag threshold.
+  const pendingRef = useRef<{ index: number; x: number; y: number } | null>(
+    null,
+  );
 
   const enabled = !running;
 
   const reset = useCallback(() => {
     draggingRef.current = null;
+    overGapRef.current = null;
+    pendingRef.current = null;
     setDraggingIndex(null);
-    setOverIndex(null);
+    setOverGap(null);
   }, []);
 
-  const start = useCallback(
+  const arm = useCallback((index: number) => {
+    pendingRef.current = null;
+    draggingRef.current = index;
+    setDraggingIndex(index);
+  }, []);
+
+  // Grip handle: there is nothing to click or select there, so start at once.
+  const startImmediate = useCallback(
     (index: number, event: RowPointerEvent) => {
-      // Guard so a stray pointerdown can never begin a drag mid-run.
       if (!enabled) return;
-      // Stop the press from starting a text selection while dragging.
       event.preventDefault();
-      draggingRef.current = index;
-      setDraggingIndex(index);
+      arm(index);
+    },
+    [enabled, arm],
+  );
+
+  // Row body: record the origin but defer arming until the pointer moves past the
+  // threshold, so a plain click or a text selection is not mistaken for a drag.
+  const startDeferred = useCallback(
+    (index: number, event: RowPointerEvent) => {
+      if (!enabled) return;
+      pendingRef.current = { index, x: event.clientX, y: event.clientY };
     },
     [enabled],
   );
 
-  const over = useCallback((index: number) => {
-    // Only track a hover target while a drag is actually in progress.
-    if (draggingRef.current === null) return;
-    setOverIndex(index);
-  }, []);
-
-  const drop = useCallback(
-    (index: number) => {
-      const from = draggingRef.current;
-      // Dropping a row onto index `to` lands it exactly at `to` (the store's
-      // reorder is a remove-then-insert), so the drop target index maps
-      // directly to the destination. Skip no-op and mid-run drops.
-      if (from !== null && from !== index && enabled) {
-        void reorder(from, index);
+  const pointerMoveOnRow = useCallback(
+    (index: number, event: RowPointerEvent) => {
+      // Do nothing while reordering is disabled; a pending press must not arm
+      // into a drag mid-run even if the pointer has traveled far enough.
+      if (!enabled) return;
+      // Promote a pending row-body press to a real drag once it passes threshold.
+      const pending = pendingRef.current;
+      if (pending && draggingRef.current === null) {
+        const moved = Math.hypot(
+          event.clientX - pending.x,
+          event.clientY - pending.y,
+        );
+        if (moved < DRAG_THRESHOLD_PX) return;
+        // Cancel any nascent native text-selection now that this is a drag.
+        event.preventDefault();
+        arm(pending.index);
       }
-      reset();
+      if (draggingRef.current === null) return;
+      // Insert-above when the pointer is in the row's upper half, else below.
+      const rect = event.currentTarget.getBoundingClientRect();
+      const gap =
+        event.clientY < rect.top + rect.height / 2 ? index : index + 1;
+      overGapRef.current = gap;
+      setOverGap(gap);
     },
-    [enabled, reorder, reset],
+    [enabled, arm],
   );
 
-  // End the gesture on any pointer release (or cancel) anywhere, so a release
-  // off the rows — or an OS-interrupted drag — never leaves a row stuck in the
-  // dragging state. A drop onto a row resets first (React's root handler runs
-  // before this window listener), so this is the idempotent backstop.
+  const drop = useCallback(() => {
+    const from = draggingRef.current;
+    const gap = overGapRef.current;
+    if (from !== null && gap !== null && enabled) {
+      // The store's reorder is remove-then-insert: removing `from` shifts every
+      // gap after it left by one, so a gap past `from` maps to `gap - 1`.
+      const to = gap <= from ? gap : gap - 1;
+      if (to !== from) void reorder(from, to);
+    }
+    reset();
+  }, [enabled, reorder, reset]);
+
+  // End the gesture on any release/cancel anywhere so a drag never gets stuck.
+  // A still-pending (un-armed) press needs no window backstop: the row's own
+  // onPointerUp -> drop() clears it, and the next press overwrites pendingRef.
   useEffect(() => {
     if (draggingIndex === null) return;
     const end = () => reset();
@@ -119,8 +155,26 @@ export function ReorderDndProvider({ children }: { children: ReactNode }) {
   }, [draggingIndex, reset]);
 
   const value = useMemo<ReorderDndContextValue>(
-    () => ({ enabled, draggingIndex, overIndex, start, over, drop }),
-    [enabled, draggingIndex, overIndex, start, over, drop],
+    () => ({
+      enabled,
+      draggingIndex,
+      overGap,
+      count,
+      startImmediate,
+      startDeferred,
+      pointerMoveOnRow,
+      drop,
+    }),
+    [
+      enabled,
+      draggingIndex,
+      overGap,
+      count,
+      startImmediate,
+      startDeferred,
+      pointerMoveOnRow,
+      drop,
+    ],
   );
 
   return (
@@ -130,24 +184,18 @@ export function ReorderDndProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Row consumer hook
-// ---------------------------------------------------------------------------
+type DropEdge = "top" | "bottom" | null;
 
 interface ReorderRow {
-  /** Whether this row's grip handle may start a drag. */
   enabled: boolean;
   isDragging: boolean;
-  isOver: boolean;
-  /** Whether any row is currently being dragged (drives drag-wide styling). */
   isDraggingAny: boolean;
-  /** Props for the grip handle that starts a drag. */
-  handleProps: {
-    onPointerDown: (event: RowPointerEvent) => void;
-  };
-  /** Props for the row element that acts as a drop target. */
+  /** Which edge of this row to paint the insertion line on, if any. */
+  dropEdge: DropEdge;
+  handleProps: { onPointerDown: (event: RowPointerEvent) => void };
   rowProps: {
-    onPointerMove: () => void;
+    onPointerDown: (event: RowPointerEvent) => void;
+    onPointerMove: (event: RowPointerEvent) => void;
     onPointerUp: () => void;
   };
 }
@@ -157,10 +205,14 @@ interface ReorderRow {
 const NON_DRAGGABLE_ROW: ReorderRow = {
   enabled: false,
   isDragging: false,
-  isOver: false,
   isDraggingAny: false,
+  dropEdge: null,
   handleProps: { onPointerDown: () => {} },
-  rowProps: { onPointerMove: () => {}, onPointerUp: () => {} },
+  rowProps: {
+    onPointerDown: () => {},
+    onPointerMove: () => {},
+    onPointerUp: () => {},
+  },
 };
 
 /**
@@ -170,22 +222,49 @@ const NON_DRAGGABLE_ROW: ReorderRow = {
  */
 export function useReorderRow(index: number): ReorderRow {
   const ctx = useContext(ReorderDndContext);
-  if (ctx === null) {
-    return NON_DRAGGABLE_ROW;
-  }
-  const { enabled, draggingIndex, overIndex, start, over, drop } = ctx;
+  if (ctx === null) return NON_DRAGGABLE_ROW;
+  const {
+    enabled,
+    draggingIndex,
+    overGap,
+    count,
+    startImmediate,
+    startDeferred,
+    pointerMoveOnRow,
+    drop,
+  } = ctx;
+
+  // Interior gap g renders as row g's top edge; the trailing gap (== count)
+  // renders as the last row's bottom edge, so each gap draws exactly one line.
+  // The dragged row itself never shows an insertion line (it is already dimmed).
+  const isLast = index === count - 1;
+  const dropEdge: DropEdge =
+    overGap === null || draggingIndex === index
+      ? null
+      : overGap === index
+        ? "top"
+        : isLast && overGap === index + 1
+          ? "bottom"
+          : null;
+
   return {
     enabled,
     isDragging: draggingIndex === index,
-    // The dragged row is never its own drop target.
-    isOver: overIndex === index && draggingIndex !== index,
     isDraggingAny: draggingIndex !== null,
+    dropEdge,
     handleProps: {
-      onPointerDown: (event) => start(index, event),
+      onPointerDown: (event) => startImmediate(index, event),
     },
     rowProps: {
-      onPointerMove: () => over(index),
-      onPointerUp: () => drop(index),
+      onPointerDown: (event) => {
+        // The grip starts its own immediate drag, and the action buttons must
+        // stay clickable; exclude both so a row-body press never double-fires.
+        const target = event.target as HTMLElement;
+        if (target.closest("button, a, input, [data-reorder-handle]")) return;
+        startDeferred(index, event);
+      },
+      onPointerMove: (event) => pointerMoveOnRow(index, event),
+      onPointerUp: () => drop(),
     },
   };
 }
