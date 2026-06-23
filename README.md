@@ -213,7 +213,7 @@ sequenceDiagram
             Engine-->>UI: emit "archive://progress"
             UI->>UI: applyProgress → per-row & overall bar / ETA
         end
-        Worker-->>Engine: WorkerMsg::Status (Complete | Fail | Cancel)
+        Worker-->>Engine: WorkerMsg::Status (TaskEvent: Complete | Fail | Cancel)
         Note over Worker,Unrar: temp workspace dropped → cleaned up
     end
 
