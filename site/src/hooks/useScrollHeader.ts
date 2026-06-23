@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 
 // A small threshold prevents jitter from trackpad micro-scrolls; past the
 // reveal zone the header gains its gradient and may hide on downward scroll.
-const THRESHOLD = 22;
-const REVEAL_ZONE = 88;
+const THRESHOLD = 3;
+const REVEAL_ZONE = 5;
 
 // Mirrors the original page's SpaceX-style header: reveal on scroll-up, hide on
 // scroll-down past the hero. Returns the header element's class list.
