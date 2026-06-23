@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
 
 const OPTIONS: { value: OutputMode; label: string; Icon: LucideIcon }[] = [
-  { value: "zip", label: "Zip files", Icon: Package },
-  { value: "folder", label: "Folders", Icon: Folder },
+  { value: "zip", label: "Re-archive", Icon: Package },
+  { value: "folder", label: "Unarchive", Icon: Folder },
 ];
 
 /**
