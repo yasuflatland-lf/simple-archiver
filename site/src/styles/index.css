@@ -348,6 +348,10 @@ p {
   gap: 28px;
   padding: 21px 0 20px;
   border-bottom: 1px solid var(--line-soft);
+  /* Align the label to the first line of the body copy by their text
+     baselines, since the label and copy use different font sizes and
+     line-heights. */
+  align-items: baseline;
 }
 .manifest-row b {
   color: #fff;
