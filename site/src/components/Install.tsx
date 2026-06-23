@@ -1,6 +1,4 @@
-// GitHub releases page linked from both per-OS download cards.
-const RELEASES_URL =
-  "https://github.com/yasuflatland-lf/simple-archiver/releases";
+import { RELEASES_URL } from "@/config";
 
 // Installation section with per-OS release cards.
 export function Install() {
