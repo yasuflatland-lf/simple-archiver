@@ -1,0 +1,6 @@
+# Marks site/ as its own pnpm root so it stays isolated from the repo-root
+# project and keeps a separate lockfile / node_modules.
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild

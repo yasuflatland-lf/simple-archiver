@@ -1,8 +1,8 @@
 name: Deploy site to GitHub Pages
 
-# Publishes the static landing page under site/ to GitHub Pages.
-# Pages' "deploy from a branch" source only allows / or /docs, so the
-# site/ folder is published via the GitHub Actions Pages pipeline instead.
+# Builds the Vite + React landing page under site/ and publishes its dist/
+# output to GitHub Pages. Pages' "deploy from a branch" source only allows
+# / or /docs, so the built output is published via the Actions Pages pipeline.
 
 on:
   push:
@@ -28,15 +28,32 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.8.0
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.16.0
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build site
+        run: pnpm build
       - name: Setup Pages
         uses: actions/configure-pages@v6
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: site
+          path: site/dist
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
