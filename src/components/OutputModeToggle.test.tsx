@@ -10,20 +10,20 @@ it("renders the radiogroup with short pill labels, zip selected by default", () 
   render(<OutputModeToggle />);
 
   expect(screen.getByRole("radiogroup", { name: /output as/i })).toBeTruthy();
-  const zip = screen.getByRole("radio", { name: /zip files/i });
-  const folder = screen.getByRole("radio", { name: /folders/i });
+  const zip = screen.getByRole("radio", { name: /re-archive/i });
+  const folder = screen.getByRole("radio", { name: /unarchive/i });
   expect(zip.getAttribute("aria-checked")).toBe("true");
   expect(folder.getAttribute("aria-checked")).toBe("false");
   // The sliding thumb is decorative and present for the visual treatment.
   expect(screen.getByTestId("mode-thumb")).toBeTruthy();
 });
 
-it("calls setOutputMode('folder') when the Folders segment is clicked", () => {
+it("calls setOutputMode('folder') when the Unarchive segment is clicked", () => {
   const spy = vi
     .spyOn(useJobStore.getState(), "setOutputMode")
     .mockResolvedValue();
 
   render(<OutputModeToggle />);
-  fireEvent.click(screen.getByRole("radio", { name: /folders/i }));
+  fireEvent.click(screen.getByRole("radio", { name: /unarchive/i }));
   expect(spy).toHaveBeenCalledWith("folder");
 });
