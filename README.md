@@ -77,7 +77,7 @@ It ships as a single self-contained native application built with **Tauri 2** �
 ## Features
 
 - **Drag & drop intake** — add multiple rar files, zip files, and/or folders at once (drag-drop or a file dialog).
-- **Reorderable list** — move items up and down; the run order follows the list top to bottom.
+- **Reorderable & selectable list** — select rows (click, <kbd>Shift</kbd>+click for a range, <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+click to toggle), move items up and down (drag, buttons, or arrow keys), and delete unwanted rows; the run order follows the list top to bottom. See [Keyboard shortcuts](#keyboard-shortcuts).
 - **Batch naming rule** — specify a single prefix string and number every item sequentially from `1`, top to bottom. A placeholder inside the prefix marks where the sequence number goes: `{n}` inserts the bare number, and `{n:0W}` zero-pads it to width `W` (1–9), e.g. `photo_{n:03}` → `photo_001`, `photo_002`, … A **live preview** shows the resulting `seq=1` filename as you type, and every queue row previews its own output name. The sequence number is fixed at job-creation time in list order (independent of completion order). Output names are de-duplicated case-insensitively and validated to be Windows-safe.
 - **One-click run** — compresses every item per the naming rule, from the top of the list:
   - **rar file** → extracted to a temporary workspace, then re-compressed into a standard Deflate zip.
@@ -87,6 +87,22 @@ It ships as a single self-contained native application built with **Tauri 2** �
 - **Overall progress** — a job-wide progress bar and ETA for all items combined.
 - **Output directory** — pick one destination folder through the native OS picker; all archives are written there. The app remembers your last chosen directory and, on first run, defaults to the OS Downloads folder.
 - **Resilient by design** — existing names are **not overwritten** (that item fails instead), a failed item never stops the others, and a run can be cancelled (in-flight work is interrupted and partial output / temp files are cleaned up). A run summary tallying **succeeded / cancelled / failed** items is shown at the end.
+
+### Keyboard shortcuts
+
+The queue supports both mouse selection and keyboard control. Click anywhere in the queue to focus it, then:
+
+| Action | Shortcut |
+|---|---|
+| Select a single row | Click |
+| Add / remove a row from the selection | <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + Click |
+| Select a range of rows | <kbd>Shift</kbd> + Click |
+| Select all rows | <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>A</kbd> |
+| Move the selected row up / down | <kbd>↑</kbd> / <kbd>↓</kbd> |
+| Delete the selected rows | <kbd>Delete</kbd> / <kbd>Backspace</kbd> |
+| Clear the selection | <kbd>Esc</kbd> |
+
+Selection, reordering, and deletion are disabled while a job is running. Moving a row with the arrow keys requires exactly one selected row; with no row or several rows selected, the arrow keys scroll the queue instead.
 
 ## Getting started (from source)
 
@@ -197,7 +213,7 @@ sequenceDiagram
             Engine-->>UI: emit "archive://progress"
             UI->>UI: applyProgress → per-row & overall bar / ETA
         end
-        Worker-->>Engine: WorkerMsg::Status (Complete | Fail | Cancel)
+        Worker-->>Engine: WorkerMsg::Status (TaskEvent: Complete | Fail | Cancel)
         Note over Worker,Unrar: temp workspace dropped → cleaned up
     end
 

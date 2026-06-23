@@ -54,11 +54,13 @@ rsvg-convert -w 512 -h 512 -a rar-archiver.svg -o icons/rar.png
   cancellation, `FormatRegistry`) drives **two processing paths**. The outbound
   ports appear as edge labels (`Extractor port` / `Archiver port`) rather than
   as nodes:
-  - **Extractor-port path (`.rar`)** — `UnrarExtractor` (the `unrar` C API on
-    `spawn_blocking`) extracts into a `TempWorkspace` (an RAII temp dir
-    reclaimed on every exit path), then `ZipArchiver` (`async_zip`) compresses
-    it. The final compress also goes through the Archiver port (labelled on
-    that edge).
+  - **Extractor-port path (`.rar` / `.zip`)** — the `ArchiveExtractor` router
+    dispatches by source kind: `UnrarExtractor` (the `unrar` C API on
+    `spawn_blocking`) for `.rar`, `ZipExtractor` (`async_zip`, CRC-checked with
+    a zip-slip guard) for `.zip`. Both extract into a `TempWorkspace` (an RAII
+    temp dir reclaimed on every exit path), then `ZipArchiver` (`async_zip`)
+    re-compresses it. The final compress also goes through the Archiver port
+    (labelled on that edge).
   - **Archiver-port path (folders)** — `ZipArchiver` compresses the folder
     as-is, with no extraction.
   - Both paths converge on a single user-chosen **Output folder**; zips are
