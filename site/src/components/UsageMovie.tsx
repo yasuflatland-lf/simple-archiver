@@ -1,4 +1,5 @@
 import usageMovie from "@/assets/basic_usage.mp4";
+import { RELEASES_URL } from "@/config";
 
 // Workflow section presenting the usage movie as a full product surface.
 export function UsageMovie() {
@@ -11,7 +12,7 @@ export function UsageMovie() {
       <div className="wide-visual-head usage-head">
         <div>
           <div className="kicker">Basic usage</div>
-          <h2>Build the draft. Run the job. Read the summary.</h2>
+          <h2>Just throw your files and folders in, and let it run.</h2>
         </div>
         <div className="usage-copy">
           <p>
@@ -21,12 +22,12 @@ export function UsageMovie() {
             background, so the flow stays readable from first intake to final
             summary.
           </p>
-          <a className="text-link" href="#install">
+          <a className="text-link" href={RELEASES_URL}>
             Download latest release
           </a>
         </div>
       </div>
-      <div className="stage video-stage">
+      <div className="stage video-stage" id="workflow-video-stage">
         <video
           aria-label="Simple Archiver basic usage movie"
           className="usage-video"

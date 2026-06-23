@@ -1,4 +1,5 @@
 import heroFolders from "@/assets/hero-folders.png";
+import { RELEASES_URL } from "@/config";
 
 // Hero section: the folders-mode screenshot bleeds off-canvas behind the copy.
 export function Hero() {
@@ -13,18 +14,17 @@ export function Hero() {
       <div className="full-frame">
         <div className="hero-copy">
           <p className="eyebrow">Native batch zip archiver</p>
-          <h1>Re-archive the whole queue in one pass.</h1>
+          <h1>Stress-free re-archive process.</h1>
           <p className="body">
-            Drop rar files, zip files, and folders. Simple Archiver extracts
-            what needs extraction, applies one naming rule, then writes clean
-            Deflate zip files in visible queue order.
+            Organizing random archive files and folders into numbered, unified
+            filenames is troublesome. Simple Archiver makes it easy.
           </p>
           <div className="actions">
-            <a className="btn" href="#install">
+            <a className="btn" href={RELEASES_URL}>
               Download app
             </a>
-            <a className="text-link" href="#workflow">
-              View workflow
+            <a className="text-link" href="#workflow-video-stage">
+              View how it works
             </a>
           </div>
         </div>
