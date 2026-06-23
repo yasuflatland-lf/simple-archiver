@@ -1,5 +1,5 @@
-import { useScrollHeader } from "@/hooks/useScrollHeader";
 import { RELEASES_URL } from "@/config";
+import { useScrollHeader } from "@/hooks/useScrollHeader";
 
 // Fixed site header with anchor navigation and scroll-driven visibility.
 export function Header() {
