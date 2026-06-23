@@ -840,6 +840,10 @@ td {
   --header-h: 76px;
   --line: rgba(255, 255, 255, 0.2);
   --line-soft: rgba(255, 255, 255, 0.105);
+  /* Negative indent that cancels the heavy display face's left side
+     bearing, so big headings sit on the same left edge as the smaller
+     copy. Tunable in one place. */
+  --display-optical-indent: -0.05em;
 }
 body {
   letter-spacing: 0;
@@ -875,6 +879,20 @@ h2 {
   font-size: clamp(38px, 5.15vw, 76px);
   line-height: 0.9;
   letter-spacing: -0.024em;
+}
+/* Optically left-align the heavy display headings: cancel the font's
+   left side bearing so the cap edge lands on the same vertical as the
+   kicker, body copy, and bordered CTA in each section header stack. */
+.hero-copy h1,
+.editorial-copy h2,
+.install-copy h2 {
+  margin-left: var(--display-optical-indent);
+}
+/* Give the section kicker a deliberate gap to its heading so the
+   label/title pairing reads as tight-but-separated, matching the hero
+   eyebrow and balancing the larger heading-to-body gap. */
+.kicker {
+  margin-bottom: 20px;
 }
 p {
   font-size: 15px;
