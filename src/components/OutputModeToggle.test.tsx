@@ -9,9 +9,7 @@ afterEach(() => resetJobStore());
 it("renders the radiogroup with short pill labels, zip selected by default", () => {
   render(<OutputModeToggle />);
 
-  expect(
-    screen.getByRole("radiogroup", { name: /output as/i }),
-  ).toBeTruthy();
+  expect(screen.getByRole("radiogroup", { name: /output as/i })).toBeTruthy();
   const zip = screen.getByRole("radio", { name: /zip files/i });
   const folder = screen.getByRole("radio", { name: /folders/i });
   expect(zip.getAttribute("aria-checked")).toBe("true");
