@@ -6,7 +6,7 @@ export function Overview() {
     <section aria-label="Overview" className="section editorial" id="overview">
       <div className="editorial-copy">
         <div className="kicker">Overview</div>
-        <h2>One desktop app for repetitive archive work.</h2>
+        <h2>Sleek interface to get the work done.</h2>
         <p>
           Simple Archiver is a native Mac and Windows app for batch re-archiving
           mixed inputs into standard zip files. Rar and zip inputs are extracted

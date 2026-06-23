@@ -6,7 +6,7 @@ export function Install() {
     <section aria-label="Installation" className="install" id="install">
       <div className="install-copy">
         <div className="kicker">Installation</div>
-        <h2>Native releases for Mac and Windows.</h2>
+        <h2>Multi platform, Mac and Windows.</h2>
         <p>
           Download the latest installer for your OS. Because the app is not
           notarized by Apple or signed by a Windows publisher, the first launch
