@@ -49,21 +49,26 @@ describe("LeftRail", () => {
     expect(region).toBeTruthy();
   });
 
-  it("shows the collapsed Destination summary with a Change control", () => {
+  it("shows the ResultPreview card with a Change control when a destination is set", () => {
+    setMode("zip", "/out");
     render(<LeftRail />);
-    expect(screen.getByText("Destination")).toBeTruthy();
+    expect(screen.getByTestId("result-preview")).toBeTruthy();
     expect(screen.getByRole("button", { name: /change/i })).toBeTruthy();
   });
 
-  it("shows the (not set) + Required empty state when no destination is set", () => {
+  it("shows the Required empty state in the ResultPreview when no destination is set", () => {
     render(<LeftRail />);
-    expect(screen.getByText("(not set)")).toBeTruthy();
+    expect(screen.getByTestId("result-preview")).toBeTruthy();
     expect(screen.getByText("Required")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /choose folder/i })).toBeTruthy();
   });
 
-  it("renders Naming and Start # in zip mode", () => {
+  it("renders a single Naming heading with Name and Start # inline in zip mode", () => {
     setMode("zip", "/out");
     render(<LeftRail />);
+    // One visible group heading.
+    expect(screen.getByText("Naming")).toBeTruthy();
+    // Both inputs keep their accessible labels (rendered sr-only).
     expect(screen.getByLabelText("Name")).toBeTruthy();
     expect(screen.getByLabelText("Start #")).toBeTruthy();
     // The folder-mode collision policy must be absent in zip mode.
@@ -82,16 +87,16 @@ describe("LeftRail", () => {
     expect(screen.queryByLabelText("Start #")).toBeNull();
   });
 
-  it("places the If exists control above the Destination section in folder mode", () => {
+  it("places the If exists control after the ResultPreview card in folder mode", () => {
     setMode("folder", "/out");
     render(<LeftRail />);
+    const card = screen.getByTestId("result-preview");
     const conflictPolicy = screen.getByRole("radiogroup", {
       name: /a folder already exists/i,
     });
-    const destination = screen.getByText("Destination");
-    // The conflict policy must precede the Destination block in document order.
+    // The card precedes the conflict policy in document order.
     expect(
-      conflictPolicy.compareDocumentPosition(destination) &
+      card.compareDocumentPosition(conflictPolicy) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
