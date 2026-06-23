@@ -14,9 +14,11 @@ Layers shown (matches docs/architecture.md):
   - A pure Rust core crate (simple-archiver-core): the engine and two explicit
     processing paths fanning out from it. The outbound ports are shown as edge
     labels (Extractor port / Archiver port) rather than as nodes:
-      * Extractor-port path (.rar): extract -> temp dir -> compress -> zip.
+      * Extractor-port path (.rar / .zip): the ArchiveExtractor router
+        dispatches by source kind to UnrarExtractor (.rar) or ZipExtractor
+        (.zip); extract -> temp dir -> compress -> zip.
       * Archiver-port path (folders): compress the folder as-is -> zip.
-    The Archiver-port step is intentionally repeated on the .rar path (its
+    The Archiver-port step is intentionally repeated on the archive path (its
     final compress also uses it).
   - The app is bundled as a native binary for macOS and Windows.
 """
@@ -53,7 +55,7 @@ with Diagram(
     graph_attr=graph_attr,
 ):
     # External actor
-    user = Users("End user\n(drag & drop\nrar files / folders)")
+    user = Users("End user\n(drag & drop\nrar / zip files / folders)")
 
     # Presentation: the whole Tauri 2 desktop app as one vendor-logo node —
     # React webview UI + the Tauri command layer (no cluster frame).
@@ -67,9 +69,13 @@ with Diagram(
         # The engine carries the Rust logo only (no caption).
         application = Custom("", ICON_RUST)
 
-        # Path 1 — Extractor port: a .rar file is extracted, then compressed.
-        with Cluster("Extractor-port path · .rar files"):
+        # Path 1 — Extractor port: a .rar or .zip archive is routed by the
+        # ArchiveExtractor to the matching extractor, then re-compressed.
+        with Cluster("Extractor-port path · .rar / .zip files"):
             unrar = Custom("UnrarExtractor\n(unrar · spawn_blocking)", ICON_RAR)
+            zipx = Custom(
+                "ZipExtractor\n(async_zip · CRC + zip-slip guard)", ICON_ZIP
+            )
             temp = Storage("TempWorkspace\n(RAII temp dir)")
             zip_rar = Custom("ZipArchiver\n(async_zip)", ICON_ZIP)
 
@@ -92,11 +98,17 @@ with Diagram(
     ) >> application
 
     # The two outbound ports are shown only as edge labels — one per path.
-    # Path 1 (Extractor port): extract -> temp dir -> compress (Archiver) -> zip.
+    # Path 1 (Extractor port): the ArchiveExtractor router dispatches by source
+    # kind — .rar → UnrarExtractor, .zip → ZipExtractor — both extract into the
+    # temp dir, which is then re-compressed to Deflate zip via the Archiver port.
     application >> Edge(
-        label="Extractor port\n(In case of RAR file)", style="dashed"
+        label="Extractor port\n(ArchiveExtractor → RarFile)", style="dashed"
     ) >> unrar
+    application >> Edge(
+        label="Extractor port\n(ArchiveExtractor → ZipFile)", style="dashed"
+    ) >> zipx
     unrar >> Edge(label="RarFile: extract →") >> temp
+    zipx >> Edge(label="ZipFile: extract →") >> temp
     temp >> Edge(label="then compress\n(Archiver port)") >> zip_rar
     zip_rar >> Edge(label="write *.zip", penwidth="2") >> out
 
