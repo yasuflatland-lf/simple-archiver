@@ -1,4 +1,5 @@
 import { useScrollHeader } from "@/hooks/useScrollHeader";
+import { RELEASES_URL } from "@/config";
 
 // Fixed site header with anchor navigation and scroll-driven visibility.
 export function Header() {
@@ -19,7 +20,7 @@ export function Header() {
         <a href="#install">Install</a>
       </nav>
       <div className="header-end">
-        <a href="#install">Download</a>
+        <a href={RELEASES_URL}>Download</a>
       </div>
     </header>
   );
