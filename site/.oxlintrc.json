@@ -1,0 +1,9 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "jsx-a11y", "import", "typescript", "unicorn"],
+  "categories": { "correctness": "error" },
+  "rules": {
+    "react/no-array-index-key": "warn",
+    "react/button-has-type": "error"
+  }
+}
