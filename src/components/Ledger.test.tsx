@@ -563,4 +563,31 @@ describe("Ledger", () => {
       expect((bar as HTMLElement).children).toHaveLength(1);
     });
   });
+
+  describe("column content-fit", () => {
+    beforeEach(() => {
+      useJobStore.setState({
+        draft: draftWith(["/in/a.rar", "/in/b.rar", "/in/c.rar"]),
+        summary: MIXED_SUMMARY,
+      });
+    });
+
+    // The row keeps full card width, but only the source → output column grows:
+    // it absorbs the slack so the size and Copy columns fit their content and pack
+    // to the right edge.
+    it("stretches the source → output cell to absorb the row's slack", () => {
+      render(<Ledger />);
+      const row = screen.getByText("out_1.zip").closest("tr") as HTMLElement;
+      const cells = within(row).getAllByRole("cell");
+      // cells: [#, source → output, size, Copy] — index 1 is the greedy column.
+      expect(cells[1].className).toContain("w-full");
+    });
+
+    it("keeps the size cell on a single line so size and Copy stay aligned", () => {
+      render(<Ledger />);
+      const row = screen.getByText("out_1.zip").closest("tr") as HTMLElement;
+      const cells = within(row).getAllByRole("cell");
+      expect(cells[2].className).toContain("whitespace-nowrap");
+    });
+  });
 });
