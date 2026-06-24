@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
+import type { ColumnContentMeasurer } from "./column-measure";
 import { COLUMN_BY_KEY, TASK_COLUMNS } from "./task-columns";
 import { TaskList } from "./TaskList";
 
@@ -1117,6 +1118,80 @@ describe("TaskList column resize", () => {
 
     fireEvent.pointerUp(handle, { clientX: 180, buttons: 1, pointerId: 1 });
     expect(handle.getAttribute("data-dragging")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Column content-fit
+// ---------------------------------------------------------------------------
+
+describe("TaskList column content-fit", () => {
+  function seedItems(n: number) {
+    useJobStore.setState({
+      draft: {
+        items: makeItems(n),
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: [],
+    });
+  }
+
+  function colWidth(container: HTMLElement, key: string) {
+    const index = TASK_COLUMNS.findIndex((c) => c.key === key);
+    const cols = container.querySelectorAll("col");
+    return (cols[index] as HTMLElement).style.width;
+  }
+
+  // A measurer whose Source result is whatever `read()` returns at call time, so
+  // a test can change the measured width between renders/interactions. Robust to
+  // the measurer being called more than once per fit.
+  function sourceMeasurer(read: () => number | null): ColumnContentMeasurer {
+    return {
+      measure: (_table, columnIndex) =>
+        TASK_COLUMNS[columnIndex].key === "source" ? read() : null,
+    };
+  }
+
+  it("auto-fits resizable columns to their measured content width on mount", () => {
+    seedItems(2);
+    const measurer = sourceMeasurer(() => 250);
+    const { container } = render(<TaskList measurer={measurer} />);
+    // Default Source width is 360; 250 proves the mount auto-fit ran.
+    expect(colWidth(container, "source")).toBe("250px");
+  });
+
+  it("re-fits columns when the item set changes", () => {
+    let width = 250;
+    const measurer = sourceMeasurer(() => width);
+    seedItems(2);
+    const { container } = render(<TaskList measurer={measurer} />);
+    expect(colWidth(container, "source")).toBe("250px");
+
+    // Adding an item re-runs the fit, picking up the new measured width.
+    width = 320;
+    act(() => {
+      useJobStore.setState((s) => ({
+        draft: { ...s.draft, items: makeItems(3) },
+      }));
+    });
+    expect(colWidth(container, "source")).toBe("320px");
+  });
+
+  it("fits a column to content when its resize handle is double-clicked", () => {
+    let width = 250;
+    const measurer = sourceMeasurer(() => width);
+    seedItems(2);
+    const { container } = render(<TaskList measurer={measurer} />);
+    expect(colWidth(container, "source")).toBe("250px");
+
+    // Double-clicking the handle re-fits to the now-narrower content width.
+    width = 180;
+    fireEvent.doubleClick(screen.getByTestId("column-resize-source"));
+    expect(colWidth(container, "source")).toBe("180px");
   });
 });
 

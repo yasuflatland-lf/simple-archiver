@@ -1,5 +1,7 @@
-import { useCallback, useRef, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
 
+import type { ColumnContentMeasurer } from "@/components/column-measure";
+import { domColumnMeasurer } from "@/components/column-measure";
 import { ColumnResizeHandle } from "@/components/ColumnResizeHandle";
 import {
   ReorderAnimationProvider,
@@ -18,25 +20,33 @@ import { useJobStore } from "@/store/jobStore";
 // Component
 // ---------------------------------------------------------------------------
 
+interface TaskListProps {
+  /** How a column's content width is measured for auto-fit (injectable for tests). */
+  measurer?: ColumnContentMeasurer;
+}
+
 /**
  * TaskList renders the table chrome (header row and the empty-state fallback)
  * and delegates each draft item to a memoized {@link TaskRow}. Per-row reads of
  * progress/summary live in the rows, so a high-frequency progress tick only
  * re-renders the rows whose bytes actually changed.
  */
-export function TaskList() {
+export function TaskList({ measurer = domColumnMeasurer }: TaskListProps = {}) {
   // Only the item count drives the chrome (header + which rows exist); the rows
   // themselves read everything else they need directly from the store.
   const items = useJobStore((s) => s.draft.items);
+  // The table ref is shared by the reorder animation (which measures rows for the
+  // FLIP slide) and the column sizing (which measures cell content to auto-fit).
+  const tableRef = useRef<HTMLTableElement>(null);
   // Column widths are owned here so the hook state survives the empty-state
   // toggle below (the hook must run before any early return).
-  const { widths, draggingKey, getSeparatorProps } = useColumnResize();
+  const { widths, draggingKey, getSeparatorProps, fitAll } = useColumnResize({
+    tableRef,
+    measurer,
+  });
   // Queue-scoped keyboard shortcuts (select all / delete / clear). Stable across
   // renders, so it is safe to call before the early return below.
   const onSelectionKeys = useQueueSelectionKeys();
-  // The table ref lets the reorder animation measure rows; the hook owns the
-  // FLIP slide and exposes the animated reorder both reorder paths route through.
-  const tableRef = useRef<HTMLTableElement>(null);
   const { animatedReorder, justMovedIndex, liveMessage } =
     useReorderAnimation(tableRef);
   // Arrow keys move the single selected row, routing through the same animated
@@ -51,6 +61,14 @@ export function TaskList() {
     },
     [onReorderKeys, onSelectionKeys],
   );
+
+  // Auto-fit columns to their content after the rows render, and again whenever
+  // the item set changes (add / remove). Columns the user has manually resized
+  // are left pinned by the hook; in environments without layout (jsdom) the
+  // measurer reports nothing and this is a no-op, so widths stay at their default.
+  useEffect(() => {
+    fitAll();
+  }, [items.length, fitAll]);
 
   if (items.length === 0) {
     return (
