@@ -1,8 +1,14 @@
 import { act, renderHook } from "@testing-library/react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { COLUMN_BY_KEY, MAX_COLUMN_WIDTH } from "@/components/task-columns";
+import type { ColumnContentMeasurer } from "@/components/column-measure";
+import type { TaskColumnKey } from "@/components/task-columns";
+import {
+  COLUMN_BY_KEY,
+  MAX_COLUMN_WIDTH,
+  TASK_COLUMNS,
+} from "@/components/task-columns";
 
 import { useColumnResize } from "./useColumnResize";
 
@@ -22,6 +28,24 @@ function pointerEvent(clientX: number, buttons = 1): ReactPointerEvent {
       releasePointerCapture: () => {},
     },
   } as unknown as ReactPointerEvent;
+}
+
+/**
+ * A measurer whose per-column results are fixed by key, so the sizing logic can
+ * be exercised without real layout. Columns absent from the map measure as null.
+ */
+function fakeMeasurer(
+  byKey: Partial<Record<TaskColumnKey, number>>,
+): ColumnContentMeasurer {
+  return {
+    measure: (_table, columnIndex) =>
+      byKey[TASK_COLUMNS[columnIndex].key] ?? null,
+  };
+}
+
+/** A ref to a throwaway table node; the fake measurer ignores its contents. */
+function refToTable(): RefObject<HTMLTableElement | null> {
+  return { current: document.createElement("table") };
 }
 
 beforeEach(() => {
@@ -237,8 +261,93 @@ describe("useColumnResize", () => {
     );
   });
 
-  it("resets a column to its default width on double-click", () => {
-    const { result } = renderHook(() => useColumnResize());
+  it("fits every resizable column to its measured content width", () => {
+    const measurer = fakeMeasurer({
+      kind: 70,
+      source: 200,
+      output: 140,
+      status: 150,
+    });
+    const { result } = renderHook(() =>
+      useColumnResize({ tableRef: refToTable(), measurer }),
+    );
+    act(() => {
+      result.current.fitAll();
+    });
+    expect(result.current.widths.kind).toBe(70);
+    expect(result.current.widths.source).toBe(200);
+    expect(result.current.widths.output).toBe(140);
+    expect(result.current.widths.status).toBe(150);
+  });
+
+  it("clamps a fitted width to the column's [min, max] bounds", () => {
+    const measurer = fakeMeasurer({ source: 50, output: 5000 });
+    const { result } = renderHook(() =>
+      useColumnResize({ tableRef: refToTable(), measurer }),
+    );
+    act(() => {
+      result.current.fitAll();
+    });
+    // 50 is below Source's minimum; 5000 is above the shared maximum.
+    expect(result.current.widths.source).toBe(COLUMN_BY_KEY.source.minWidth);
+    expect(result.current.widths.output).toBe(MAX_COLUMN_WIDTH);
+  });
+
+  it("never resizes non-resizable columns when fitting", () => {
+    // Even if a width were measured for them, fixed columns keep their default.
+    const measurer = fakeMeasurer({
+      drag: 999,
+      index: 999,
+      actions: 999,
+      source: 200,
+    });
+    const { result } = renderHook(() =>
+      useColumnResize({ tableRef: refToTable(), measurer }),
+    );
+    act(() => {
+      result.current.fitAll();
+    });
+    expect(result.current.widths.drag).toBe(COLUMN_BY_KEY.drag.defaultWidth);
+    expect(result.current.widths.index).toBe(COLUMN_BY_KEY.index.defaultWidth);
+    expect(result.current.widths.actions).toBe(
+      COLUMN_BY_KEY.actions.defaultWidth,
+    );
+    expect(result.current.widths.source).toBe(200);
+  });
+
+  it("skips a manually resized column when auto-fitting the rest", () => {
+    const measurer = fakeMeasurer({ source: 200, output: 140 });
+    const { result } = renderHook(() =>
+      useColumnResize({ tableRef: refToTable(), measurer }),
+    );
+    // Manually drag Source — this pins it against auto-fit.
+    act(() => {
+      result.current
+        .getSeparatorProps("source")
+        .onPointerDown(pointerEvent(100));
+    });
+    act(() => {
+      result.current
+        .getSeparatorProps("source")
+        .onPointerMove(pointerEvent(160));
+    });
+    const pinned = COLUMN_BY_KEY.source.defaultWidth + 60;
+    expect(result.current.widths.source).toBe(pinned);
+
+    act(() => {
+      result.current.fitAll();
+    });
+    // Source keeps its manual width; Output (untouched) still auto-fits.
+    expect(result.current.widths.source).toBe(pinned);
+    expect(result.current.widths.output).toBe(140);
+  });
+
+  it("fits a column to its measured content width on double-click", () => {
+    const measurer = fakeMeasurer({ source: 200 });
+    const { result } = renderHook(() =>
+      useColumnResize({ tableRef: refToTable(), measurer }),
+    );
+    // Widen Source well past the content width via a manual drag.
     act(() => {
       result.current
         .getSeparatorProps("source")
@@ -249,11 +358,71 @@ describe("useColumnResize", () => {
         .getSeparatorProps("source")
         .onPointerMove(pointerEvent(260));
     });
-    expect(result.current.widths.source).not.toBe(
-      COLUMN_BY_KEY.source.defaultWidth,
+    expect(result.current.widths.source).toBe(
+      COLUMN_BY_KEY.source.defaultWidth + 160,
     );
     act(() => {
       result.current.getSeparatorProps("source").onDoubleClick();
+    });
+    expect(result.current.widths.source).toBe(200);
+  });
+
+  it("un-pins a column fitted by double-click so it auto-fits again", () => {
+    // A stateful measurer: the double-click reads 200, the later fitAll reads 300.
+    let calls = 0;
+    const measurer: ColumnContentMeasurer = {
+      measure: (_table, columnIndex) => {
+        if (TASK_COLUMNS[columnIndex].key !== "source") return null;
+        calls += 1;
+        return calls === 1 ? 200 : 300;
+      },
+    };
+    const { result } = renderHook(() =>
+      useColumnResize({ tableRef: refToTable(), measurer }),
+    );
+    // Pin Source via a manual drag.
+    act(() => {
+      result.current
+        .getSeparatorProps("source")
+        .onPointerDown(pointerEvent(100));
+    });
+    act(() => {
+      result.current
+        .getSeparatorProps("source")
+        .onPointerMove(pointerEvent(180));
+    });
+    // Double-click fits (calls=1 → 200) and un-pins.
+    act(() => {
+      result.current.getSeparatorProps("source").onDoubleClick();
+    });
+    expect(result.current.widths.source).toBe(200);
+    // Now un-pinned: auto-fit re-measures it (calls=2 → 300).
+    act(() => {
+      result.current.fitAll();
+    });
+    expect(result.current.widths.source).toBe(300);
+  });
+
+  it("keeps the current width when the measurer cannot measure", () => {
+    const measurer = fakeMeasurer({}); // every column measures null
+    const { result } = renderHook(() =>
+      useColumnResize({ tableRef: refToTable(), measurer }),
+    );
+    act(() => {
+      result.current.fitAll();
+      result.current.fitColumn("source");
+    });
+    expect(result.current.widths.source).toBe(
+      COLUMN_BY_KEY.source.defaultWidth,
+    );
+  });
+
+  it("does not fit when no table ref is provided", () => {
+    const measurer = fakeMeasurer({ source: 200 });
+    const { result } = renderHook(() => useColumnResize({ measurer }));
+    act(() => {
+      result.current.fitAll();
+      result.current.fitColumn("source");
     });
     expect(result.current.widths.source).toBe(
       COLUMN_BY_KEY.source.defaultWidth,

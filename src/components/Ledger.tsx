@@ -86,8 +86,11 @@ function LedgerRow({
         {index + 1}
       </td>
 
-      {/* source → output name */}
-      <td className="py-2 pr-3 font-mono text-foreground">
+      {/* source → output name. w-full makes this the single greedy column that
+          absorbs the row's slack, so the size and Copy columns fit their content
+          and pack to the right edge instead of the width being spread across all
+          columns. */}
+      <td className="w-full py-2 pr-3 font-mono text-foreground">
         <span className="text-muted-foreground">{source}</span>
         <span aria-hidden="true" className="px-1.5 text-muted-foreground">
           →
@@ -95,8 +98,10 @@ function LedgerRow({
         <span>{result.outputName}</span>
       </td>
 
-      {/* size for non-failed rows; the failure reason (emphasised) for failed rows */}
-      <td className="py-2 pr-3 font-mono text-xs">
+      {/* size for non-failed rows; the failure reason (emphasised) for failed rows.
+          whitespace-nowrap keeps the size on one line so it fits its content and
+          stays aligned with Copy at the right. */}
+      <td className="py-2 pr-3 font-mono text-xs whitespace-nowrap">
         {result.status === "failed" ? (
           <span className="text-status-danger-foreground">{result.reason}</span>
         ) : (
