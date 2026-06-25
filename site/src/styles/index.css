@@ -24,9 +24,14 @@ body {
   margin: 0;
   background: #000;
   color: var(--ink);
+  /* Use a non-condensed neo-grotesque stack so headings render consistently
+     across platforms. The previous stack listed condensed faces first
+     ("D-DIN" / "Arial Narrow" / "DIN Condensed"); Windows resolved them to
+     Arial Narrow (squished) while macOS fell through to Helvetica Neue, so the
+     two platforms looked noticeably different. Helvetica Neue (macOS) and
+     Arial (Windows) are near-identical, keeping the headings in sync. */
   font-family:
-    "D-DIN", "Arial Narrow", "DIN Condensed", "Helvetica Neue", Arial,
-    "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
 }
