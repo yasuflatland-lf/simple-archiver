@@ -3,6 +3,29 @@
    parity; they intentionally override Tailwind preflight where they overlap. */
 @import "tailwindcss";
 
+/* Self-hosted D-DIN (Datto, SIL OFL v1.1 — see src/assets/fonts/OFL.txt). This
+   is the same neo-grotesque DIN face SpaceX uses across its site. Bundling it
+   as woff2 keeps the whole page pixel-identical across macOS and Windows,
+   instead of relying on a locally installed font as the earlier condensed
+   stack did (which Windows squished and macOS rendered as Helvetica Neue).
+   Two weights ship: regular (400) for body copy, bold (700) for the display
+   headings and the heavy UI labels. D-DIN has no black, so weight requests
+   above 700 fall back to the bold face (faux-bolding is disabled on body). */
+@font-face {
+  font-family: "D-DIN";
+  src: url("../assets/fonts/D-DIN.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "D-DIN";
+  src: url("../assets/fonts/D-DIN-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #000;
   --ink: #f7f7f7;
@@ -12,6 +35,12 @@
   --line-soft: rgba(247, 247, 247, 0.13);
   --page-x: clamp(24px, 4.45vw, 86px);
   --header-h: 78px;
+  /* The site-wide type stack: self-hosted D-DIN first (a DIN-style
+     neo-grotesque, à la SpaceX), with the cross-platform sans fallback used
+     only while the woff2 loads or if it fails. */
+  --font-display:
+    "D-DIN", "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", Meiryo,
+    sans-serif;
 }
 * {
   box-sizing: border-box;
@@ -24,14 +53,12 @@ body {
   margin: 0;
   background: #000;
   color: var(--ink);
-  /* Use a non-condensed neo-grotesque stack so headings render consistently
-     across platforms. The previous stack listed condensed faces first
-     ("D-DIN" / "Arial Narrow" / "DIN Condensed"); Windows resolved them to
-     Arial Narrow (squished) while macOS fell through to Helvetica Neue, so the
-     two platforms looked noticeably different. Helvetica Neue (macOS) and
-     Arial (Windows) are near-identical, keeping the headings in sync. */
-  font-family:
-    "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  /* D-DIN is the base face for the entire page; everything inherits it unless a
+     heading opts into the bold weight. font-synthesis: none stops the browser
+     from faux-bolding the 700 face when a label still asks for weight 900 (the
+     heavy labels render with the real D-DIN bold instead of a smeared fake). */
+  font-family: var(--font-display);
+  font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
 }
@@ -202,8 +229,8 @@ h3 {
 p {
   margin: 0;
   color: var(--ink-soft);
-  font-family:
-    "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  /* Inherits the D-DIN base stack; body copy stays at the regular (400) weight
+     for readability while the headings and labels carry the bold. */
   font-size: 16px;
   line-height: 1.62;
   letter-spacing: 0.002em;
@@ -368,7 +395,6 @@ p {
 }
 .manifest-row span {
   color: var(--ink-soft);
-  font-family: "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
   line-height: 1.52;
 }
@@ -552,7 +578,6 @@ td {
 }
 .description {
   color: var(--ink-soft);
-  font-family: "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
   line-height: 1.55;
   padding-right: 58px;
@@ -615,7 +640,6 @@ td {
 .note {
   margin-top: 24px;
   color: var(--ink-muted);
-  font-family: "Helvetica Neue", Arial, sans-serif;
   font-size: 13px;
   line-height: 1.55;
 }
@@ -845,10 +869,11 @@ td {
   --header-h: 76px;
   --line: rgba(255, 255, 255, 0.2);
   --line-soft: rgba(255, 255, 255, 0.105);
-  /* Negative indent that cancels the heavy display face's left side
-     bearing, so big headings sit on the same left edge as the smaller
-     copy. Tunable in one place. */
-  --display-optical-indent: -0.05em;
+  /* Negative indent that cancels the display face's left side bearing, so big
+     headings sit on the same left edge as the smaller copy. D-DIN has a
+     smaller bearing than the previous heavy face, so it needs less pull.
+     Tunable in one place. */
+  --display-optical-indent: -0.02em;
 }
 body {
   letter-spacing: 0;
@@ -875,15 +900,22 @@ body {
 }
 h1 {
   max-width: 760px;
+  /* D-DIN display face at its bold weight (700) — a lighter, normal-width
+     grotesque than the previous Helvetica/Arial 900, so the heavy negative
+     tracking and crushed leading are relaxed toward the open SpaceX look. */
+  font-family: var(--font-display);
+  font-weight: 700;
   font-size: clamp(56px, 7.55vw, 116px);
-  line-height: 0.86;
-  letter-spacing: -0.028em;
+  line-height: 0.92;
+  letter-spacing: -0.012em;
 }
 h2 {
   max-width: 820px;
+  font-family: var(--font-display);
+  font-weight: 700;
   font-size: clamp(38px, 5.15vw, 76px);
-  line-height: 0.9;
-  letter-spacing: -0.024em;
+  line-height: 0.95;
+  letter-spacing: -0.01em;
 }
 /* Optically left-align the heavy display headings: cancel the font's
    left side bearing so the cap edge lands on the same vertical as the
