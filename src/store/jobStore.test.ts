@@ -404,6 +404,86 @@ describe("moveSelectedTo", () => {
   });
 });
 
+describe("applyMovePlan partial-failure resync", () => {
+  it("commits the last successful backend snapshot when a mid-sequence reorder fails", async () => {
+    useJobStore.setState({
+      draft: makeDraft(5),
+      selectedIndices: [1, 3],
+      selectionAnchor: 1,
+    });
+    // moveSelectedTo(5) decomposes into two reorders ([2,1] then [4,2]). The
+    // first commits a (distinguishable) backend snapshot; the second rejects, so
+    // the backend is left half-moved. The store must commit that partial snapshot
+    // rather than silently keep showing the pre-move order.
+    const partial = makeDraft(5, null, "/partial-after-first-move");
+    mockArchive.reorder
+      .mockResolvedValueOnce(partial)
+      .mockRejectedValueOnce(new Error("ipc boom"));
+
+    await useJobStore.getState().moveSelectedTo(5);
+
+    const state = useJobStore.getState();
+    // Both moves were attempted, in order.
+    expect(mockArchive.reorder.mock.calls).toEqual([
+      [2, 1],
+      [4, 2],
+    ]);
+    // The store committed the backend's PARTIAL snapshot (distinguished by its
+    // outputDir), not the original — so the UI matches the real backend order.
+    expect(state.draft).toEqual(partial);
+    // The failure is surfaced and flags that the order may have changed.
+    expect(state.error).toContain("ipc boom");
+    expect(state.error).toMatch(/partial/i);
+    // The stale selection (its indices no longer map to the partial order) is
+    // dropped via draftEdit.
+    expect(state.selectedIndices).toEqual([]);
+    expect(state.selectionAnchor).toBeNull();
+  });
+
+  it("recomputes previews against the committed partial order and keeps the error", async () => {
+    useJobStore.setState({
+      draft: makeDraft(5, "photo_{n}"),
+      selectedIndices: [1, 3],
+      selectionAnchor: 1,
+    });
+    const partial = makeDraft(5, "photo_{n}", "/partial");
+    mockArchive.reorder
+      .mockResolvedValueOnce(partial)
+      .mockRejectedValueOnce(new Error("ipc boom"));
+    mockArchive.previewOutputName.mockImplementation((_template, seq) =>
+      Promise.resolve(`photo_${seq}.zip`),
+    );
+
+    await useJobStore.getState().moveSelectedTo(5);
+
+    // Previews are recomputed against the committed (partial) draft so they never
+    // stay aligned to the stale pre-move order; the move error survives the
+    // recompute (which itself clears `error` on success for a non-null template).
+    expect(useJobStore.getState().previewNames).toHaveLength(5);
+    expect(useJobStore.getState().error).toContain("ipc boom");
+  });
+
+  it("leaves the original order committed when the very first reorder fails", async () => {
+    const original = makeDraft(5);
+    useJobStore.setState({
+      draft: original,
+      selectedIndices: [1, 3],
+      selectionAnchor: 1,
+    });
+    // The first decomposed move rejects: the backend is unchanged (a single
+    // reorder is atomic), so the store keeps the original order and surfaces it.
+    mockArchive.reorder.mockRejectedValueOnce(new Error("ipc boom"));
+
+    await useJobStore.getState().moveSelectedTo(5);
+
+    const state = useJobStore.getState();
+    expect(mockArchive.reorder).toHaveBeenCalledTimes(1);
+    expect(state.draft).toEqual(original);
+    expect(state.error).toContain("ipc boom");
+    expect(state.selectedIndices).toEqual([]);
+  });
+});
+
 describe("removeItem", () => {
   it("calls archive.removeItem with the index and replaces the draft", async () => {
     const draft = makeDraft(2);

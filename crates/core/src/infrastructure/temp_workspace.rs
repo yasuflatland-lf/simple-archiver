@@ -54,6 +54,34 @@ mod tests {
     }
 
     #[test]
+    fn drop_removes_a_populated_directory() {
+        // The "no half-written tree" guarantee on a cancelled or failed
+        // extraction relies on RAII removing the temp dir *with its contents*:
+        // both extractors return `Err` without handing back the guard, so a
+        // partially-written workspace is reclaimed by this `Drop`. Write a nested
+        // file and a top-level file to mimic a half-written extraction, then prove
+        // the whole tree is gone after the workspace drops.
+        let (root, nested, top) = {
+            let ws = TempWorkspace::new().expect("create temp workspace");
+            let nested_dir = ws.path().join("a").join("b");
+            std::fs::create_dir_all(&nested_dir).expect("create nested dirs");
+            let nested = nested_dir.join("deep.txt");
+            std::fs::write(&nested, b"partial").expect("write nested file");
+            let top = ws.path().join("top.txt");
+            std::fs::write(&top, b"partial").expect("write top file");
+            assert!(
+                nested.exists() && top.exists(),
+                "files written into the tree"
+            );
+            (ws.path().to_path_buf(), nested, top)
+        };
+        assert!(
+            !root.exists() && !nested.exists() && !top.exists(),
+            "a populated temp dir (a partially-written tree) must be removed on drop"
+        );
+    }
+
+    #[test]
     fn extracted_tree_path_matches_inherent_path() {
         let ws = TempWorkspace::new().expect("create temp workspace");
         let via_trait: &dyn ExtractedTree = &ws;
