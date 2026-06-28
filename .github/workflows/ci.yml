@@ -107,7 +107,11 @@ jobs:
       # Belt and suspenders: mise.toml requests clippy components, but
       # ensure they exist on the active toolchain even if a cached install lacks them.
       - run: rustup component add clippy
-      - run: cargo nextest run -p simple-archiver-core --profile ci
+      # Core tests on Windows only: the `core` job already covers them on Linux,
+      # and macOS shares Linux's `/` path separator, so a macOS rerun adds nothing.
+      # Windows is kept because it is the sole job that catches `\` vs `/` regressions.
+      - if: matrix.os == 'windows-latest'
+        run: cargo nextest run -p simple-archiver-core --profile ci
       # PR6: the presentation crate's tests (Tauri command surface, progress
       # event sink, run_job integration) only build on runners with the Tauri
       # toolchain, which the app job has. Run them here so they are covered in CI.
@@ -116,5 +120,11 @@ jobs:
       - run: cargo nextest run -p simple-archiver --profile ci
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
-      - run: pnpm build
-      - run: pnpm tauri build --no-bundle
+      # Smoke-build the app in the dev profile (--debug): this reuses the already
+      # compiled `target/debug` dependency tree from the nextest steps above, so
+      # the full dependency tree is no longer recompiled a second time under the
+      # release profile. `--no-bundle` keeps it a compile/link check, not an
+      # artifact build (release.yml builds the optimized, bundled binaries).
+      # tauri build runs `beforeBuildCommand: pnpm build`, so the frontend is
+      # built here too — a separate `pnpm build` step would be redundant.
+      - run: pnpm tauri build --no-bundle --debug
