@@ -3,6 +3,7 @@
 //! runs on `tokio::task::spawn_blocking`. Extraction target is a fresh
 //! `TempWorkspace`, returned as a boxed `ExtractedTree` guard.
 
+use crate::application::extract_context::ExtractContext;
 use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
 use crate::infrastructure::temp_workspace::TempWorkspace;
 use std::path::Path;
@@ -20,8 +21,17 @@ impl UnrarExtractor {
 }
 
 impl Extractor for UnrarExtractor {
-    async fn extract(&self, src_rar: &Path) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+    async fn extract(
+        &self,
+        src_rar: &Path,
+        ctx: &ExtractContext,
+    ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
         let src = src_rar.to_path_buf();
+        // The blocking extraction polls a cancellation OBSERVER moved into the
+        // closure: `ExtractContext` is `Clone` and only exposes `is_cancelled()`,
+        // so the off-runtime worker can abort between entries without the ability
+        // to cancel the whole job.
+        let ctx = ctx.clone();
         // `unrar` is blocking and CPU/IO-bound; run it off the async runtime.
         let workspace =
             tokio::task::spawn_blocking(move || -> Result<TempWorkspace, ExtractError> {
@@ -38,6 +48,12 @@ impl Extractor for UnrarExtractor {
                     .read_header()
                     .map_err(|e| ExtractError::Backend(e.to_string()))?
                 {
+                    // Poll the token between entries so a long rar extraction aborts
+                    // promptly. Returning `Err` drops `workspace`, removing the
+                    // partially-extracted temp directory (no half-written tree).
+                    if ctx.is_cancelled() {
+                        return Err(ExtractError::Cancelled);
+                    }
                     archive = if header.entry().is_file() {
                         header
                             .extract_with_base(&dest)
@@ -61,6 +77,13 @@ impl Extractor for UnrarExtractor {
 mod tests {
     use super::*;
     use std::io::Write;
+    use tokio_util::sync::CancellationToken;
+
+    /// The committed RAR5 fixture (shared with the integration smoke test): a
+    /// single top-level `hello world.txt` = "hello world".
+    fn fixture() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sample.rar")
+    }
 
     #[tokio::test]
     async fn non_rar_input_fails_with_backend_error() {
@@ -71,7 +94,9 @@ mod tests {
             .expect("write bytes");
 
         let extractor = UnrarExtractor::new();
-        let result = extractor.extract(tmp.path()).await;
+        let result = extractor
+            .extract(tmp.path(), &ExtractContext::detached())
+            .await;
 
         // `Result` itself is not `Debug` (its `Ok` payload is a `dyn ExtractedTree`
         // trait object), so map it to a `Debug`-able marker before asserting.
@@ -79,6 +104,26 @@ mod tests {
         assert!(
             matches!(kind, Err(ExtractError::Backend(_))),
             "expected Backend error, got {kind:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellation_aborts_extraction_with_cancelled_error() {
+        // An already-cancelled context against the real fixture: the per-entry
+        // poll inside the blocking work loop trips before the file is extracted,
+        // so extraction returns `Cancelled` (and the temp dir is reclaimed on the
+        // early-return drop). The only path to this error is the in-loop
+        // `is_cancelled()` check, proving the unrar loop polls the token.
+        let token = CancellationToken::new();
+        token.cancel();
+        let ctx = ExtractContext::new(token);
+
+        let result = UnrarExtractor::new().extract(&fixture(), &ctx).await;
+
+        let kind = result.map(|_| "ok");
+        assert!(
+            matches!(kind, Err(ExtractError::Cancelled)),
+            "a cancelled extraction must return ExtractError::Cancelled, got {kind:?}"
         );
     }
 }

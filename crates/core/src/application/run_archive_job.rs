@@ -11,8 +11,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::application::compress_context::{CompressContext, TaskProgressReport};
 use crate::application::eta_estimator::{EtaTracker, ETA_WINDOW};
+use crate::application::extract_context::ExtractContext;
 use crate::application::format_registry::{FormatRegistry, Prepared};
-use crate::application::ports::{ArchiveError, Archiver, Clock, Extractor, PlaceError, Placer};
+use crate::application::ports::{
+    ArchiveError, Archiver, Clock, ExtractError, Extractor, PlaceError, Placer,
+};
 use crate::application::progress::ProgressSink;
 use crate::application::progress_aggregator::{Aggregator, JobSummary, WorkerMsg};
 use crate::domain::archive_job::ArchiveJob;
@@ -218,7 +221,7 @@ async fn run_one<A: Archiver, E: Extractor, P: Placer>(
     if cancel_before_start(&item, &tx, &cancellation_token) {
         return;
     }
-    let Some(prepared) = extract_phase(&item, registry, &tx).await else {
+    let Some(prepared) = extract_phase(&item, registry, &tx, &cancellation_token).await else {
         return;
     };
     // `StartCompressing` doubles as "start writing output" for both modes so the
@@ -280,12 +283,16 @@ fn cancel_before_start(
 }
 
 /// Emits `StartExtracting` for sources that require extraction (folders skip it),
-/// then resolves the source to a prepared directory. On extract failure, emits
-/// `Fail` and returns `None` so the caller early-returns.
+/// then resolves the source to a prepared directory. The cancellation token is
+/// handed to the extractor (via `ExtractContext`) so a long extraction can abort
+/// mid-stream: a cancelled extraction emits `Cancel` (the task is marked
+/// cancelled, NOT failed); any other extract failure emits `Fail`. Either way it
+/// returns `None` so the caller early-returns and no partial output is written.
 async fn extract_phase<E: Extractor>(
     item: &WorkItem,
     registry: &FormatRegistry<E>,
     tx: &mpsc::UnboundedSender<WorkerMsg>,
+    cancellation_token: &CancellationToken,
 ) -> Option<Prepared> {
     // rar/zip files extract first; folders compress directly. Emit the extraction
     // status only for sources that actually extract, so the task walks the legal
@@ -297,8 +304,17 @@ async fn extract_phase<E: Extractor>(
         });
     }
 
-    match registry.prepare(&item.source).await {
+    let ctx = ExtractContext::new(cancellation_token.clone());
+    match registry.prepare(&item.source, &ctx).await {
         Ok(prepared) => Some(prepared),
+        // A mid-extraction cancel is terminal-cancelled, not a failure.
+        Err(ExtractError::Cancelled) => {
+            let _ = tx.send(WorkerMsg::Status {
+                task: item.task,
+                event: TaskEvent::Cancel,
+            });
+            None
+        }
         Err(e) => {
             let _ = tx.send(WorkerMsg::Status {
                 task: item.task,
@@ -440,7 +456,11 @@ mod tests {
         }
     }
     impl Extractor for FakeExtractor {
-        async fn extract(&self, src: &Path) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+        async fn extract(
+            &self,
+            src: &Path,
+            _ctx: &ExtractContext,
+        ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             let name = src.file_name().unwrap().to_string_lossy().to_string();
             if self.fail_names.contains(&name) {
@@ -768,6 +788,78 @@ mod tests {
         );
         assert_eq!(summary.succeeded, vec![ids[0]]);
         assert!(summary.failed.is_empty());
+    }
+
+    /// A fake extractor that fires an externally-owned token from inside
+    /// `extract` (simulating a cancel landing partway through a long extraction),
+    /// then re-checks `ctx.is_cancelled()` to return `Cancelled` — proving the
+    /// live token threads through run_one -> ExtractContext -> extractor via
+    /// `ctx`, NOT via the engine's pre-start checkpoint.
+    struct LiveCancelExtractor {
+        token: CancellationToken,
+    }
+    impl Extractor for LiveCancelExtractor {
+        async fn extract(
+            &self,
+            _src: &Path,
+            ctx: &ExtractContext,
+        ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+            // Simulate an external cancel landing mid-extraction.
+            self.token.cancel();
+            // Observe cancellation ONLY through the context the engine wired up.
+            if ctx.is_cancelled() {
+                return Err(ExtractError::Cancelled);
+            }
+            Ok(Box::new(FakeTree {
+                dir: tempfile::tempdir().unwrap(),
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn live_token_fired_mid_extraction_cancels_task_via_ctx() {
+        // A single rar task: the engine's pre-start checkpoint sees an un-fired
+        // token (so extraction starts), then the extractor fires the token
+        // mid-stream and reads it back through `ctx`, ending the task as
+        // cancelled — NOT failed — and never reaching compression.
+        let job = ArchiveJob::plan(
+            vec![SourceItem::RarFile(PathBuf::from("a.rar"))],
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+        let token = CancellationToken::new();
+        let archiver = Arc::new(FakeArchiver::new());
+        let calls = archiver.call_count();
+        let engine = RunArchiveJob::new(
+            archiver,
+            Arc::new(LiveCancelExtractor {
+                token: token.clone(),
+            }),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine
+            .execute_with_cancellation(job, &clock, &sink, token)
+            .await;
+
+        // The in-progress extraction that observed the live token via `ctx` ends
+        // cancelled, the archiver is never reached, and nothing is compressed.
+        assert_eq!(summary.cancelled, ids);
+        assert!(
+            summary.failed.is_empty(),
+            "a cancelled extraction is not a failure"
+        );
+        assert!(summary.succeeded.is_empty());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "compression must not run after a cancelled extraction"
+        );
     }
 
     #[tokio::test]

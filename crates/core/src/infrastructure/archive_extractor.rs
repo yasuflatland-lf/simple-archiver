@@ -3,6 +3,7 @@
 //! other (or missing) extension fails with a `Backend` error. The match is
 //! ASCII-case-insensitive so `.ZIP`/`.Rar` are accepted.
 
+use crate::application::extract_context::ExtractContext;
 use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
 use crate::domain::archive_format::ArchiveFormat;
 use crate::infrastructure::unrar_extractor::UnrarExtractor;
@@ -24,14 +25,18 @@ impl ArchiveExtractor {
 }
 
 impl Extractor for ArchiveExtractor {
-    async fn extract(&self, src_archive: &Path) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+    async fn extract(
+        &self,
+        src_archive: &Path,
+        ctx: &ExtractContext,
+    ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
         match src_archive
             .extension()
             .and_then(|e| e.to_str())
             .and_then(ArchiveFormat::from_extension)
         {
-            Some(ArchiveFormat::Rar) => self.rar.extract(src_archive).await,
-            Some(ArchiveFormat::Zip) => self.zip.extract(src_archive).await,
+            Some(ArchiveFormat::Rar) => self.rar.extract(src_archive, ctx).await,
+            Some(ArchiveFormat::Zip) => self.zip.extract(src_archive, ctx).await,
             None => Err(ExtractError::Backend(format!(
                 "unsupported archive: {}",
                 src_archive.display()
@@ -68,7 +73,7 @@ mod tests {
         let (_dir, path) = zip_in_tempdir(&[("a.txt", b"alpha")]);
 
         let tree = ArchiveExtractor::new()
-            .extract(&path)
+            .extract(&path, &ExtractContext::detached())
             .await
             .expect("zip route should succeed");
 
@@ -89,7 +94,7 @@ mod tests {
         writer.finish().expect("finalize zip");
 
         let tree = ArchiveExtractor::new()
-            .extract(&path)
+            .extract(&path, &ExtractContext::detached())
             .await
             .expect("uppercase .ZIP should route to zip adapter");
         let contents = std::fs::read(tree.path().join("a.txt")).expect("extracted file");
@@ -102,7 +107,9 @@ mod tests {
         let path = dir.path().join("foo.txt");
         std::fs::write(&path, b"plain text").expect("write file");
 
-        let result = ArchiveExtractor::new().extract(&path).await;
+        let result = ArchiveExtractor::new()
+            .extract(&path, &ExtractContext::detached())
+            .await;
         let kind = result.map(|_| "ok");
         match kind {
             Err(ExtractError::Backend(ref msg)) => {
@@ -121,7 +128,9 @@ mod tests {
         let path = dir.path().join("archive");
         std::fs::write(&path, b"whatever").expect("write file");
 
-        let result = ArchiveExtractor::new().extract(&path).await;
+        let result = ArchiveExtractor::new()
+            .extract(&path, &ExtractContext::detached())
+            .await;
         let kind = result.map(|_| "ok");
         match kind {
             Err(ExtractError::Backend(ref msg)) => {

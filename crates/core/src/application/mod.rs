@@ -4,6 +4,7 @@
 pub mod compress_context;
 #[cfg(not(loom))]
 pub mod eta_estimator;
+pub mod extract_context;
 #[cfg(not(loom))]
 pub mod format_registry;
 #[cfg(loom)]
