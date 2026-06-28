@@ -14,7 +14,7 @@
 /** Distance (px) from a scroll edge within which auto-scroll engages. */
 export const EDGE_ZONE_PX = 40;
 /** Slowest perceptible step (px/frame), applied at the inner lip of the zone. */
-export const MIN_SCROLL_SPEED_PX = 2;
+const MIN_SCROLL_SPEED_PX = 2;
 /** Fastest step (px/frame), applied at (or past) the physical edge. */
 export const MAX_SCROLL_SPEED_PX = 14;
 
