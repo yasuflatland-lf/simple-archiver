@@ -57,16 +57,13 @@ impl Extractor for ZipExtractor {
             // `reader.file()` is released before the `&mut self` entry reader call.
             let (is_dir, name) = {
                 let entry = &reader.file().entries()[i];
-                let is_dir = entry
-                    .dir()
-                    .map_err(|e| ExtractError::Backend(e.to_string()))?;
-                let name = entry
-                    .filename()
-                    .as_str()
-                    .map_err(|e| {
-                        ExtractError::Backend(format!("entry {i} has a non-UTF-8 name: {e}"))
-                    })?
-                    .to_owned();
+                let filename = entry.filename();
+                // Resolve to UTF-8, decoding legacy non-UTF-8 (e.g. CP932) names
+                // instead of failing. Derive directory-ness from the resolved
+                // name's trailing slash, because `entry.dir()` itself calls
+                // `as_str()` and would fail first on a non-UTF-8 name.
+                let name = resolve_entry_name(filename.as_str().ok(), filename.as_bytes());
+                let is_dir = name.ends_with('/');
                 (is_dir, name)
             };
             if is_dir {
@@ -106,6 +103,25 @@ impl Extractor for ZipExtractor {
     }
 }
 
+/// Resolve a zip entry filename to a UTF-8 `String`.
+///
+/// `utf8` is the backend's UTF-8 view when available (`ZipString::as_str().ok()`):
+/// present for entries with the UTF-8 flag set, an Info-ZIP Unicode Path
+/// alternative, or a pure-ASCII name. When it is `None` the name is a legacy
+/// non-UTF-8 byte string (e.g. CP932/Shift-JIS), so detect its charset with
+/// `chardetng` and decode it with `encoding_rs`. Best-effort and never fails: a
+/// mis-detected name still yields a usable string (possibly with U+FFFD) instead
+/// of aborting the whole extraction.
+fn resolve_entry_name(utf8: Option<&str>, raw: &[u8]) -> String {
+    if let Some(s) = utf8 {
+        return s.to_owned();
+    }
+    let mut detector = chardetng::EncodingDetector::new();
+    detector.feed(raw, true);
+    let encoding = detector.guess(None, true);
+    encoding.decode(raw).0.into_owned()
+}
+
 /// Validate a zip entry name and reduce it to a safe relative path.
 ///
 /// Returns `Ok(Some(rel))` for a path built only from normal components,
@@ -140,6 +156,35 @@ mod tests {
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
+    #[test]
+    fn resolve_entry_name_passes_through_utf8() {
+        // When the backend already gives a UTF-8 name, return it verbatim.
+        let name = "青の祓魔師/第01話.txt";
+        assert_eq!(resolve_entry_name(Some(name), name.as_bytes()), name);
+    }
+
+    #[test]
+    fn resolve_entry_name_decodes_cp932_when_not_utf8() {
+        // A legacy non-UTF-8 name (None from the backend) is detected + decoded.
+        use encoding_rs::SHIFT_JIS;
+        let expected = "[加藤和恵] 青の祓魔師 第08巻/第01話.txt";
+        let (sjis, _, had_errors) = SHIFT_JIS.encode(expected);
+        assert!(!had_errors, "fixture must encode cleanly to Shift_JIS");
+        assert_eq!(resolve_entry_name(None, &sjis), expected);
+    }
+
+    #[test]
+    fn resolve_entry_name_keeps_trailing_slash_on_decoded_dir() {
+        // Directory entries keep their trailing slash after decoding, so callers
+        // can detect them without calling `entry.dir()`.
+        use encoding_rs::SHIFT_JIS;
+        let expected = "青の祓魔師 第08巻/";
+        let (sjis, _, _) = SHIFT_JIS.encode(expected);
+        let name = resolve_entry_name(None, &sjis);
+        assert_eq!(name, expected);
+        assert!(name.ends_with('/'));
+    }
+
     /// Build an in-memory zip on disk from `(name, bytes)` pairs using the sync
     /// `zip` dev-dependency. `start_file` accepts arbitrary names (including
     /// traversal sequences), which is exactly what the zip-slip test needs.
@@ -169,6 +214,43 @@ mod tests {
         writer.write_all(b"deep").expect("write bytes");
         writer.finish().expect("finalize zip");
         tmp
+    }
+
+    #[tokio::test]
+    async fn extracts_legacy_cp932_filename_without_utf8_flag() {
+        use async_zip::base::write::ZipFileWriter;
+        use async_zip::{Compression, StringEncoding, ZipEntryBuilder, ZipString};
+        use encoding_rs::SHIFT_JIS;
+
+        // Build a zip whose single entry name is CP932 with NO UTF-8 flag: a
+        // `StringEncoding::Raw` filename makes the async_zip writer omit general
+        // purpose bit 11, reproducing a legacy Japanese zip that the old code
+        // rejected with "attempted to convert non-UTF8 bytes to a string/str".
+        let display_name = "青の祓魔師 第08巻/第01話.txt";
+        let (sjis, _, _) = SHIFT_JIS.encode(display_name);
+        let zip_name = ZipString::new(sjis.into_owned(), StringEncoding::Raw);
+        let entry = ZipEntryBuilder::new(zip_name, Compression::Stored);
+
+        let tmp = tempfile::NamedTempFile::new().expect("temp zip file");
+        let file = tokio::fs::File::create(tmp.path())
+            .await
+            .expect("create temp zip");
+        let mut writer = ZipFileWriter::with_tokio(file);
+        writer
+            .write_entry_whole(entry, b"chapter")
+            .await
+            .expect("write cp932 entry");
+        writer.close().await.expect("finalize zip");
+
+        let tree = ZipExtractor::new()
+            .extract(tmp.path(), &ExtractContext::detached())
+            .await
+            .expect("legacy CP932 zip should extract, not error");
+
+        let root = tree.path();
+        let extracted = std::fs::read(root.join("青の祓魔師 第08巻").join("第01話.txt"))
+            .expect("file extracted under decoded UTF-8 name");
+        assert_eq!(extracted, b"chapter");
     }
 
     #[tokio::test]
