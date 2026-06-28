@@ -47,11 +47,20 @@ export function TaskList({ measurer = domColumnMeasurer }: TaskListProps = {}) {
   // Queue-scoped keyboard shortcuts (select all / delete / clear). Stable across
   // renders, so it is safe to call before the early return below.
   const onSelectionKeys = useQueueSelectionKeys();
-  const { animatedReorder, justMovedIndex, liveMessage } =
-    useReorderAnimation(tableRef);
-  // Arrow keys move the single selected row, routing through the same animated
-  // reorder so the slide/settle/announce match drag and the buttons.
-  const onReorderKeys = useQueueReorderKeys(animatedReorder);
+  const {
+    animatedReorder,
+    animatedMoveSelected,
+    animatedMoveSelectedTo,
+    justMovedIndex,
+    liveMessage,
+  } = useReorderAnimation(tableRef);
+  // Arrow keys move the selected row(s): a single selection routes through the
+  // single animated reorder, a multi-row selection through the grouped shift, so
+  // the slide/settle/announce match drag and the buttons either way.
+  const onReorderKeys = useQueueReorderKeys(
+    animatedReorder,
+    animatedMoveSelected,
+  );
   // One handler for the grid: the two hooks own disjoint keys (arrows vs
   // select-all/delete/clear), so the order is immaterial.
   const onKeyDown = useCallback(
@@ -86,6 +95,8 @@ export function TaskList({ measurer = domColumnMeasurer }: TaskListProps = {}) {
   return (
     <ReorderAnimationProvider
       animatedReorder={animatedReorder}
+      animatedMoveSelected={animatedMoveSelected}
+      animatedMoveSelectedTo={animatedMoveSelectedTo}
       justMovedIndex={justMovedIndex}
     >
       <ReorderDndProvider>

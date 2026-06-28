@@ -289,6 +289,20 @@ describe("TaskList keyboard reorder", () => {
 
     expect(reorder).not.toHaveBeenCalled();
   });
+
+  it("moves a multi-row selection as a block on ArrowDown", () => {
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    const moveSelected = vi.fn().mockResolvedValue(undefined);
+    seed(reorder, [0, 1]);
+    useJobStore.setState({ moveSelected });
+
+    render(<TaskList />);
+    fireEvent.keyDown(screen.getByTestId("queue-region"), { key: "ArrowDown" });
+
+    // The whole selection shifts together; the single-row path is not used.
+    expect(moveSelected).toHaveBeenCalledWith("down");
+    expect(reorder).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -904,6 +918,51 @@ describe("TaskList pointer reorder", () => {
     // Both dragging and drop-edge flags must be cleared after cancel.
     expect(after[0].getAttribute("data-dragging")).toBeNull();
     expect(after[2].getAttribute("data-drop-edge")).toBeNull();
+  });
+
+  it("relocates the whole selection when a selected row is dragged", () => {
+    const moveSelectedTo = vi.fn().mockResolvedValue(undefined);
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    setItems(3, {
+      reorder,
+      moveSelectedTo,
+      selectedIndices: [0, 1],
+      selectionAnchor: 0,
+    });
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    stubRect(rows[2], 40);
+    // Drag a row that belongs to the selection; drop after the last row (gap=3).
+    fireEvent.pointerDown(handle(0));
+    fireEvent.pointerMove(rows[2], { clientY: bottomHalf(40) });
+    fireEvent.pointerUp(rows[2], { clientY: bottomHalf(40) });
+
+    // The whole selection relocates to the gap; no single-row reorder fires.
+    expect(moveSelectedTo).toHaveBeenCalledWith(3);
+    expect(reorder).not.toHaveBeenCalled();
+  });
+
+  it("moves only the dragged row when it is not part of the selection", () => {
+    const moveSelectedTo = vi.fn().mockResolvedValue(undefined);
+    const reorder = vi.fn().mockResolvedValue(undefined);
+    setItems(3, {
+      reorder,
+      moveSelectedTo,
+      selectedIndices: [0, 1],
+      selectionAnchor: 0,
+    });
+    render(<TaskList />);
+
+    const rows = bodyRows();
+    stubRect(rows[0], 0);
+    // Drag a NON-selected row -> single-row behavior, selection untouched.
+    fireEvent.pointerDown(handle(2));
+    fireEvent.pointerMove(rows[0], { clientY: topHalf(0) });
+    fireEvent.pointerUp(rows[0], { clientY: topHalf(0) });
+
+    expect(reorder).toHaveBeenCalledWith(2, 0);
+    expect(moveSelectedTo).not.toHaveBeenCalled();
   });
 });
 

@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
 
 import type { ConflictPolicy } from "@/bindings/ConflictPolicy";
 import type { DraftSnapshot } from "@/bindings/DraftSnapshot";
@@ -15,6 +15,11 @@ import {
   nextStartAfterBatch,
 } from "@/lib/naming";
 import { persistOutputDir } from "@/lib/output-dir-default";
+import {
+  type MovePlan,
+  planRelocateSelection,
+  planShiftSelection,
+} from "@/lib/queue-move";
 import { taskIdsFromProgress } from "@/lib/status";
 
 // Monotonic counter tagging each recomputePreviews run. A run only commits its
@@ -37,6 +42,38 @@ function draftEdit(draft: DraftSnapshot): Partial<JobState> {
     selectedIndices: [],
     selectionAnchor: null,
   };
+}
+
+/**
+ * Apply a {@link MovePlan} for a grouped (multi-row) queue move. The backend
+ * exposes only single `reorder(from, to)` moves, so the plan's moves are pushed
+ * in turn and the final snapshot committed once. A structural edit clears the
+ * selection (see {@link draftEdit}), so the plan's new block positions are
+ * re-applied afterwards to keep the highlight on the moved rows. A clamped /
+ * inside-block plan has no moves and is a silent no-op that leaves the selection
+ * untouched.
+ */
+async function applyMovePlan(
+  plan: MovePlan,
+  set: StoreApi<JobState>["setState"],
+  get: StoreApi<JobState>["getState"],
+): Promise<void> {
+  if (plan.moves.length === 0) return;
+  try {
+    // Each backend reorder returns the full snapshot; the last is the result.
+    let draft = get().draft;
+    for (const [from, to] of plan.moves) {
+      draft = await archive.reorder(from, to);
+    }
+    set({
+      ...draftEdit(draft),
+      selectedIndices: plan.selected,
+      selectionAnchor: plan.selected.length > 0 ? plan.selected[0] : null,
+    });
+    await get().recomputePreviews();
+  } catch (reason) {
+    set({ error: messageFromReason(reason) });
+  }
 }
 
 /**
@@ -126,6 +163,19 @@ export interface JobState {
   addItems: (paths: string[]) => Promise<void>;
   /** Move the draft item at `from` to `to`, then recompute previews. */
   reorder: (from: number, to: number) => Promise<void>;
+  /**
+   * Move every selected row one slot in `direction` as a contiguous block,
+   * preserving relative order and clamping at the list edge. The selection
+   * highlight follows the block. No-op while a job runs or with no selection.
+   */
+  moveSelected: (direction: "up" | "down") => Promise<void>;
+  /**
+   * Relocate the whole selection to insertion gap `gap` (a drag drop target in
+   * [0, items.length]): the rows land as one contiguous block in their original
+   * relative order and stay selected. No-op while a job runs or with no
+   * selection.
+   */
+  moveSelectedTo: (gap: number) => Promise<void>;
   /** Remove the draft item at `index`, then recompute previews. */
   removeItem: (index: number) => Promise<void>;
   /** Set the naming template, then recompute previews. */
@@ -242,6 +292,29 @@ export const useJobStore = create<JobState>()((set, get) => ({
     } catch (reason) {
       set({ error: messageFromReason(reason) });
     }
+  },
+
+  moveSelected: async (direction) => {
+    const { running, selectedIndices, draft } = get();
+    // The queue is read-only mid-run, mirroring reorder and the move buttons.
+    if (running || selectedIndices.length === 0) return;
+    const plan = planShiftSelection(
+      draft.items.length,
+      selectedIndices,
+      direction,
+    );
+    await applyMovePlan(plan, set, get);
+  },
+
+  moveSelectedTo: async (gap) => {
+    const { running, selectedIndices, draft } = get();
+    if (running || selectedIndices.length === 0) return;
+    const plan = planRelocateSelection(
+      draft.items.length,
+      selectedIndices,
+      gap,
+    );
+    await applyMovePlan(plan, set, get);
   },
 
   removeItem: async (index) => {

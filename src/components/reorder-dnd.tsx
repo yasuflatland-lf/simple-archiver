@@ -10,7 +10,10 @@ import {
   type ReactNode,
 } from "react";
 
-import { useAnimatedReorder } from "@/components/reorder-animation";
+import {
+  useAnimatedMoveSelectedTo,
+  useAnimatedReorder,
+} from "@/components/reorder-animation";
 import { useJobStore } from "@/store/jobStore";
 
 type RowPointerEvent = ReactPointerEvent<HTMLElement>;
@@ -52,6 +55,7 @@ const ReorderDndContext = createContext<ReorderDndContextValue | null>(null);
 export function ReorderDndProvider({ children }: { children: ReactNode }) {
   const running = useJobStore((s) => s.running);
   const animatedReorder = useAnimatedReorder();
+  const animatedMoveSelectedTo = useAnimatedMoveSelectedTo();
   const count = useJobStore((s) => s.draft.items.length);
 
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
@@ -133,13 +137,22 @@ export function ReorderDndProvider({ children }: { children: ReactNode }) {
     const from = draggingRef.current;
     const gap = overGapRef.current;
     if (from !== null && gap !== null && enabled) {
-      // The store's reorder is remove-then-insert: removing `from` shifts every
-      // gap after it left by one, so a gap past `from` maps to `gap - 1`.
-      const to = gap <= from ? gap : gap - 1;
-      if (to !== from) void animatedReorder(from, to);
+      const { selectedIndices } = useJobStore.getState();
+      if (selectedIndices.length > 1 && selectedIndices.includes(from)) {
+        // Dragging any row of a multi-row selection relocates the WHOLE
+        // selection to the drop gap; the store gathers it into a contiguous
+        // block (a no-op when the gap falls inside that block).
+        void animatedMoveSelectedTo(gap);
+      } else {
+        // Single-row drag: reorder is remove-then-insert, so removing `from`
+        // shifts every gap after it left by one — a gap past `from` maps to
+        // `gap - 1`.
+        const to = gap <= from ? gap : gap - 1;
+        if (to !== from) void animatedReorder(from, to);
+      }
     }
     reset();
-  }, [enabled, animatedReorder, reset]);
+  }, [enabled, animatedReorder, animatedMoveSelectedTo, reset]);
 
   // End the gesture on any release/cancel anywhere so a drag never gets stuck.
   // A still-pending (un-armed) press needs no window backstop: the row's own

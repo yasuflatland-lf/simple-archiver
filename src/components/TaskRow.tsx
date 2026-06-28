@@ -107,10 +107,24 @@ function TaskRowImpl({ index }: TaskRowProps) {
 
   // Both reorder paths (these buttons and the drag drop) route through the
   // animated reorder so the slide + settle highlight fire identically;
-  // `justMoved` flags this row right after it landed.
-  const { animatedReorder, justMoved } = useReorderAnimationRow(index);
+  // `justMoved` flags this row right after it landed. `animatedMoveSelected`
+  // shifts the whole selection when this row is part of a multi-row selection.
+  const { animatedReorder, animatedMoveSelected, justMoved } =
+    useReorderAnimationRow(index);
 
   if (!row.exists) return null;
+
+  // Move this row one slot in `direction`, or — when it belongs to a multi-row
+  // selection — move the whole selection together. The selection is read at
+  // click time so it stays out of the per-tick render-isolation selector above.
+  const onMove = (direction: "up" | "down") => {
+    const selected = useJobStore.getState().selectedIndices;
+    if (selected.length > 1 && selected.includes(index)) {
+      void animatedMoveSelected(direction);
+    } else {
+      void animatedReorder(index, direction === "up" ? index - 1 : index + 1);
+    }
+  };
 
   // Build the live label as one string so JSX whitespace folding / prettier
   // reflow cannot strip the right-align padding spaces formatBytes emits.
@@ -247,7 +261,7 @@ function TaskRowImpl({ index }: TaskRowProps) {
             type="button"
             aria-label="Move up"
             disabled={row.isFirst || row.running}
-            onClick={() => void animatedReorder(index, index - 1)}
+            onClick={() => onMove("up")}
             className={REORDER_BUTTON_CLASS}
           >
             ▲
@@ -256,7 +270,7 @@ function TaskRowImpl({ index }: TaskRowProps) {
             type="button"
             aria-label="Move down"
             disabled={row.isLast || row.running}
-            onClick={() => void animatedReorder(index, index + 1)}
+            onClick={() => onMove("down")}
             className={REORDER_BUTTON_CLASS}
           >
             ▼
