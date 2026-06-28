@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type KeyboardEvent,
+  type RefObject,
+} from "react";
 
 import type { ColumnContentMeasurer } from "@/components/column-measure";
 import { domColumnMeasurer } from "@/components/column-measure";
@@ -23,6 +29,8 @@ import { useJobStore } from "@/store/jobStore";
 interface TaskListProps {
   /** How a column's content width is measured for auto-fit (injectable for tests). */
   measurer?: ColumnContentMeasurer;
+  /** The vertical scroller wrapping the queue; enables drag edge auto-scroll. */
+  scrollContainerRef?: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -31,7 +39,10 @@ interface TaskListProps {
  * progress/summary live in the rows, so a high-frequency progress tick only
  * re-renders the rows whose bytes actually changed.
  */
-export function TaskList({ measurer = domColumnMeasurer }: TaskListProps = {}) {
+export function TaskList({
+  measurer = domColumnMeasurer,
+  scrollContainerRef,
+}: TaskListProps = {}) {
   // Only the item count drives the chrome (header + which rows exist); the rows
   // themselves read everything else they need directly from the store.
   const items = useJobStore((s) => s.draft.items);
@@ -88,7 +99,7 @@ export function TaskList({ measurer = domColumnMeasurer }: TaskListProps = {}) {
       animatedReorder={animatedReorder}
       justMovedIndex={justMovedIndex}
     >
-      <ReorderDndProvider>
+      <ReorderDndProvider scrollContainerRef={scrollContainerRef}>
         {/* The selectable queue: role="grid" + aria-multiselectable + per-row
           aria-selected is the ARIA pattern for row selection, and makes this an
           interactive element so tabIndex/onKeyDown are valid. tabIndex makes it

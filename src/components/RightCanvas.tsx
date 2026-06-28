@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { AddSourceButtons } from "@/components/AddSourceButtons";
 import { EmptyQueue } from "@/components/EmptyQueue";
 import { LastBatchChip } from "@/components/LastBatchChip";
@@ -33,8 +35,13 @@ export function RightCanvas() {
 
   const phase = canvasPhase({ itemCount, running, hasSummary, cleared });
 
+  // The scroller is handed to the queue so a row drag near the top/bottom edge
+  // auto-scrolls this container (see ReorderDndProvider's edge auto-scroll).
+  const scrollContainerRef = useRef<HTMLElement>(null);
+
   return (
     <main
+      ref={scrollContainerRef}
       aria-label="Work area"
       className="min-w-0 flex-1 overflow-y-auto px-6 py-4"
     >
@@ -52,7 +59,7 @@ export function RightCanvas() {
             <ResetButton />
             <AddSourceButtons />
           </div>
-          <TaskList />
+          <TaskList scrollContainerRef={scrollContainerRef} />
         </div>
       ) : null}
       {phase === "running" ? (
@@ -62,7 +69,7 @@ export function RightCanvas() {
           <div className="sticky top-0 z-10 -mx-6 border-b border-border bg-background px-6 pb-3">
             <OverallProgress />
           </div>
-          <TaskList />
+          <TaskList scrollContainerRef={scrollContainerRef} />
         </div>
       ) : null}
       {phase === "results" ? <Ledger /> : null}
