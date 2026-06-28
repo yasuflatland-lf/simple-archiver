@@ -13,6 +13,59 @@ use crate::infrastructure::path_utils::{classified_components, PathPart};
 use crate::infrastructure::temp_workspace::TempWorkspace;
 use async_zip::tokio::read::seek::ZipFileReader;
 use std::path::{Path, PathBuf};
+use tokio::io::AsyncReadExt as _;
+use tokio_util::compat::FuturesAsyncReadCompatExt as _;
+
+/// Size of the buffer used to read each entry in bounded chunks. Reading an
+/// entry chunk-by-chunk (rather than buffering the whole entry in one call) is
+/// what lets the loop observe cancellation MID-entry, so a cancel landing inside
+/// a large entry aborts the in-flight read promptly instead of only after the
+/// entry finishes (issue #182 AC1).
+const CHUNK_SIZE: usize = 64 * 1024;
+
+/// Outcome of a bounded, cancellation-polled read of a single entry.
+enum ChunkReadOutcome {
+    /// The entry was read to EOF; `out` holds its full contents.
+    Completed,
+    /// Cancellation was observed mid-read; `out` holds only the prefix read so
+    /// far and the caller MUST discard it.
+    Cancelled,
+}
+
+/// Read `reader` to EOF into `out` in bounded [`CHUNK_SIZE`] chunks, polling
+/// `ctx.is_cancelled()` once before each chunk.
+///
+/// Returns [`ChunkReadOutcome::Cancelled`] the first time cancellation is
+/// observed — leaving only the prefix read so far in `out` — otherwise reads to
+/// EOF and returns [`ChunkReadOutcome::Completed`].
+///
+/// The poll lives INSIDE the read loop (not after a whole-entry read), so a
+/// cancel arriving in the middle of a large entry aborts the in-flight read
+/// instead of waiting for the entry to finish (issue #182 AC1). Hoisting the
+/// poll out of this loop would re-break that guarantee.
+async fn read_entry_chunked<R>(
+    reader: &mut R,
+    ctx: &ExtractContext,
+    out: &mut Vec<u8>,
+) -> Result<ChunkReadOutcome, ExtractError>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut buf = vec![0u8; CHUNK_SIZE];
+    loop {
+        if ctx.is_cancelled() {
+            return Ok(ChunkReadOutcome::Cancelled);
+        }
+        let read = reader
+            .read(&mut buf)
+            .await
+            .map_err(|e| ExtractError::Backend(e.to_string()))?;
+        if read == 0 {
+            return Ok(ChunkReadOutcome::Completed);
+        }
+        out.extend_from_slice(&buf[..read]);
+    }
+}
 
 /// Extracts zip archives into a temporary directory via `async_zip`.
 #[derive(Debug, Default)]
@@ -33,77 +86,118 @@ impl Extractor for ZipExtractor {
     ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
         let workspace = TempWorkspace::new()?; // io::Error -> ExtractError::Io
 
-        // Open the archive with tokio and wrap in a buffered reader: the seek
-        // reader (`ZipFileReader::with_tokio`) requires `AsyncBufRead + AsyncSeek`.
-        // `tokio::fs::File` implements `AsyncSeek` but NOT `AsyncBufRead`, so the
-        // `BufReader` adds the missing buffered-read layer.
-        let file = tokio::fs::File::open(src_archive).await?; // io::Error -> ExtractError::Io
-        let buf = tokio::io::BufReader::new(file);
-        let mut reader = ZipFileReader::with_tokio(buf)
+        // Fill the workspace, then hand it back as the tree guard. On ANY error
+        // (including cancellation) `fill_workspace` returns `Err`, so `workspace`
+        // is never boxed and its `Drop` removes the temp directory along with any
+        // partial output — no half-written tree is left behind.
+        fill_workspace(src_archive, ctx, workspace.path()).await?;
+        Ok(Box::new(workspace))
+    }
+}
+
+/// Extract every file entry of `src_archive` into `dest_root`.
+///
+/// Factored out of [`ZipExtractor::extract`] so the destination is an explicit
+/// path the caller owns: production passes a [`TempWorkspace`] path (whose `Drop`
+/// is what removes partial output on a cancelled/failed run), and tests can pass
+/// a directory they own to observe the actual extraction target.
+async fn fill_workspace(
+    src_archive: &Path,
+    ctx: &ExtractContext,
+    dest_root: &Path,
+) -> Result<(), ExtractError> {
+    // Open the archive with tokio and wrap in a buffered reader: the seek
+    // reader (`ZipFileReader::with_tokio`) requires `AsyncBufRead + AsyncSeek`.
+    // `tokio::fs::File` implements `AsyncSeek` but NOT `AsyncBufRead`, so the
+    // `BufReader` adds the missing buffered-read layer.
+    let file = tokio::fs::File::open(src_archive).await?; // io::Error -> ExtractError::Io
+    let buf = tokio::io::BufReader::new(file);
+    let mut reader = ZipFileReader::with_tokio(buf)
+        .await
+        .map_err(|e| ExtractError::Backend(e.to_string()))?;
+
+    let count = reader.file().entries().len();
+    for i in 0..count {
+        // Poll the cancellation token between entries so a long extraction aborts
+        // promptly instead of running the whole archive to completion. This
+        // covers entries that never reach the chunked read below (e.g. directory
+        // entries, which `continue`). Returning `Err` makes the caller drop the
+        // `TempWorkspace`, removing the partially-extracted temp directory — no
+        // half-written tree is left behind.
+        if ctx.is_cancelled() {
+            return Err(ExtractError::Cancelled);
+        }
+
+        // Read the metadata into OWNED values FIRST so the immutable borrow of
+        // `reader.file()` is released before the `&mut self` entry reader call.
+        let (is_dir, name) = {
+            let entry = &reader.file().entries()[i];
+            let is_dir = entry
+                .dir()
+                .map_err(|e| ExtractError::Backend(e.to_string()))?;
+            let name = entry
+                .filename()
+                .as_str()
+                .map_err(|e| ExtractError::Backend(format!("entry {i} has a non-UTF-8 name: {e}")))?
+                .to_owned();
+            (is_dir, name)
+        };
+        if is_dir {
+            continue;
+        }
+
+        // Zip-slip guard + relative-path computation. A rejected entry aborts
+        // the whole extraction (nothing is written for it).
+        let Some(rel) = safe_relative_path(&name)? else {
+            // Empty after filtering (e.g. `.` only): nothing to write.
+            continue;
+        };
+
+        // Now take the entry-bearing reader (`&mut self`); the metadata borrow
+        // is gone. `reader_with_entry` returns a `ZipEntryReader<WithEntry>`.
+        let mut entry_reader = reader
+            .reader_with_entry(i)
             .await
             .map_err(|e| ExtractError::Backend(e.to_string()))?;
 
-        let count = reader.file().entries().len();
-        for i in 0..count {
-            // Poll the cancellation token between entries so a long extraction
-            // aborts promptly instead of running the whole archive to completion.
-            // Returning `Err` drops `workspace`, removing the partially-extracted
-            // temp directory — no half-written tree is left behind.
-            if ctx.is_cancelled() {
-                return Err(ExtractError::Cancelled);
+        // Read the entry in bounded chunks so a cancel landing mid-entry
+        // aborts the in-flight read (issue #182 AC1) instead of buffering the
+        // whole (possibly large) entry first. `async_zip`'s entry reader is a
+        // `futures-io` `AsyncRead`; bridge it into a tokio `AsyncRead` with
+        // `tokio_util::compat` so the chunk loop uses the same tokio IO as the
+        // rest of this adapter. The reader is BORROWED (`&mut`) so
+        // `entry_reader` stays usable for the post-read CRC32 check below.
+        let mut bytes = Vec::new();
+        let outcome = {
+            let mut compat = (&mut entry_reader).compat();
+            read_entry_chunked(&mut compat, ctx, &mut bytes).await?
+        };
+        match outcome {
+            ChunkReadOutcome::Cancelled => return Err(ExtractError::Cancelled),
+            ChunkReadOutcome::Completed => {
+                // The entry reached EOF, so validate its CRC32 exactly as the
+                // library's `read_to_end_checked` would: compare the hash of
+                // the bytes read against the entry's stored CRC32. This keeps
+                // the integrity guarantee for entries that complete normally
+                // (corrupt/encrypted/truncated entries still fail). CRC is
+                // intentionally SKIPPED on cancel, since the partial bytes are
+                // discarded and never written.
+                if entry_reader.compute_hash() != entry_reader.entry().crc32() {
+                    return Err(ExtractError::Backend(format!(
+                        "entry {i} failed CRC32 validation"
+                    )));
+                }
             }
-
-            // Read the metadata into OWNED values FIRST so the immutable borrow of
-            // `reader.file()` is released before the `&mut self` entry reader call.
-            let (is_dir, name) = {
-                let entry = &reader.file().entries()[i];
-                let is_dir = entry
-                    .dir()
-                    .map_err(|e| ExtractError::Backend(e.to_string()))?;
-                let name = entry
-                    .filename()
-                    .as_str()
-                    .map_err(|e| {
-                        ExtractError::Backend(format!("entry {i} has a non-UTF-8 name: {e}"))
-                    })?
-                    .to_owned();
-                (is_dir, name)
-            };
-            if is_dir {
-                continue;
-            }
-
-            // Zip-slip guard + relative-path computation. A rejected entry aborts
-            // the whole extraction (nothing is written for it).
-            let Some(rel) = safe_relative_path(&name)? else {
-                // Empty after filtering (e.g. `.` only): nothing to write.
-                continue;
-            };
-
-            // Now take the entry-bearing reader (`&mut self`); the metadata borrow
-            // is gone. `reader_with_entry` returns a `ZipEntryReader<WithEntry>`,
-            // whose `read_to_end_checked` validates the entry's CRC32 (and rejects
-            // encrypted/corrupt/truncated entries) — surfacing `CRC32CheckError`
-            // and friends as `Err` so the task fails instead of writing garbage.
-            let mut entry_reader = reader
-                .reader_with_entry(i)
-                .await
-                .map_err(|e| ExtractError::Backend(e.to_string()))?;
-            let mut bytes = Vec::new();
-            entry_reader
-                .read_to_end_checked(&mut bytes)
-                .await
-                .map_err(|e| ExtractError::Backend(e.to_string()))?;
-
-            let dest = workspace.path().join(&rel);
-            if let Some(parent) = dest.parent() {
-                tokio::fs::create_dir_all(parent).await?; // io::Error -> ExtractError::Io
-            }
-            tokio::fs::write(&dest, &bytes).await?; // io::Error -> ExtractError::Io
         }
 
-        Ok(Box::new(workspace))
+        let dest = dest_root.join(&rel);
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent).await?; // io::Error -> ExtractError::Io
+        }
+        tokio::fs::write(&dest, &bytes).await?; // io::Error -> ExtractError::Io
     }
+
+    Ok(())
 }
 
 /// Validate a zip entry name and reduce it to a safe relative path.
@@ -150,6 +244,24 @@ mod tests {
         for (name, bytes) in entries {
             writer.start_file(*name, options).expect("start zip entry");
             writer.write_all(bytes).expect("write zip entry bytes");
+        }
+        writer.finish().expect("finalize zip");
+        tmp
+    }
+
+    /// Build a zip whose entries are ALL explicit directory entries (named
+    /// `d0/`, `d1/`, ...). Directory entries `continue` before the chunked read,
+    /// so the for-loop's between-entry poll is the ONLY cancellation site for
+    /// such a zip — exactly what the between-entry cancellation test needs to
+    /// isolate that poll.
+    fn make_zip_of_dirs(count: usize) -> tempfile::NamedTempFile {
+        let tmp = tempfile::NamedTempFile::new().expect("temp zip file");
+        let mut writer = ZipWriter::new(tmp.reopen().expect("reopen temp zip"));
+        let options = SimpleFileOptions::default();
+        for i in 0..count {
+            writer
+                .add_directory(format!("d{i}/"), options)
+                .expect("dir entry");
         }
         writer.finish().expect("finalize zip");
         tmp
@@ -306,47 +418,130 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancellation_aborts_extraction_with_cancelled_error() {
-        // A multi-entry zip with an already-cancelled context: the per-entry poll
-        // trips inside the work loop, so extraction returns `Cancelled` instead
-        // of running the whole archive to completion. The only way this error can
-        // arise is the in-loop `is_cancelled()` check, so it proves the loop polls
-        // the token between entries.
-        let zip = make_zip(&[("a.txt", b"alpha"), ("b.txt", b"beta"), ("c.txt", b"gamma")]);
+    async fn chunk_read_aborts_in_flight_entry_before_consuming_the_whole_entry() {
+        // AC1 (issue #182): a cancel landing MID-entry must abort the in-flight
+        // read, not wait for the (large) entry to finish. `cancel_after_polls(1)`
+        // reports "not cancelled" for the first chunk poll, then "cancelled"
+        // thereafter — so the loop reads exactly ONE chunk and then aborts.
+        const TOTAL: usize = 3 * CHUNK_SIZE + 1; // spans several chunks
+        let data = vec![7u8; TOTAL];
+        // `&[u8]` is a tokio `AsyncRead` that yields up to the buffer size per
+        // read, so a 64 KiB buffer reads one `CHUNK_SIZE` chunk at a time.
+        let mut reader: &[u8] = &data;
 
-        let token = tokio_util::sync::CancellationToken::new();
-        token.cancel();
-        let ctx = ExtractContext::new(token);
+        let ctx = ExtractContext::cancel_after_polls(1);
+        let mut out = Vec::new();
+        let outcome = read_entry_chunked(&mut reader, &ctx, &mut out)
+            .await
+            .expect("chunk read should not error");
+
+        assert!(
+            matches!(outcome, ChunkReadOutcome::Cancelled),
+            "a mid-entry cancel must yield ChunkReadOutcome::Cancelled"
+        );
+        // The loop stopped after exactly one chunk. If the cancel check were
+        // hoisted OUT of the chunk loop (read whole entry, then check), `out`
+        // would hold all TOTAL bytes and this assertion would FAIL.
+        assert_eq!(
+            out.len(),
+            CHUNK_SIZE,
+            "only the first chunk must be read before the cancel is observed"
+        );
+        assert!(
+            out.len() < TOTAL,
+            "must abort before reading the whole entry"
+        );
+    }
+
+    #[tokio::test]
+    async fn chunk_read_with_precancelled_token_reads_no_bytes() {
+        // Corroboration: an already-cancelled context aborts the chunk loop on
+        // the very first poll, before any byte is read. FAILS if the poll is
+        // hoisted past the reads (then `out` would hold the whole entry).
+        const TOTAL: usize = 2 * CHUNK_SIZE;
+        let data = vec![1u8; TOTAL];
+        let mut reader: &[u8] = &data;
+
+        let ctx = ExtractContext::cancel_after_polls(0); // cancelled from poll #0
+        let mut out = Vec::new();
+        let outcome = read_entry_chunked(&mut reader, &ctx, &mut out)
+            .await
+            .expect("chunk read should not error");
+
+        assert!(matches!(outcome, ChunkReadOutcome::Cancelled));
+        assert!(
+            out.is_empty(),
+            "a pre-cancelled token must read no bytes, got {} bytes",
+            out.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn between_entry_poll_aborts_mid_loop_and_is_essential() {
+        // A zip of three directory entries. Directory entries `continue` before
+        // the chunked read, so the for-loop's between-entry poll is the ONLY
+        // cancellation site. `cancel_after_polls(2)` keeps polls #0 and #1 (the
+        // first two entries) un-cancelled and fires on poll #2 (the third entry),
+        // so extraction aborts AFTER a prefix of entries, mid-loop.
+        //
+        // This FAILS if the between-entry check is hoisted to BEFORE the loop:
+        // hoisted, the single pre-loop poll (#0) is un-cancelled, no per-entry
+        // poll exists, and an all-directory zip extracts successfully — so the
+        // expected `Cancelled` never arises.
+        let zip = make_zip_of_dirs(3);
+        let ctx = ExtractContext::cancel_after_polls(2);
 
         let result = ZipExtractor::new().extract(zip.path(), &ctx).await;
         let kind = result.map(|_| "ok");
         assert!(
             matches!(kind, Err(ExtractError::Cancelled)),
-            "a cancelled extraction must return ExtractError::Cancelled, got {kind:?}"
+            "the between-entry poll must abort mid-loop with Cancelled, got {kind:?}"
         );
     }
 
     #[tokio::test]
-    async fn cancellation_leaves_no_extracted_files_behind() {
-        // On cancel the extractor returns `Err` WITHOUT handing back the tree
-        // guard, so the partially-built `TempWorkspace` is dropped and its temp
-        // directory (with any bytes written so far) is removed by RAII. We cannot
-        // name that internal temp dir, but we can assert no extracted entry leaked
-        // into the input zip's own parent directory (the same check the zip-slip
-        // test uses for "nothing escaped the tree").
-        let zip = make_zip(&[("a.txt", b"alpha"), ("b.txt", b"beta")]);
+    async fn cancellation_removes_the_workspace_with_any_partial_output() {
+        // Genuine no-partial-output observation. We drive extraction into a
+        // workspace WE own (mirroring what `extract` builds internally) so we can
+        // name its path. The cancel fires at the SECOND entry's between-entry poll
+        // — AFTER the first entry's bytes are already written to disk — so there
+        // is a real partial output to clean up.
+        //
+        // The first entry is EMPTY so its poll budget is deterministic (no data
+        // to split across reads): 1 between-entry poll (#0) + exactly 1 chunk-loop
+        // poll (#1) that immediately observes EOF. Poll #2 is then the SECOND
+        // entry's between-entry poll, so `cancel_after_polls(2)` fires there —
+        // after the empty `a.txt` has been written but before `b.txt`.
+        let zip = make_zip(&[("a.txt", b""), ("b.txt", b"beta")]);
+        let ctx = ExtractContext::cancel_after_polls(2);
 
-        let token = tokio_util::sync::CancellationToken::new();
-        token.cancel();
-        let ctx = ExtractContext::new(token);
+        let workspace = TempWorkspace::new().expect("workspace");
+        let workspace_path = workspace.path().to_path_buf();
 
-        let result = ZipExtractor::new().extract(zip.path(), &ctx).await;
-        assert!(matches!(result.map(|_| "ok"), Err(ExtractError::Cancelled)));
-
-        let parent = zip.path().parent().expect("temp parent");
+        let result = fill_workspace(zip.path(), &ctx, workspace.path()).await;
         assert!(
-            !parent.join("a.txt").exists() && !parent.join("b.txt").exists(),
-            "a cancelled extraction must not leave extracted files outside its tree"
+            matches!(result, Err(ExtractError::Cancelled)),
+            "the second entry's between-entry poll must abort with Cancelled, got {result:?}"
+        );
+
+        // Precondition: the first entry WAS written before the cancel, so the
+        // workspace holds real partial output on disk.
+        assert!(
+            workspace_path.join("a.txt").exists(),
+            "the first entry must have been written before the cancel fired"
+        );
+        assert!(
+            !workspace_path.join("b.txt").exists(),
+            "the second entry must NOT have been written (cancel fired first)"
+        );
+
+        // Dropping the workspace is exactly what `extract` does on a cancelled
+        // run (it returns `Err` instead of boxing the guard). That `Drop` must
+        // remove the whole tree, INCLUDING the partial `a.txt`.
+        drop(workspace);
+        assert!(
+            !workspace_path.exists(),
+            "the workspace (and ALL partial output) must be removed on drop"
         );
     }
 }

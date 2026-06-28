@@ -6,7 +6,10 @@ edition = "2021"
 [dependencies]
 async_zip = { version = "0.0.18", features = ["tokio", "deflate"] }
 tokio = { version = "1", features = ["fs", "io-util", "rt", "sync"] }
-tokio-util = "0.7.18"
+# `compat` bridges `async_zip`'s `futures-io` entry reader to a tokio `AsyncRead`
+# so the zip extractor can drive bounded, cancellation-polled chunk reads with
+# the same tokio IO used elsewhere in the adapter.
+tokio-util = { version = "0.7.18", features = ["compat"] }
 walkdir = "2"
 thiserror = "2"
 tempfile = "3"

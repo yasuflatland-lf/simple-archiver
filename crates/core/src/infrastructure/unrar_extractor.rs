@@ -48,9 +48,20 @@ impl Extractor for UnrarExtractor {
                     .read_header()
                     .map_err(|e| ExtractError::Backend(e.to_string()))?
                 {
-                    // Poll the token between entries so a long rar extraction aborts
+                    // Poll the token BETWEEN entries so a long rar extraction aborts
                     // promptly. Returning `Err` drops `workspace`, removing the
                     // partially-extracted temp directory (no half-written tree).
+                    //
+                    // WHOLE-FILE LIMITATION: unlike the zip adapter (which reads
+                    // each entry in bounded, cancellation-polled chunks), the
+                    // `unrar` safe API extracts a whole entry in a single
+                    // `extract_with_base` call that cannot be interrupted
+                    // mid-file. Interrupting an in-flight large rar entry would
+                    // require a different (lower-level) unrar API or library,
+                    // which is a forbidden library swap. So the finest
+                    // cancellation granularity here is per-entry: a cancel landing
+                    // inside a large entry is observed only once that entry
+                    // finishes and the loop reaches this poll for the next entry.
                     if ctx.is_cancelled() {
                         return Err(ExtractError::Cancelled);
                     }
@@ -108,12 +119,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancellation_aborts_extraction_with_cancelled_error() {
-        // An already-cancelled context against the real fixture: the per-entry
-        // poll inside the blocking work loop trips before the file is extracted,
-        // so extraction returns `Cancelled` (and the temp dir is reclaimed on the
-        // early-return drop). The only path to this error is the in-loop
-        // `is_cancelled()` check, proving the unrar loop polls the token.
+    async fn cancelled_context_aborts_before_extracting_the_entry() {
+        // The committed fixture has a SINGLE entry, so this can only prove the
+        // per-entry poll exists on the path and yields `Cancelled` (with the temp
+        // dir reclaimed on the early-return drop). It deliberately does NOT claim
+        // to distinguish an in-loop poll from a hoisted before-the-loop poll: that
+        // would need a multi-entry rar fixture, and `unrar` (extract-only) cannot
+        // create one. The per-entry granularity itself is a documented WHOLE-FILE
+        // limitation of the `unrar` safe API (see `extract`); finer (mid-entry)
+        // cancellation is impossible without a forbidden library swap.
         let token = CancellationToken::new();
         token.cancel();
         let ctx = ExtractContext::new(token);

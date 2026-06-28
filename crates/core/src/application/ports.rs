@@ -69,9 +69,11 @@ pub trait Clock: Send + Sync {
 /// (e.g. `unrar` or `async_zip`) so the port stays decoupled from any specific
 /// extraction backend. `Cancelled` is returned when the caller cancels via the
 /// [`ExtractContext`] carried into [`Extractor::extract`]: the work loop polls
-/// the token between entries and aborts the current archive promptly. The
-/// partially-extracted temp directory is always reclaimed by [`ExtractedTree`]'s
-/// drop (the guard is never returned on a cancelled extraction).
+/// the token as finely as the backend allows (the zip adapter polls per read
+/// chunk, so it aborts even mid-entry; the whole-file `unrar` API polls between
+/// entries) and aborts the current archive promptly. The partially-extracted
+/// temp directory is always reclaimed by [`ExtractedTree`]'s drop (the guard is
+/// never returned on a cancelled extraction).
 #[derive(Debug, thiserror::Error)]
 pub enum ExtractError {
     /// Filesystem I/O failed while creating the temp dir or writing entries.
@@ -82,7 +84,7 @@ pub enum ExtractError {
     #[error("extract error: {0}")]
     Backend(String),
     /// The extraction was cancelled by the caller (observed mid-stream via the
-    /// [`ExtractContext`] token between entries).
+    /// [`ExtractContext`]: per read chunk for zip, between entries for rar).
     #[error("cancelled")]
     Cancelled,
 }
@@ -108,11 +110,13 @@ pub trait Extractor: Send + Sync {
     /// dropping it removes the dir.
     ///
     /// `ctx` carries a read-only cancellation observation: the implementation
-    /// MUST poll [`ExtractContext::is_cancelled`] between entries and return
-    /// [`ExtractError::Cancelled`] when it trips, so a long extraction aborts
-    /// promptly instead of running the current archive to completion. On a
-    /// cancelled (or otherwise failed) extraction no guard is returned, so the
-    /// partially-written temp directory is reclaimed by its `Drop`.
+    /// MUST poll [`ExtractContext::is_cancelled`] at least between entries (and
+    /// finer where the backend allows — the zip adapter polls per read chunk so
+    /// it aborts even mid-entry) and return [`ExtractError::Cancelled`] when it
+    /// trips, so a long extraction aborts promptly instead of running the current
+    /// archive to completion. On a cancelled (or otherwise failed) extraction no
+    /// guard is returned, so the partially-written temp directory is reclaimed by
+    /// its `Drop`.
     fn extract(
         &self,
         src_archive: &Path,
