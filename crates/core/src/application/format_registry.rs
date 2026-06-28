@@ -6,6 +6,7 @@
 //! the temp directory lives exactly as long as the value is held by the caller
 //! (the engine drops it after compression).
 
+use crate::application::extract_context::ExtractContext;
 use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
 use crate::domain::source_item::SourceItem;
 use std::path::{Path, PathBuf};
@@ -52,12 +53,18 @@ impl<E: Extractor> FormatRegistry<E> {
     }
 
     /// Resolve `source` into a `Prepared` directory, extracting rar/zip files.
-    pub(crate) async fn prepare(&self, source: &SourceItem) -> Result<Prepared, ExtractError> {
+    /// `ctx` carries the cancellation observation handed to the extractor so a
+    /// long extraction can abort mid-stream.
+    pub(crate) async fn prepare(
+        &self,
+        source: &SourceItem,
+        ctx: &ExtractContext,
+    ) -> Result<Prepared, ExtractError> {
         match source {
             SourceItem::Folder(path) => Ok(Prepared::Folder(path.clone())),
-            SourceItem::RarFile(path) | SourceItem::ZipFile(path) => {
-                Ok(Prepared::Extracted(self.extractor.extract(path).await?))
-            }
+            SourceItem::RarFile(path) | SourceItem::ZipFile(path) => Ok(Prepared::Extracted(
+                self.extractor.extract(path, ctx).await?,
+            )),
         }
     }
 }
@@ -93,7 +100,11 @@ mod tests {
         }
     }
     impl Extractor for FakeExtractor {
-        async fn extract(&self, src: &Path) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+        async fn extract(
+            &self,
+            src: &Path,
+            _ctx: &ExtractContext,
+        ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             let name = src.file_name().unwrap().to_string_lossy().to_string();
             if self.fail_names.contains(&name) {
@@ -112,7 +123,10 @@ mod tests {
         let registry = FormatRegistry::new(Arc::new(fake));
 
         let prepared = registry
-            .prepare(&SourceItem::Folder(PathBuf::from("/some/dir")))
+            .prepare(
+                &SourceItem::Folder(PathBuf::from("/some/dir")),
+                &ExtractContext::detached(),
+            )
             .await
             .expect("folder prepares");
 
@@ -127,7 +141,10 @@ mod tests {
         let registry = FormatRegistry::new(Arc::new(fake));
 
         let prepared = registry
-            .prepare(&SourceItem::RarFile(PathBuf::from("a.rar")))
+            .prepare(
+                &SourceItem::RarFile(PathBuf::from("a.rar")),
+                &ExtractContext::detached(),
+            )
             .await
             .expect("rar prepares");
 
@@ -146,7 +163,10 @@ mod tests {
         let registry = FormatRegistry::new(Arc::new(fake));
 
         let result = registry
-            .prepare(&SourceItem::RarFile(PathBuf::from("bad.rar")))
+            .prepare(
+                &SourceItem::RarFile(PathBuf::from("bad.rar")),
+                &ExtractContext::detached(),
+            )
             .await;
 
         assert!(matches!(result, Err(ExtractError::Backend(_))));
@@ -159,7 +179,10 @@ mod tests {
         let registry = FormatRegistry::new(Arc::new(fake));
 
         let prepared = registry
-            .prepare(&SourceItem::ZipFile(PathBuf::from("a.zip")))
+            .prepare(
+                &SourceItem::ZipFile(PathBuf::from("a.zip")),
+                &ExtractContext::detached(),
+            )
             .await
             .expect("zip prepares");
 
@@ -169,5 +192,43 @@ mod tests {
             "prepared dir should be a real directory"
         );
         assert!(matches!(prepared, Prepared::Extracted(_)));
+    }
+
+    /// A fake extractor that observes the context and aborts as `Cancelled` when
+    /// the token is already tripped — proving the cancellation observation
+    /// threads through `prepare` into the extractor.
+    struct CancelObservingExtractor;
+    impl Extractor for CancelObservingExtractor {
+        async fn extract(
+            &self,
+            _src: &Path,
+            ctx: &ExtractContext,
+        ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+            if ctx.is_cancelled() {
+                return Err(ExtractError::Cancelled);
+            }
+            Ok(Box::new(FakeTree {
+                dir: tempfile::tempdir().unwrap(),
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn prepare_threads_cancellation_into_the_extractor() {
+        let registry = FormatRegistry::new(Arc::new(CancelObservingExtractor));
+        let token = tokio_util::sync::CancellationToken::new();
+        token.cancel();
+
+        let result = registry
+            .prepare(
+                &SourceItem::ZipFile(PathBuf::from("a.zip")),
+                &ExtractContext::new(token),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(ExtractError::Cancelled)),
+            "a cancelled context must surface as ExtractError::Cancelled"
+        );
     }
 }

@@ -7,6 +7,7 @@
 //! zip-slip guard: any entry whose path escapes the workspace (via `..`, an
 //! absolute root, or a Windows drive/UNC prefix) rejects the whole extraction.
 
+use crate::application::extract_context::ExtractContext;
 use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
 use crate::infrastructure::path_utils::{classified_components, PathPart};
 use crate::infrastructure::temp_workspace::TempWorkspace;
@@ -25,7 +26,11 @@ impl ZipExtractor {
 }
 
 impl Extractor for ZipExtractor {
-    async fn extract(&self, src_archive: &Path) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+    async fn extract(
+        &self,
+        src_archive: &Path,
+        ctx: &ExtractContext,
+    ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
         let workspace = TempWorkspace::new()?; // io::Error -> ExtractError::Io
 
         // Open the archive with tokio and wrap in a buffered reader: the seek
@@ -40,6 +45,14 @@ impl Extractor for ZipExtractor {
 
         let count = reader.file().entries().len();
         for i in 0..count {
+            // Poll the cancellation token between entries so a long extraction
+            // aborts promptly instead of running the whole archive to completion.
+            // Returning `Err` drops `workspace`, removing the partially-extracted
+            // temp directory — no half-written tree is left behind.
+            if ctx.is_cancelled() {
+                return Err(ExtractError::Cancelled);
+            }
+
             // Read the metadata into OWNED values FIRST so the immutable borrow of
             // `reader.file()` is released before the `&mut self` entry reader call.
             let (is_dir, name) = {
@@ -163,7 +176,7 @@ mod tests {
         let zip = make_zip(&[("hello.txt", b"hi"), ("nested/world.txt", b"world")]);
 
         let tree = ZipExtractor::new()
-            .extract(zip.path())
+            .extract(zip.path(), &ExtractContext::detached())
             .await
             .expect("extraction should succeed");
 
@@ -180,7 +193,7 @@ mod tests {
         let zip = make_zip_with_dir();
 
         let tree = ZipExtractor::new()
-            .extract(zip.path())
+            .extract(zip.path(), &ExtractContext::detached())
             .await
             .expect("extraction should succeed");
 
@@ -201,7 +214,9 @@ mod tests {
         // bytes are written outside the extraction tree.
         let zip = make_zip(&[("../escape.txt", b"pwned")]);
 
-        let result = ZipExtractor::new().extract(zip.path()).await;
+        let result = ZipExtractor::new()
+            .extract(zip.path(), &ExtractContext::detached())
+            .await;
         let kind = result.map(|_| "ok");
         match kind {
             Err(ExtractError::Backend(ref msg)) => {
@@ -227,7 +242,9 @@ mod tests {
         let mut tmp = tempfile::NamedTempFile::new().expect("temp file");
         tmp.write_all(b"not a zip").expect("write bytes");
 
-        let result = ZipExtractor::new().extract(tmp.path()).await;
+        let result = ZipExtractor::new()
+            .extract(tmp.path(), &ExtractContext::detached())
+            .await;
         let kind = result.map(|_| "ok");
         assert!(
             matches!(kind, Err(ExtractError::Backend(_))),
@@ -258,7 +275,9 @@ mod tests {
             .expect("write encrypted entry bytes");
         writer.finish().expect("finalize zip");
 
-        let result = ZipExtractor::new().extract(tmp.path()).await;
+        let result = ZipExtractor::new()
+            .extract(tmp.path(), &ExtractContext::detached())
+            .await;
         let kind = result.map(|_| "ok");
         assert!(
             matches!(kind, Err(ExtractError::Backend(_))),
@@ -273,7 +292,7 @@ mod tests {
         let zip = make_zip(&[]);
 
         let tree = ZipExtractor::new()
-            .extract(zip.path())
+            .extract(zip.path(), &ExtractContext::detached())
             .await
             .expect("empty zip should extract successfully");
 
@@ -283,6 +302,51 @@ mod tests {
         assert!(
             entries.next().is_none(),
             "an empty zip must extract to an empty directory"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellation_aborts_extraction_with_cancelled_error() {
+        // A multi-entry zip with an already-cancelled context: the per-entry poll
+        // trips inside the work loop, so extraction returns `Cancelled` instead
+        // of running the whole archive to completion. The only way this error can
+        // arise is the in-loop `is_cancelled()` check, so it proves the loop polls
+        // the token between entries.
+        let zip = make_zip(&[("a.txt", b"alpha"), ("b.txt", b"beta"), ("c.txt", b"gamma")]);
+
+        let token = tokio_util::sync::CancellationToken::new();
+        token.cancel();
+        let ctx = ExtractContext::new(token);
+
+        let result = ZipExtractor::new().extract(zip.path(), &ctx).await;
+        let kind = result.map(|_| "ok");
+        assert!(
+            matches!(kind, Err(ExtractError::Cancelled)),
+            "a cancelled extraction must return ExtractError::Cancelled, got {kind:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellation_leaves_no_extracted_files_behind() {
+        // On cancel the extractor returns `Err` WITHOUT handing back the tree
+        // guard, so the partially-built `TempWorkspace` is dropped and its temp
+        // directory (with any bytes written so far) is removed by RAII. We cannot
+        // name that internal temp dir, but we can assert no extracted entry leaked
+        // into the input zip's own parent directory (the same check the zip-slip
+        // test uses for "nothing escaped the tree").
+        let zip = make_zip(&[("a.txt", b"alpha"), ("b.txt", b"beta")]);
+
+        let token = tokio_util::sync::CancellationToken::new();
+        token.cancel();
+        let ctx = ExtractContext::new(token);
+
+        let result = ZipExtractor::new().extract(zip.path(), &ctx).await;
+        assert!(matches!(result.map(|_| "ok"), Err(ExtractError::Cancelled)));
+
+        let parent = zip.path().parent().expect("temp parent");
+        assert!(
+            !parent.join("a.txt").exists() && !parent.join("b.txt").exists(),
+            "a cancelled extraction must not leave extracted files outside its tree"
         );
     }
 }

@@ -7,6 +7,7 @@
 //! via the `CancellationToken` carried by `CompressContext`.
 
 use crate::application::compress_context::CompressContext;
+use crate::application::extract_context::ExtractContext;
 use crate::domain::conflict_policy::ConflictPolicy;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -66,10 +67,11 @@ pub trait Clock: Send + Sync {
 ///
 /// `Backend` carries a stringified message from the underlying extraction library
 /// (e.g. `unrar` or `async_zip`) so the port stays decoupled from any specific
-/// extraction backend. There is no `Cancelled`
-/// variant: extraction is not interrupted mid-stream in the MVP — cancellation is
-/// observed *before* extraction starts (in the engine) and the temp directory is
-/// always reclaimed by [`ExtractedTree`]'s drop.
+/// extraction backend. `Cancelled` is returned when the caller cancels via the
+/// [`ExtractContext`] carried into [`Extractor::extract`]: the work loop polls
+/// the token between entries and aborts the current archive promptly. The
+/// partially-extracted temp directory is always reclaimed by [`ExtractedTree`]'s
+/// drop (the guard is never returned on a cancelled extraction).
 #[derive(Debug, thiserror::Error)]
 pub enum ExtractError {
     /// Filesystem I/O failed while creating the temp dir or writing entries.
@@ -79,6 +81,10 @@ pub enum ExtractError {
     /// rar or zip, etc.).
     #[error("extract error: {0}")]
     Backend(String),
+    /// The extraction was cancelled by the caller (observed mid-stream via the
+    /// [`ExtractContext`] token between entries).
+    #[error("cancelled")]
+    Cancelled,
 }
 
 /// A handle to an extracted directory tree.
@@ -100,9 +106,17 @@ pub trait Extractor: Send + Sync {
     /// Extract every entry of `src_archive` (a rar or zip archive) into a new temp
     /// directory and return a guard whose `path()` holds the extracted tree;
     /// dropping it removes the dir.
+    ///
+    /// `ctx` carries a read-only cancellation observation: the implementation
+    /// MUST poll [`ExtractContext::is_cancelled`] between entries and return
+    /// [`ExtractError::Cancelled`] when it trips, so a long extraction aborts
+    /// promptly instead of running the current archive to completion. On a
+    /// cancelled (or otherwise failed) extraction no guard is returned, so the
+    /// partially-written temp directory is reclaimed by its `Drop`.
     fn extract(
         &self,
         src_archive: &Path,
+        ctx: &ExtractContext,
     ) -> impl Future<Output = Result<Box<dyn ExtractedTree>, ExtractError>> + Send;
 }
 

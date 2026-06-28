@@ -1,6 +1,7 @@
 #![cfg(not(loom))]
 //! Integration smoke test for the real `unrar` adapter against a committed fixture.
 
+use simple_archiver_core::application::extract_context::ExtractContext;
 use simple_archiver_core::application::ports::Extractor;
 use simple_archiver_core::infrastructure::unrar_extractor::UnrarExtractor;
 use std::path::Path;
@@ -13,7 +14,7 @@ fn fixture() -> std::path::PathBuf {
 async fn extracts_fixture_into_a_temp_directory() {
     let extractor = UnrarExtractor::new();
     let tree = extractor
-        .extract(&fixture())
+        .extract(&fixture(), &ExtractContext::detached())
         .await
         .expect("extraction succeeds");
 
@@ -29,7 +30,7 @@ async fn temp_directory_is_removed_when_tree_is_dropped() {
     let extractor = UnrarExtractor::new();
     let path = {
         let tree = extractor
-            .extract(&fixture())
+            .extract(&fixture(), &ExtractContext::detached())
             .await
             .expect("extraction succeeds");
         tree.path().to_path_buf()
