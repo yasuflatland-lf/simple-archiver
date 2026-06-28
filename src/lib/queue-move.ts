@@ -37,7 +37,14 @@ function decompose(order: number[]): Array<[number, number]> {
     if (cur[p] === want) continue;
     // Positions [0, p) are already settled, so the wanted item is at some p+.
     let from = p + 1;
-    while (cur[from] !== want) from++;
+    while (from < order.length && cur[from] !== want) from++;
+    if (from >= order.length) {
+      // `order` is not a permutation of [0, length): the wanted old index is
+      // absent. The planners normalize their selection so this is unreachable,
+      // but bound the search and fail loudly rather than spinning the UI thread
+      // on a malformed permutation.
+      throw new Error(`decompose: ${want} is not present in the permutation`);
+    }
     moves.push([from, p]);
     cur.splice(from, 1);
     cur.splice(p, 0, want);
@@ -48,6 +55,27 @@ function decompose(order: number[]): Array<[number, number]> {
 /** Sorted-ascending copy (the selection invariant already excludes duplicates). */
 function sortedAsc(indices: number[]): number[] {
   return [...indices].sort((a, b) => a - b);
+}
+
+/**
+ * Sorted-ascending, de-duplicated selection restricted to valid row indices
+ * `[0, count)`. The selection store already maintains these invariants, but
+ * enforcing them here keeps a stale or out-of-range index from reaching
+ * {@link decompose}, where an absent target would otherwise loop forever.
+ */
+function normalizeSelection(
+  selectedIndices: number[],
+  count: number,
+): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const i of selectedIndices) {
+    if (Number.isInteger(i) && i >= 0 && i < count && !seen.has(i)) {
+      seen.add(i);
+      out.push(i);
+    }
+  }
+  return out.sort((a, b) => a - b);
 }
 
 /**
@@ -67,7 +95,7 @@ export function planShiftSelection(
   // `slot[pos]` holds the old index currently at `pos`; `picked` tracks which
   // positions are selected as the block walks toward the edge.
   const slot = Array.from({ length: count }, (_, i) => i);
-  const picked = new Set(sortedAsc(selectedIndices));
+  const picked = new Set(normalizeSelection(selectedIndices, count));
   if (direction === "up") {
     for (let i = 1; i < count; i++) {
       // A selected row with a free (unselected) slot above swaps up into it.
@@ -106,7 +134,7 @@ export function planRelocateSelection(
   selectedIndices: number[],
   gap: number,
 ): MovePlan {
-  const selected = sortedAsc(selectedIndices);
+  const selected = normalizeSelection(selectedIndices, count);
   const pickedSet = new Set(selected);
   // The un-selected rows, in their original order.
   const rest: number[] = [];

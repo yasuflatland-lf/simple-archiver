@@ -52,6 +52,15 @@ function draftEdit(draft: DraftSnapshot): Partial<JobState> {
  * re-applied afterwards to keep the highlight on the moved rows. A clamped /
  * inside-block plan has no moves and is a silent no-op that leaves the selection
  * untouched.
+ *
+ * The decomposed sequence is NOT atomic: if a later move rejects, the earlier
+ * moves are already committed backend-side, leaving the backend draft
+ * half-reordered. `draft` is hoisted out of the `try` so the catch can commit
+ * that last successful snapshot — keeping the UI in sync with the real backend
+ * order instead of silently showing the pre-move order, which would then
+ * disagree with every subsequent index-based action (and archive rows under the
+ * wrong names). Previews are recomputed on both paths so they never stay aligned
+ * to a stale order.
  */
 async function applyMovePlan(
   plan: MovePlan,
@@ -59,9 +68,10 @@ async function applyMovePlan(
   get: StoreApi<JobState>["getState"],
 ): Promise<void> {
   if (plan.moves.length === 0) return;
+  // Each backend reorder returns the full snapshot; the last successful one is
+  // the order both sides agree on, even if a later move then fails.
+  let draft = get().draft;
   try {
-    // Each backend reorder returns the full snapshot; the last is the result.
-    let draft = get().draft;
     for (const [from, to] of plan.moves) {
       draft = await archive.reorder(from, to);
     }
@@ -72,7 +82,16 @@ async function applyMovePlan(
     });
     await get().recomputePreviews();
   } catch (reason) {
-    set({ error: messageFromReason(reason) });
+    // A move failed mid-sequence: commit the last good snapshot so the queue
+    // reflects the real (partial) backend order, recompute previews against it,
+    // then surface the failure. The error is set LAST because a successful
+    // recompute clears `error` for a non-null template — setting it afterward
+    // keeps the failure visible. draftEdit drops the now-stale selection.
+    set(draftEdit(draft));
+    await get().recomputePreviews();
+    set({
+      error: `Reorder partially failed; the queue order may have changed. ${messageFromReason(reason)}`,
+    });
   }
 }
 

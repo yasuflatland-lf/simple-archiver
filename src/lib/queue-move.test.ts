@@ -104,3 +104,38 @@ describe("planRelocateSelection", () => {
     expect(plan.selected).toEqual([1, 2]);
   });
 });
+
+describe("malformed selection input", () => {
+  // An out-of-range index would otherwise feed an unsatisfiable target into the
+  // decompose loop and spin the UI thread forever; the planners must drop such
+  // indices up front instead of hanging.
+  it("drops an out-of-range index in planShiftSelection (no hang, no-op plan)", () => {
+    const plan = planShiftSelection(4, [99], "up");
+    expect(plan.moves).toEqual([]);
+    expect(plan.order).toEqual([0, 1, 2, 3]);
+    expect(plan.selected).toEqual([]);
+  });
+
+  it("drops an out-of-range index in planRelocateSelection (no hang, no-op plan)", () => {
+    const plan = planRelocateSelection(4, [99], 0);
+    expect(plan.moves).toEqual([]);
+    expect(plan.order).toEqual([0, 1, 2, 3]);
+    expect(plan.selected).toEqual([]);
+  });
+
+  it("keeps the in-range indices when a selection mixes valid and out-of-range", () => {
+    // Row 1 is valid; 99 and -1 are dropped. The plan relocates just row 1.
+    const plan = planRelocateSelection(4, [-1, 1, 99], 0);
+    expect(plan.order).toEqual([1, 0, 2, 3]);
+    expect(plan.selected).toEqual([0]);
+    expect(applyMoves(4, plan)).toEqual(plan.order);
+  });
+
+  it("de-duplicates repeated selection indices", () => {
+    // A duplicate must not corrupt the decompose loop or the resulting plan.
+    const plan = planShiftSelection(4, [2, 2], "up");
+    expect(plan.order).toEqual([0, 2, 1, 3]);
+    expect(plan.selected).toEqual([1]);
+    expect(applyMoves(4, plan)).toEqual(plan.order);
+  });
+});
