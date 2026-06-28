@@ -8,8 +8,13 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 
+import {
+  browserAutoScrollPorts,
+  EdgeAutoScroller,
+} from "@/components/edge-autoscroll";
 import {
   useAnimatedMoveSelectedTo,
   useAnimatedReorder,
@@ -52,7 +57,14 @@ const ReorderDndContext = createContext<ReorderDndContextValue | null>(null);
  * transient UI state; it is only observed by the rows during an active drag,
  * which never overlaps a running job (reordering is disabled then).
  */
-export function ReorderDndProvider({ children }: { children: ReactNode }) {
+export function ReorderDndProvider({
+  children,
+  scrollContainerRef,
+}: {
+  children: ReactNode;
+  /** The vertical scroller wrapping the rows; drives edge auto-scroll. */
+  scrollContainerRef?: RefObject<HTMLElement | null>;
+}) {
   const running = useJobStore((s) => s.running);
   const animatedReorder = useAnimatedReorder();
   const animatedMoveSelectedTo = useAnimatedMoveSelectedTo();
@@ -68,15 +80,43 @@ export function ReorderDndProvider({ children }: { children: ReactNode }) {
   const pendingRef = useRef<{ index: number; x: number; y: number } | null>(
     null,
   );
+  // Last viewport pointer position during the active drag, so the auto-scroll
+  // loop can re-resolve the drop gap as content moves under a still pointer.
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  // The edge auto-scroll loop, created once; production rAF/matchMedia ports.
+  const scrollerRef = useRef<EdgeAutoScroller | null>(null);
+  if (scrollerRef.current === null) {
+    scrollerRef.current = new EdgeAutoScroller(browserAutoScrollPorts());
+  }
 
   const enabled = !running;
 
   const reset = useCallback(() => {
+    scrollerRef.current?.stop();
     draggingRef.current = null;
     overGapRef.current = null;
     pendingRef.current = null;
+    lastPointerRef.current = null;
     setDraggingIndex(null);
     setOverGap(null);
+  }, []);
+
+  // Re-resolve the drop gap from the last pointer position. The auto-scroll loop
+  // calls this after each step so the insertion line tracks the row that has
+  // scrolled under a stationary pointer (no-op when nothing is hit, e.g. jsdom).
+  const recomputeGapAtPointer = useCallback(() => {
+    const point = lastPointerRef.current;
+    if (point === null || draggingRef.current === null) return;
+    // elementFromPoint is absent in non-layout environments (jsdom); skip there.
+    if (typeof document.elementFromPoint !== "function") return;
+    const hit = document.elementFromPoint(point.x, point.y);
+    const rowEl = hit?.closest<HTMLElement>("[data-row-index]") ?? null;
+    if (rowEl === null) return;
+    const index = Number(rowEl.dataset.rowIndex);
+    const rect = rowEl.getBoundingClientRect();
+    const gap = point.y < rect.top + rect.height / 2 ? index : index + 1;
+    overGapRef.current = gap;
+    setOverGap(gap);
   }, []);
 
   const arm = useCallback((index: number) => {
@@ -129,8 +169,19 @@ export function ReorderDndProvider({ children }: { children: ReactNode }) {
         event.clientY < rect.top + rect.height / 2 ? index : index + 1;
       overGapRef.current = gap;
       setOverGap(gap);
+      // Drive edge auto-scroll from the live pointer position so a row can be
+      // dropped past the visible range; the loop refreshes the gap as it moves.
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+      const container = scrollContainerRef?.current;
+      if (container) {
+        scrollerRef.current?.update(
+          container,
+          event.clientY,
+          recomputeGapAtPointer,
+        );
+      }
     },
-    [enabled, arm],
+    [enabled, arm, scrollContainerRef, recomputeGapAtPointer],
   );
 
   const drop = useCallback(() => {
@@ -167,6 +218,13 @@ export function ReorderDndProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("pointercancel", end);
     };
   }, [draggingIndex, reset]);
+
+  // Stop any in-flight auto-scroll loop if the provider unmounts mid-drag so the
+  // scheduled frame never outlives the component.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    return () => scroller?.stop();
+  }, []);
 
   const value = useMemo<ReorderDndContextValue>(
     () => ({
