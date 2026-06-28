@@ -273,6 +273,137 @@ describe("reorder", () => {
   });
 });
 
+describe("moveSelected", () => {
+  it("shifts a multi-row selection up as a block via sequential reorders", async () => {
+    useJobStore.setState({
+      draft: makeDraft(4),
+      selectedIndices: [1, 2],
+      selectionAnchor: 1,
+    });
+    mockArchive.reorder.mockResolvedValue(makeDraft(4));
+
+    await useJobStore.getState().moveSelected("up");
+
+    // The block walks up one slot via two adjacent swaps, top-to-bottom.
+    expect(mockArchive.reorder.mock.calls).toEqual([
+      [1, 0],
+      [2, 1],
+    ]);
+    // The selection follows the moved block and stays highlighted.
+    expect(useJobStore.getState().selectedIndices).toEqual([0, 1]);
+    expect(useJobStore.getState().selectionAnchor).toBe(0);
+  });
+
+  it("shifts a multi-row selection down as a block", async () => {
+    useJobStore.setState({
+      draft: makeDraft(4),
+      selectedIndices: [1, 2],
+      selectionAnchor: 1,
+    });
+    mockArchive.reorder.mockResolvedValue(makeDraft(4));
+
+    await useJobStore.getState().moveSelected("down");
+
+    expect(mockArchive.reorder.mock.calls).toEqual([[3, 1]]);
+    expect(useJobStore.getState().selectedIndices).toEqual([2, 3]);
+    expect(useJobStore.getState().selectionAnchor).toBe(2);
+  });
+
+  it("clamps at the top edge without touching the backend, preserving the selection", async () => {
+    useJobStore.setState({
+      draft: makeDraft(4),
+      selectedIndices: [0, 1],
+      selectionAnchor: 0,
+    });
+
+    await useJobStore.getState().moveSelected("up");
+
+    expect(mockArchive.reorder).not.toHaveBeenCalled();
+    expect(useJobStore.getState().selectedIndices).toEqual([0, 1]);
+  });
+
+  it("clamps at the bottom edge without touching the backend", async () => {
+    useJobStore.setState({
+      draft: makeDraft(4),
+      selectedIndices: [2, 3],
+      selectionAnchor: 2,
+    });
+
+    await useJobStore.getState().moveSelected("down");
+
+    expect(mockArchive.reorder).not.toHaveBeenCalled();
+    expect(useJobStore.getState().selectedIndices).toEqual([2, 3]);
+  });
+
+  it("is a no-op while a job is running", async () => {
+    useJobStore.setState({
+      draft: makeDraft(4),
+      selectedIndices: [1, 2],
+      selectionAnchor: 1,
+      running: true,
+    });
+
+    await useJobStore.getState().moveSelected("up");
+
+    expect(mockArchive.reorder).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op with no selection", async () => {
+    useJobStore.setState({ draft: makeDraft(4), selectedIndices: [] });
+
+    await useJobStore.getState().moveSelected("up");
+
+    expect(mockArchive.reorder).not.toHaveBeenCalled();
+  });
+});
+
+describe("moveSelectedTo", () => {
+  it("relocates the whole selection to the drop gap as a contiguous block", async () => {
+    useJobStore.setState({
+      draft: makeDraft(5),
+      selectedIndices: [1, 3],
+      selectionAnchor: 1,
+    });
+    mockArchive.reorder.mockResolvedValue(makeDraft(5));
+
+    await useJobStore.getState().moveSelectedTo(5);
+
+    // The selection is gathered into a block at the bottom of the queue.
+    expect(mockArchive.reorder.mock.calls).toEqual([
+      [2, 1],
+      [4, 2],
+    ]);
+    expect(useJobStore.getState().selectedIndices).toEqual([3, 4]);
+    expect(useJobStore.getState().selectionAnchor).toBe(3);
+  });
+
+  it("is a no-op when dropping inside the existing block", async () => {
+    useJobStore.setState({
+      draft: makeDraft(4),
+      selectedIndices: [1, 2],
+      selectionAnchor: 1,
+    });
+
+    await useJobStore.getState().moveSelectedTo(2);
+
+    expect(mockArchive.reorder).not.toHaveBeenCalled();
+    expect(useJobStore.getState().selectedIndices).toEqual([1, 2]);
+  });
+
+  it("is a no-op while a job is running", async () => {
+    useJobStore.setState({
+      draft: makeDraft(5),
+      selectedIndices: [1, 3],
+      selectionAnchor: 1,
+      running: true,
+    });
+
+    await useJobStore.getState().moveSelectedTo(5);
+
+    expect(mockArchive.reorder).not.toHaveBeenCalled();
+  });
+});
+
 describe("removeItem", () => {
   it("calls archive.removeItem with the index and replaces the draft", async () => {
     const draft = makeDraft(2);

@@ -13,6 +13,7 @@ import {
 
 import { computeFlipDeltas, reorderPermutation } from "@/components/flip";
 import { basename } from "@/lib/path";
+import { planRelocateSelection, planShiftSelection } from "@/lib/queue-move";
 import { useJobStore } from "@/store/jobStore";
 
 /** Slide duration (ms) for the FLIP reorder animation. */
@@ -23,20 +24,40 @@ const SLIDE_MS = 200;
 const HIGHLIGHT_CLEAR_MS = 800;
 
 type AnimatedReorder = (from: number, to: number) => Promise<void>;
+/** Shift the whole selection one slot up/down (keyboard / move buttons). */
+type AnimatedMoveSelected = (direction: "up" | "down") => Promise<void>;
+/** Relocate the whole selection to a drop gap (drag). */
+type AnimatedMoveSelectedTo = (gap: number) => Promise<void>;
 
 interface ReorderAnimationContextValue {
   animatedReorder: AnimatedReorder;
+  animatedMoveSelected: AnimatedMoveSelected;
+  animatedMoveSelectedTo: AnimatedMoveSelectedTo;
   justMovedIndex: number | null;
 }
 
 const ReorderAnimationContext =
   createContext<ReorderAnimationContextValue | null>(null);
 
-// Fallback for a consumer rendered outside the provider (e.g. an isolated unit
-// test): reorder without animation, mirroring useReorderRow's non-draggable
-// fallback.
+// Fallbacks for a consumer rendered outside the provider (e.g. an isolated unit
+// test): reorder/move without animation, mirroring useReorderRow's
+// non-draggable fallback.
 const plainReorder: AnimatedReorder = (from, to) =>
   useJobStore.getState().reorder(from, to);
+const plainMoveSelected: AnimatedMoveSelected = (direction) =>
+  useJobStore.getState().moveSelected(direction);
+const plainMoveSelectedTo: AnimatedMoveSelectedTo = (gap) =>
+  useJobStore.getState().moveSelectedTo(gap);
+
+// A grouped move has no single landing row to settle-flash; the preserved
+// selection highlight already marks where the block went, so only the count is
+// announced to assistive tech.
+function groupedAnnounce(count: number): {
+  justMoved: number | null;
+  message: string;
+} {
+  return { justMoved: null, message: `Moved ${count} items` };
+}
 
 /** True only when the user asked for reduced motion (and matchMedia exists). */
 function prefersReducedMotion(): boolean {
@@ -51,8 +72,8 @@ function prefersReducedMotion(): boolean {
 
 interface PendingFlip {
   beforeTops: number[];
-  from: number;
-  to: number;
+  /** new index -> old index permutation the slide plays back. */
+  perm: number[];
 }
 
 /**
@@ -65,6 +86,8 @@ export function useReorderAnimation(
   containerRef: RefObject<HTMLElement | null>,
 ): {
   animatedReorder: AnimatedReorder;
+  animatedMoveSelected: AnimatedMoveSelected;
+  animatedMoveSelectedTo: AnimatedMoveSelectedTo;
   justMovedIndex: number | null;
   liveMessage: string;
 } {
@@ -120,8 +143,11 @@ export function useReorderAnimation(
         afterTops[i] = el.getBoundingClientRect().top;
         elByIndex[i] = el;
       });
-    const perm = reorderPermutation(pending.from, pending.to, afterTops.length);
-    const deltas = computeFlipDeltas(perm, pending.beforeTops, afterTops);
+    const deltas = computeFlipDeltas(
+      pending.perm,
+      pending.beforeTops,
+      afterTops,
+    );
     deltas.forEach((dy, newIndex) => {
       const el = elByIndex[newIndex];
       if (!dy || !el || typeof el.animate !== "function") return;
@@ -143,53 +169,136 @@ export function useReorderAnimation(
     [],
   );
 
-  const animatedReorder = useCallback<AnimatedReorder>(
-    async (from, to) => {
-      if (from === to) return;
+  // Shared FLIP runner for every reorder path: capture the pre-move tops + the
+  // move's permutation, apply the store mutation, then (only if it landed) flag
+  // the settle highlight and announce it. The captured perm drives the slide in
+  // the layout effect above; `apply` is whatever store action commits the move.
+  const animateMove = useCallback(
+    async (
+      perm: number[],
+      apply: () => Promise<void>,
+      describe: () => { justMoved: number | null; message: string },
+    ): Promise<void> => {
+      // An identity permutation means nothing moves (a clamped / in-place drop).
+      if (perm.every((oldIndex, newIndex) => oldIndex === newIndex)) return;
       if (!prefersReducedMotion()) {
         // Settle any in-flight slide so the pre-move measurement reads true
         // layout positions, not transformed ones.
         settleActive();
-        pendingRef.current = { beforeTops: measureTops(), from, to };
+        pendingRef.current = { beforeTops: measureTops(), perm };
       }
       const before = useJobStore.getState().draft;
-      const name = basename(before.items[from]?.path ?? "");
-      await useJobStore.getState().reorder(from, to);
+      await apply();
       if (useJobStore.getState().draft === before) {
-        // Failed/no-op reorder: drop the capture, leave no feedback.
+        // Failed/no-op move: drop the capture, leave no feedback.
         pendingRef.current = null;
         return;
       }
-      // The moved item now sits at `to`; flag it for the settle highlight and
-      // announce the move (1-based position) to assistive tech.
-      setJustMovedIndex(to);
-      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
-      clearTimerRef.current = setTimeout(
-        () => setJustMovedIndex(null),
-        HIGHLIGHT_CLEAR_MS,
-      );
+      const info = describe();
+      // A single move flags its landing row for the settle highlight; a grouped
+      // move passes null and relies on the preserved selection highlight.
+      if (info.justMoved !== null) {
+        setJustMovedIndex(info.justMoved);
+        if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+        clearTimerRef.current = setTimeout(
+          () => setJustMovedIndex(null),
+          HIGHLIGHT_CLEAR_MS,
+        );
+      }
       announceSeqRef.current += 1;
       const pad = "\u200B".repeat(announceSeqRef.current % 2);
-      setLiveMessage(`Moved ${name} to position ${to + 1}${pad}`);
+      setLiveMessage(`${info.message}${pad}`);
     },
     [measureTops, settleActive],
   );
 
-  return { animatedReorder, justMovedIndex, liveMessage };
+  const animatedReorder = useCallback<AnimatedReorder>(
+    (from, to) => {
+      if (from === to) return Promise.resolve();
+      const { draft } = useJobStore.getState();
+      const name = basename(draft.items[from]?.path ?? "");
+      return animateMove(
+        reorderPermutation(from, to, draft.items.length),
+        () => useJobStore.getState().reorder(from, to),
+        // The moved item lands at `to`; announce the 1-based position.
+        () => ({
+          justMoved: to,
+          message: `Moved ${name} to position ${to + 1}`,
+        }),
+      );
+    },
+    [animateMove],
+  );
+
+  const animatedMoveSelected = useCallback<AnimatedMoveSelected>(
+    (direction) => {
+      const { draft, selectedIndices } = useJobStore.getState();
+      const plan = planShiftSelection(
+        draft.items.length,
+        selectedIndices,
+        direction,
+      );
+      return animateMove(
+        plan.order,
+        () => useJobStore.getState().moveSelected(direction),
+        () => groupedAnnounce(plan.selected.length),
+      );
+    },
+    [animateMove],
+  );
+
+  const animatedMoveSelectedTo = useCallback<AnimatedMoveSelectedTo>(
+    (gap) => {
+      const { draft, selectedIndices } = useJobStore.getState();
+      const plan = planRelocateSelection(
+        draft.items.length,
+        selectedIndices,
+        gap,
+      );
+      return animateMove(
+        plan.order,
+        () => useJobStore.getState().moveSelectedTo(gap),
+        () => groupedAnnounce(plan.selected.length),
+      );
+    },
+    [animateMove],
+  );
+
+  return {
+    animatedReorder,
+    animatedMoveSelected,
+    animatedMoveSelectedTo,
+    justMovedIndex,
+    liveMessage,
+  };
 }
 
 export function ReorderAnimationProvider({
   animatedReorder,
+  animatedMoveSelected,
+  animatedMoveSelectedTo,
   justMovedIndex,
   children,
 }: {
   animatedReorder: AnimatedReorder;
+  animatedMoveSelected: AnimatedMoveSelected;
+  animatedMoveSelectedTo: AnimatedMoveSelectedTo;
   justMovedIndex: number | null;
   children: ReactNode;
 }) {
   const value = useMemo<ReorderAnimationContextValue>(
-    () => ({ animatedReorder, justMovedIndex }),
-    [animatedReorder, justMovedIndex],
+    () => ({
+      animatedReorder,
+      animatedMoveSelected,
+      animatedMoveSelectedTo,
+      justMovedIndex,
+    }),
+    [
+      animatedReorder,
+      animatedMoveSelected,
+      animatedMoveSelectedTo,
+      justMovedIndex,
+    ],
   );
   return (
     <ReorderAnimationContext.Provider value={value}>
@@ -204,18 +313,27 @@ export function useAnimatedReorder(): AnimatedReorder {
   return ctx?.animatedReorder ?? plainReorder;
 }
 
+/** The animated grouped relocate (drag drop), or a plain fallback. */
+export function useAnimatedMoveSelectedTo(): AnimatedMoveSelectedTo {
+  const ctx = useContext(ReorderAnimationContext);
+  return ctx?.animatedMoveSelectedTo ?? plainMoveSelectedTo;
+}
+
 /**
- * Per-row reorder state: the animated reorder plus whether this row is the one
- * just moved (drives the settle highlight). Falls back to a plain reorder and
- * no highlight outside the provider.
+ * Per-row reorder state: the single animated reorder, the grouped animated
+ * shift (for the move buttons when a multi-row selection is active), and whether
+ * this row is the one just moved (drives the settle highlight). Falls back to
+ * plain (unanimated) moves and no highlight outside the provider.
  */
 export function useReorderAnimationRow(index: number): {
   animatedReorder: AnimatedReorder;
+  animatedMoveSelected: AnimatedMoveSelected;
   justMoved: boolean;
 } {
   const ctx = useContext(ReorderAnimationContext);
   return {
     animatedReorder: ctx?.animatedReorder ?? plainReorder,
+    animatedMoveSelected: ctx?.animatedMoveSelected ?? plainMoveSelected,
     justMoved: ctx?.justMovedIndex === index,
   };
 }
