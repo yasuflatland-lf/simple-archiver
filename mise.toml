@@ -3,8 +3,8 @@
 # Without explicit components, rustup uses the minimal profile and `cargo fmt`/`clippy` are absent.
 # llvm-tools-preview is required by cargo-llvm-cov for source-based coverage.
 rust = { version = "1.96.0", components = "rustfmt,clippy,llvm-tools-preview" }
-node = "24.16.0"
-pnpm = "11.8.0"
+node = "24.18.0"
+pnpm = "11.9.0"
 "cargo:cargo-nextest" = "0.9.137"
 "cargo:cargo-llvm-cov" = "0.8.7"
 # The dependency-hygiene tools (cargo-modules, cargo-machete) live in mise.ci-hygiene.toml: both
