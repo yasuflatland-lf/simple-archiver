@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import "./App.css";
+import type { ProgressEvent } from "@/bindings/ProgressEvent";
 import { AppShell } from "@/components/AppShell";
 import { DropOverlay } from "@/components/DropOverlay";
 import { LeftRail } from "@/components/LeftRail";
@@ -22,7 +23,26 @@ function App() {
     // before the subscription promise resolves.
     let active = true;
 
-    subscribeProgress((event) => useJobStore.getState().applyProgress(event))
+    // Coalesce high-frequency progress events to at most one store update per
+    // animation frame. Each event is a full snapshot, so applying only the
+    // latest per frame is lossless; the authoritative final state comes from
+    // runJob's returned summary, not the last event.
+    let latest: ProgressEvent | null = null;
+    let frame: number | null = null;
+    const flush = () => {
+      frame = null;
+      if (latest !== null) {
+        useJobStore.getState().applyProgress(latest);
+        latest = null;
+      }
+    };
+
+    subscribeProgress((event) => {
+      latest = event;
+      if (frame === null) {
+        frame = requestAnimationFrame(flush);
+      }
+    })
       .then((fn) => {
         if (active) {
           unlisten = fn;
@@ -38,6 +58,10 @@ function App() {
 
     return () => {
       active = false;
+      // Drop any frame still pending so flush cannot fire after unmount.
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
       unlisten?.();
     };
   }, []);
