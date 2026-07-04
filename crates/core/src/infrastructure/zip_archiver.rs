@@ -70,49 +70,70 @@ impl Archiver for ZipArchiver {
             .await?;
         let mut writer = ZipFileWriter::with_tokio(file);
 
-        let mut bytes_done: u64 = 0;
-        for path in &files {
-            if ctx.is_cancelled() {
-                close_and_remove(writer, &dest).await;
-                return Err(ArchiveError::Cancelled);
+        // After the output file is created, run the write loop in an inner scope so
+        // any error path removes the partial output before propagating — symmetric
+        // to the two cancel checkpoints, which already clean up via
+        // `close_and_remove`. `writer` is moved in; the cancel branches consume it
+        // as before, and every other error `?` unwinds out of the block with the
+        // writer dropped (its file handle closed) so the subsequent removal is safe.
+        let result: Result<(), ArchiveError> = async {
+            let mut bytes_done: u64 = 0;
+            for path in &files {
+                if ctx.is_cancelled() {
+                    close_and_remove(writer, &dest).await;
+                    return Err(ArchiveError::Cancelled);
+                }
+
+                let name = zip_entry_name(src_dir, path)?;
+                let data = tokio::fs::read(path).await?;
+                let builder = ZipEntryBuilder::new(name.into(), Compression::Deflate);
+                writer
+                    .write_entry_whole(builder, &data)
+                    .await
+                    .map_err(|e| ArchiveError::Backend(e.to_string()))?;
+                bytes_done += data.len() as u64;
+                ctx.report(bytes_done, bytes_total);
+
+                if ctx.is_cancelled() {
+                    close_and_remove(writer, &dest).await;
+                    return Err(ArchiveError::Cancelled);
+                }
             }
 
-            let name = zip_entry_name(src_dir, path)?;
-            let data = tokio::fs::read(path).await?;
-            let builder = ZipEntryBuilder::new(name.into(), Compression::Deflate);
-            writer
-                .write_entry_whole(builder, &data)
+            // `ZipFileWriter::close` writes the central directory + EOCD record and
+            // returns the underlying writer. For `with_tokio`, that writer is the
+            // `tokio_util` compat wrapper around our `tokio::fs::File`. Recover the
+            // raw `tokio::fs::File` via the wrapper's inherent `into_inner` (no extra
+            // dependency: the method resolves without naming the compat type).
+            //
+            // We MUST drain that file before dropping it: `tokio::fs::File` performs
+            // its writes on the blocking thread pool, and its `Drop` impl does NOT
+            // wait for in-flight writes to complete. So the freshly written EOCD
+            // bytes can still be queued (not yet on disk) when the caller reopens
+            // the file synchronously and parses it — which fails as
+            // `InvalidArchive("Invalid EOCD comment length")` on slower/contended
+            // hosts (e.g. CI). `shutdown` flushes and completes all pending writes,
+            // and `sync_all` then forces them to durable storage before we return.
+            let mut file = writer
+                .close()
                 .await
-                .map_err(|e| ArchiveError::Backend(e.to_string()))?;
-            bytes_done += data.len() as u64;
-            ctx.report(bytes_done, bytes_total);
-
-            if ctx.is_cancelled() {
-                close_and_remove(writer, &dest).await;
-                return Err(ArchiveError::Cancelled);
-            }
+                .map_err(|e| ArchiveError::Backend(e.to_string()))?
+                .into_inner();
+            drain_to_disk(&mut file).await?;
+            Ok(())
         }
+        .await;
 
-        // `ZipFileWriter::close` writes the central directory + EOCD record and
-        // returns the underlying writer. For `with_tokio`, that writer is the
-        // `tokio_util` compat wrapper around our `tokio::fs::File`. Recover the
-        // raw `tokio::fs::File` via the wrapper's inherent `into_inner` (no extra
-        // dependency: the method resolves without naming the compat type).
-        //
-        // We MUST drain that file before dropping it: `tokio::fs::File` performs
-        // its writes on the blocking thread pool, and its `Drop` impl does NOT
-        // wait for in-flight writes to complete. So the freshly written EOCD
-        // bytes can still be queued (not yet on disk) when the caller reopens
-        // the file synchronously and parses it — which fails as
-        // `InvalidArchive("Invalid EOCD comment length")` on slower/contended
-        // hosts (e.g. CI). `shutdown` flushes and completes all pending writes,
-        // and `sync_all` then forces them to durable storage before we return.
-        let mut file = writer
-            .close()
-            .await
-            .map_err(|e| ArchiveError::Backend(e.to_string()))?
-            .into_inner();
-        drain_to_disk(&mut file).await?;
+        if let Err(e) = result {
+            // Best-effort: an error left a half-written archive at `dest`. The cancel
+            // branches already clean up via `close_and_remove`; do the same for the
+            // error paths so a Failed task never leaves a corrupt zip behind. A
+            // `Cancelled` error already removed the file inside the loop, so the
+            // resulting NotFound here is expected and swallowed by
+            // `remove_partial_output`.
+            remove_partial_output(&dest).await;
+            return Err(e);
+        }
         Ok(())
     }
 }
@@ -525,6 +546,50 @@ mod tests {
             !dest.exists(),
             "the partial output that existed on disk must be removed after cancellation"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn error_mid_write_removes_the_partial_output() {
+        // A mid-write error (not a cancel) must clean up like the cancel paths do:
+        // once the output file exists on disk, any error in the write loop has to
+        // remove the partial zip instead of leaving a corrupt archive behind.
+        //
+        // Force a deterministic read failure (Unix only) with a 0-permission source
+        // file: `std::fs::metadata` still succeeds (so it lands in `bytes_total`),
+        // but `tokio::fs::read` fails with PermissionDenied. WalkDir ordering is
+        // unspecified, so we assert only that `dest` is gone after the error.
+        use std::os::unix::fs::PermissionsExt as _;
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), b"ok").unwrap();
+        let locked = src.path().join("locked.txt");
+        std::fs::write(&locked, b"unreadable").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let out = tempfile::tempdir().unwrap();
+        let dest = out.path().join("o.zip");
+
+        let err = ZipArchiver::new()
+            .compress(
+                src.path(),
+                &dest,
+                ConflictPolicy::AutoRename,
+                &CompressContext::detached(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, ArchiveError::Io(_) | ArchiveError::Backend(_)),
+            "got {err:?}"
+        );
+        assert!(
+            !dest.exists(),
+            "a compression error must not leave a partial zip at the destination"
+        );
+
+        // Restore permissions so `TempDir::drop` can remove the locked file.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
     }
 
     #[test]
