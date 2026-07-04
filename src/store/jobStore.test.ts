@@ -945,6 +945,32 @@ describe("runJob", () => {
     expect(useJobStore.getState().lastBatch).toBeNull();
   });
 
+  it("clears stale progress when a new run starts", async () => {
+    // A completed run leaves progress at the final ~100% event. Re-running must
+    // drop it synchronously so the UI does not flash the prior batch's bars/ETA
+    // before the first new event arrives.
+    const staleProgress: ProgressEvent = {
+      overall: { bytesDone: 100, bytesTotal: 100 },
+      perTask: [{ taskId: 11, bytesDone: 50, bytesTotal: 50, etaMs: 0 }],
+      elapsedMs: 1000,
+      overallEtaMs: 0,
+    };
+    useJobStore.setState({ progress: staleProgress });
+
+    const summary: JobSummaryDto = {
+      succeeded: [11],
+      cancelled: [],
+      failed: [],
+      results: [],
+    };
+    mockArchive.runJob.mockResolvedValue(summary);
+
+    const pending = useJobStore.getState().runJob();
+    // Progress is dropped synchronously by the opening set(), before the await.
+    expect(useJobStore.getState().progress).toBeNull();
+    await pending;
+  });
+
   it("keeps the existing taskIdByIndex when no progress was emitted", async () => {
     // With progress === null, runJob falls back to the existing taskIdByIndex
     // instead of wiping it to []. Seed it via setState since addItems/reorder

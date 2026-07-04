@@ -417,6 +417,9 @@ export const useJobStore = create<JobState>()((set, get) => ({
       error: null,
       lastBatch: null,
       cleared: false,
+      // Clear the prior run's final progress so a re-run does not flash the
+      // previous batch's ~100% bars/ETA before the first new event arrives.
+      progress: null,
       // A run owns the positional progress arrays; drop any pending row selection
       // so a stale highlight cannot linger over a now-running queue.
       selectedIndices: [],
