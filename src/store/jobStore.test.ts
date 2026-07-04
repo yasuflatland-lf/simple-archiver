@@ -1014,6 +1014,17 @@ describe("runJob", () => {
     expect(useJobStore.getState().taskIdByIndex).toEqual([33, 44]);
     expect(useJobStore.getState().summary).toEqual(summary);
   });
+
+  it("ignores a re-entrant runJob while a run is in flight", async () => {
+    // A run owns `running`; a second invocation mid-run must be a no-op so its
+    // rejected catch cannot flip running:false while job #1 is still live.
+    useJobStore.setState({ running: true });
+
+    await useJobStore.getState().runJob();
+
+    expect(mockArchive.runJob).not.toHaveBeenCalled();
+    expect(useJobStore.getState().running).toBe(true);
+  });
 });
 
 describe("applyProgress", () => {

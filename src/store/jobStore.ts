@@ -415,6 +415,11 @@ export const useJobStore = create<JobState>()((set, get) => ({
   },
 
   runJob: async () => {
+    // A run owns `running`; a second invocation mid-run must not touch it. Without
+    // this guard a re-entrant call is rejected by the backend ("a job is already
+    // running") and its catch would flip running:false while job #1 is still live,
+    // making the UI read idle during an active run.
+    if (get().running) return;
     // Starting the next run supersedes the residual chip, just like queuing.
     set({
       running: true,
