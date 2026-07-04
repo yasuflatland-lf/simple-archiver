@@ -48,7 +48,7 @@ fn place_blocking(
     match policy {
         ConflictPolicy::AutoRename => {
             let dest = non_colliding(desired);
-            copy_tree(src, &dest)?;
+            copy_tree_or_cleanup(src, &dest)?;
             Ok(dest)
         }
         ConflictPolicy::Skip => {
@@ -56,17 +56,30 @@ fn place_blocking(
                 // Leave the existing folder untouched; nothing is copied.
                 return Ok(desired.to_path_buf());
             }
-            copy_tree(src, desired)?;
+            copy_tree_or_cleanup(src, desired)?;
             Ok(desired.to_path_buf())
         }
         ConflictPolicy::Overwrite => {
             if desired.exists() {
                 std::fs::remove_dir_all(desired)?;
             }
-            copy_tree(src, desired)?;
+            copy_tree_or_cleanup(src, desired)?;
             Ok(desired.to_path_buf())
         }
     }
+}
+
+/// Copy `src` into `dest`; on failure best-effort remove the partial `dest` this
+/// call created, mirroring `ZipArchiver`'s partial-output cleanup, so a failed
+/// task never leaves a half-copied tree that looks like complete output.
+fn copy_tree_or_cleanup(src: &Path, dest: &Path) -> Result<(), PlaceError> {
+    if let Err(e) = copy_tree(src, dest) {
+        // Best-effort: removal errors are intentionally swallowed (a logging
+        // pass is deferred, matching `remove_partial_output`).
+        let _ = std::fs::remove_dir_all(dest);
+        return Err(PlaceError::Io(e));
+    }
+    Ok(())
 }
 
 /// Return `desired` if it does not exist, else `desired (2)`, `desired (3)`, …
@@ -201,5 +214,33 @@ mod tests {
             std::fs::read(dest.join("sub").join("b.txt")).unwrap(),
             b"beta"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn copy_error_removes_the_partial_destination() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), b"alpha").unwrap();
+        let locked = src.path().join("locked.bin");
+        std::fs::write(&locked, b"x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let out = tempfile::tempdir().unwrap();
+        let dest = out.path().join("foo");
+
+        let err = FsPlacer::new()
+            .place(src.path(), &dest, ConflictPolicy::AutoRename)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, PlaceError::Io(_)), "got {err:?}");
+        assert!(
+            !dest.exists(),
+            "a placement error must not leave a partial destination tree"
+        );
+
+        // Restore perms so the TempDir can clean up.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
     }
 }
