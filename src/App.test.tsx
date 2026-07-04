@@ -133,13 +133,62 @@ describe("App", () => {
       overallEtaMs: null,
     };
 
-    await act(async () => {
-      capturedCallback?.(progressEvent);
+    capturedCallback?.(progressEvent);
+
+    // The rAF coalescer defers each event to the next animation frame, so the
+    // store update is now asynchronous; poll until the frame flush lands.
+    await waitFor(() =>
+      expect(useJobStore.getState().progress).toEqual(progressEvent),
+    );
+    expect(useJobStore.getState().taskIdByIndex).toEqual([1]);
+  });
+
+  // -------------------------------------------------------------------------
+  // 2b. Coalesces multiple events within a frame to the latest snapshot
+  // -------------------------------------------------------------------------
+  it("coalesces multiple progress events within a frame to the latest", async () => {
+    let capturedCallback: ((event: ProgressEvent) => void) | undefined;
+    vi.mocked(archiveMock.subscribeProgress).mockImplementation((cb) => {
+      capturedCallback = cb;
+      return Promise.resolve(() => {});
     });
 
-    // Verify the store reflects the routed progress event.
-    expect(useJobStore.getState().progress).toEqual(progressEvent);
-    expect(useJobStore.getState().taskIdByIndex).toEqual([1]);
+    // Spy on the store action the effect drives; the state object returned by
+    // getState() is stable, so the spy survives the rAF flush.
+    const applySpy = vi.spyOn(useJobStore.getState(), "applyProgress");
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(archiveMock.subscribeProgress).toHaveBeenCalledTimes(1),
+    );
+    expect(capturedCallback).toBeDefined();
+
+    const eventA: ProgressEvent = {
+      overall: { bytesDone: 1, bytesTotal: 10 },
+      perTask: [{ taskId: 1, bytesDone: 1, bytesTotal: 10, etaMs: null }],
+      elapsedMs: 1,
+      overallEtaMs: null,
+    };
+    const eventB: ProgressEvent = {
+      overall: { bytesDone: 7, bytesTotal: 10 },
+      perTask: [{ taskId: 1, bytesDone: 7, bytesTotal: 10, etaMs: null }],
+      elapsedMs: 2,
+      overallEtaMs: null,
+    };
+
+    // Two events arrive back-to-back within the same animation frame.
+    capturedCallback?.(eventA);
+    capturedCallback?.(eventB);
+
+    // Only the latest snapshot is applied, exactly once, when the frame flushes.
+    await waitFor(() =>
+      expect(useJobStore.getState().progress).toEqual(eventB),
+    );
+    expect(applySpy).toHaveBeenCalledTimes(1);
+    expect(applySpy).toHaveBeenCalledWith(eventB);
+
+    applySpy.mockRestore();
   });
 
   // -------------------------------------------------------------------------
