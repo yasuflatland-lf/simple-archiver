@@ -285,6 +285,11 @@ export const useJobStore = create<JobState>()((set, get) => ({
   selectionAnchor: null,
 
   addItems: async (paths) => {
+    // The queue is read-only mid-run, mirroring reorder/move. A drop can reach
+    // here during a run (useFileDrop stays subscribed in every phase), and
+    // addItems runs draftEdit which would wipe the live progress arrays. Ignore
+    // it, like the other queue mutations do.
+    if (get().running) return;
     try {
       const draft = await archive.addItems(paths);
       // Queuing the next batch discards the residual chip: it only ever refers
