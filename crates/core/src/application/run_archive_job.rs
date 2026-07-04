@@ -5,6 +5,7 @@
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -176,10 +177,24 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
     }
 }
 
+/// Minimum wall-clock spacing between two consecutive Progress-driven emits.
+///
+/// Coalesces high-frequency Progress emits: a many-small-file archive reports
+/// once per compressed entry, which floods the webview IPC bridge. `Status`
+/// transitions always emit (they are rare and user-visible); the FIRST Progress
+/// update always emits (so a fast job still surfaces mid-run progress); further
+/// Progress-only updates are dropped when they arrive within `MIN_EMIT_INTERVAL`
+/// of the last emit. Every event is a full snapshot, so dropping intermediate
+/// ones is lossless — the trailing emit after the loop guarantees the terminal
+/// state is always reported.
+const MIN_EMIT_INTERVAL: Duration = Duration::from_millis(100);
+
 /// Single-writer aggregation loop: runs on the caller's async task, never shared.
 /// Receives worker messages, applies them to the `Aggregator`, then snapshots,
-/// enriches with ETA, and reports each step to the sink. Returns the final
-/// `JobSummary` once the channel closes (all senders dropped).
+/// enriches with ETA, and reports to the sink. High-frequency Progress updates
+/// are throttled to `MIN_EMIT_INTERVAL`; Status transitions and the first Progress
+/// update always emit. Returns the final `JobSummary` once the channel closes (all
+/// senders dropped).
 async fn drive_aggregation<C: Clock, S: ProgressSink>(
     job: ArchiveJob,
     clock: &C,
@@ -188,7 +203,18 @@ async fn drive_aggregation<C: Clock, S: ProgressSink>(
 ) -> JobSummary {
     let mut aggregator = Aggregator::new(job, clock.now());
     let mut eta = EtaTracker::new(ETA_WINDOW);
+    let mut last_emit: Option<Instant> = None;
+    let mut first_progress_emitted = false;
     while let Some(msg) = rx.recv().await {
+        // Non-moving check: `..` binds nothing, so `msg` stays usable for `apply`.
+        let is_status = matches!(msg, WorkerMsg::Status { .. });
+        // Whether this message reports real bytes. The engine emits an initial
+        // `0/total` Progress before the first entry's bytes land, so "first Progress
+        // message" is NOT enough — the carve-out below must fire on the first tick
+        // with `bytes_done > 0`, or a 0-byte tick consumes it and the real progress
+        // is throttled away.
+        let is_nonzero_progress =
+            matches!(&msg, WorkerMsg::Progress { progress, .. } if progress.bytes_done() > 0);
         // `apply` runs unconditionally (it MUST still run in release). An `Err`
         // means a worker emitted out-of-order events — an engine-ordering bug.
         // In debug/test builds we fail loudly to catch it; in release we leave
@@ -201,10 +227,31 @@ async fn drive_aggregation<C: Clock, S: ProgressSink>(
             "out-of-order worker event (engine-ordering bug): {_outcome:?}"
         );
         let now = clock.now();
-        let mut snapshot = aggregator.snapshot(now);
-        eta.enrich(&mut snapshot, now);
-        sink.report(snapshot);
+        // Status transitions always emit; Progress-only updates are throttled to
+        // MIN_EMIT_INTERVAL to avoid flooding the sink on many-small-file jobs.
+        // Exception: always deliver the first Progress that reports real bytes.
+        // Otherwise a job finishing within one MIN_EMIT_INTERVAL has every mid-run
+        // tick dropped, starving a consumer that reacts to progress (e.g. a
+        // progress-driven cancel) until the terminal emit — too late.
+        let force_first_progress = is_nonzero_progress && !first_progress_emitted;
+        let interval_elapsed =
+            last_emit.is_none_or(|t| now.saturating_duration_since(t) >= MIN_EMIT_INTERVAL);
+        if is_status || force_first_progress || interval_elapsed {
+            let mut snapshot = aggregator.snapshot(now);
+            eta.enrich(&mut snapshot, now);
+            sink.report(snapshot);
+            last_emit = Some(now);
+            if is_nonzero_progress {
+                first_progress_emitted = true;
+            }
+        }
     }
+    // Always emit the final aggregated state so the sink observes completion even
+    // if the last message was a throttled Progress tick.
+    let now = clock.now();
+    let mut snapshot = aggregator.snapshot(now);
+    eta.enrich(&mut snapshot, now);
+    sink.report(snapshot);
     aggregator.into_summary()
 }
 
@@ -1035,6 +1082,131 @@ mod tests {
         assert_eq!(last.per_task.len(), 2);
         let snap_ids: Vec<TaskId> = last.per_task.iter().map(|e| e.id).collect();
         assert_eq!(snap_ids, ids, "per_task must follow job task order");
+    }
+
+    /// A fake archiver that reports `ticks` progress updates for its single task,
+    /// then succeeds. With a `FixedClock` these ticks all fall inside
+    /// `MIN_EMIT_INTERVAL`, so a correct throttle collapses them into a handful of
+    /// snapshots (the surviving Status transitions plus the trailing emit).
+    struct ChattyArchiver {
+        ticks: u64,
+    }
+    impl Archiver for ChattyArchiver {
+        async fn compress(
+            &self,
+            _src: &Path,
+            _dest: &Path,
+            _policy: ConflictPolicy,
+            ctx: &CompressContext,
+        ) -> Result<(), ArchiveError> {
+            for i in 0..self.ticks {
+                ctx.report(i, self.ticks);
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn progress_ticks_are_throttled_between_status_transitions() {
+        const TICKS: u64 = 50;
+        // A Zip-mode job routes the RarFile source through extract -> compress, so
+        // ChattyArchiver's progress ticks flow through the aggregation loop.
+        let job = ArchiveJob::plan(
+            vec![SourceItem::RarFile(PathBuf::from("a.rar"))],
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let engine = RunArchiveJob::new(
+            Arc::new(ChattyArchiver { ticks: TICKS }),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(1),
+        );
+        let sink = RecordingSink::default();
+        // A fixed clock keeps every progress tick inside MIN_EMIT_INTERVAL, so a
+        // correct throttle drops them all — only Status transitions and the
+        // trailing final emit survive.
+        let clock = FixedClock(Instant::now());
+
+        engine.execute(job, &clock, &sink).await;
+
+        let snaps = sink.0.lock().unwrap();
+        assert!(
+            snaps.len() < 10,
+            "50 progress ticks must collapse to a few snapshots, got {}",
+            snaps.len()
+        );
+        assert!(
+            !snaps.is_empty(),
+            "the terminal snapshot must still be emitted"
+        );
+    }
+
+    /// A fake archiver that reports a leading `0/total` tick, then cumulative byte
+    /// ticks — exactly like the real `ZipArchiver`, whose first Progress carries
+    /// `bytes_done == 0` before any entry's bytes land. This ordering is what makes
+    /// "force the first Progress *message*" wrong: the throttle carve-out must fire
+    /// on the first tick with `bytes_done > 0`, not the leading zero tick.
+    struct ZeroThenBytesArchiver {
+        ticks: u64,
+    }
+    impl Archiver for ZeroThenBytesArchiver {
+        async fn compress(
+            &self,
+            _src: &Path,
+            _dest: &Path,
+            _policy: ConflictPolicy,
+            ctx: &CompressContext,
+        ) -> Result<(), ArchiveError> {
+            // 0, 1, 2, ... — a leading zero tick, then real bytes, like ZipArchiver.
+            for i in 0..self.ticks {
+                ctx.report(i, self.ticks);
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn first_progress_tick_is_emitted_even_when_throttled() {
+        const TICKS: u64 = 50;
+        // A Zip-mode job routes the RarFile source through extract -> compress, so
+        // EagerByteArchiver's progress ticks flow through the aggregation loop.
+        let job = ArchiveJob::plan(
+            vec![SourceItem::RarFile(PathBuf::from("a.rar"))],
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let engine = RunArchiveJob::new(
+            Arc::new(ZeroThenBytesArchiver { ticks: TICKS }),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(1),
+        );
+        let sink = RecordingSink::default();
+        // A fixed clock keeps every tick inside MIN_EMIT_INTERVAL: without the
+        // first-progress carve-out the throttle drops all mid-run ticks, so the
+        // only bytes>0 snapshot would be the terminal (complete) one and a consumer
+        // reacting to progress mid-run (e.g. a progress-driven cancel) is starved.
+        let clock = FixedClock(Instant::now());
+
+        engine.execute(job, &clock, &sink).await;
+
+        let snaps = sink.0.lock().unwrap();
+        // A genuine mid-run partial (0 < bytes_done < bytes_total) must have been
+        // delivered, proving the first Progress update is never throttled away.
+        assert!(
+            snaps.iter().any(|s| {
+                let o = s.overall();
+                o.bytes_done() > 0 && o.bytes_done() < o.bytes_total()
+            }),
+            "the first mid-run progress must be emitted even under the throttle: {:?}",
+            snaps
+                .iter()
+                .map(|s| (s.overall().bytes_done(), s.overall().bytes_total()))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
