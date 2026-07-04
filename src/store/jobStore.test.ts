@@ -177,6 +177,30 @@ describe("addItems", () => {
     expect(useJobStore.getState().lastBatch).toBeNull();
     expect(useJobStore.getState().cleared).toBe(false);
   });
+
+  it("ignores addItems while a job is running (preserves live progress)", async () => {
+    // The queue is read-only mid-run, like reorder/move. A drop can still reach
+    // addItems during a run (useFileDrop stays subscribed in every phase), and
+    // addItems runs draftEdit which would wipe the live progress arrays. Ignore
+    // it, mirroring the other queue mutations.
+    const progress: ProgressEvent = {
+      overall: { bytesDone: 100, bytesTotal: 100 },
+      perTask: [
+        { taskId: 10, bytesDone: 50, bytesTotal: 50, etaMs: null },
+        { taskId: 11, bytesDone: 50, bytesTotal: 50, etaMs: null },
+      ],
+      elapsedMs: 5,
+      overallEtaMs: null,
+    };
+    useJobStore.setState({ running: true, progress, taskIdByIndex: [10, 11] });
+
+    await useJobStore.getState().addItems(["/late.rar"]);
+
+    expect(mockArchive.addItems).not.toHaveBeenCalled();
+    expect(useJobStore.getState().progress).toEqual(progress);
+    expect(useJobStore.getState().taskIdByIndex).toEqual([10, 11]);
+    expect(useJobStore.getState().running).toBe(true);
+  });
 });
 
 describe("reorder", () => {
