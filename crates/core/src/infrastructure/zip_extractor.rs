@@ -38,7 +38,11 @@ impl Extractor for ZipExtractor {
         // `tokio::fs::File` implements `AsyncSeek` but NOT `AsyncBufRead`, so the
         // `BufReader` adds the missing buffered-read layer.
         let file = tokio::fs::File::open(src_archive).await?; // io::Error -> ExtractError::Io
-        let buf = tokio::io::BufReader::new(file);
+
+        // A 256 KiB buffer cuts the number of blocking-pool read round trips ~32x versus
+        // the 8 KiB default, which matters on large archives where every fill_buf is a
+        // cross-thread dispatch on tokio::fs::File.
+        let buf = tokio::io::BufReader::with_capacity(256 * 1024, file);
         let mut reader = ZipFileReader::with_tokio(buf)
             .await
             .map_err(|e| ExtractError::Backend(e.to_string()))?;
