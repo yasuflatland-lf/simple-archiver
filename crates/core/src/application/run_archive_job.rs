@@ -46,6 +46,7 @@ impl TaskProgressReport for ChannelReporter {
 struct WorkItem {
     task: TaskId,
     source: SourceItem,
+    defect: Option<String>,
     dest: Option<PathBuf>,
     mode: OutputMode,
     policy: ConflictPolicy,
@@ -119,6 +120,7 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
             .map(|t| WorkItem {
                 task: t.id(),
                 source: t.source().clone(),
+                defect: job.defect(t.id()).map(ToString::to_string),
                 // Single source of truth for the destination formula (domain).
                 dest: t.output_destination(&out_dir),
                 mode,
@@ -322,7 +324,7 @@ async fn run_one<A: Archiver, E: Extractor, P: Placer>(
     guard.disarm();
 }
 
-/// Execute a single work item: checkpoint → extract → write → emit terminal.
+/// Execute a single work item: defect → checkpoint → extract → write → terminal.
 /// The "write" phase is compression (Zip) or placement (Folder).
 ///
 /// Every path that returns from here has sent exactly one terminal event, which is
@@ -331,10 +333,19 @@ async fn run_one_inner<A: Archiver, E: Extractor, P: Placer>(
     archiver: &A,
     registry: &FormatRegistry<E>,
     placer: &P,
-    item: WorkItem,
+    mut item: WorkItem,
     tx: mpsc::UnboundedSender<WorkerMsg>,
     cancellation_token: CancellationToken,
 ) {
+    // A task the planner already proved cannot produce output fails here rather
+    // than at plan time, so one unusable filename does not sink the batch (R5).
+    if let Some(reason) = item.defect.take() {
+        let _ = tx.send(WorkerMsg::Status {
+            task: item.task,
+            event: TaskEvent::Fail { reason },
+        });
+        return;
+    }
     if cancel_before_start(&item, &tx, &cancellation_token) {
         return;
     }
@@ -1486,6 +1497,42 @@ mod tests {
             placed,
             vec![PathBuf::from("/out/a"), PathBuf::from("/out/b")]
         );
+    }
+
+    #[tokio::test]
+    async fn folder_mode_fails_one_defective_task_and_completes_the_others() {
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("good.rar")),
+            SourceItem::RarFile(PathBuf::from("bad:name.rar")),
+            SourceItem::ZipFile(PathBuf::from("other.zip")),
+        ];
+        let job = ArchiveJob::plan_extract(
+            items,
+            OutputDirectory::new(PathBuf::from("/out")),
+            ConflictPolicy::default(),
+        )
+        .expect("one unusable source name must not sink the batch");
+        let ids: Vec<TaskId> = job.tasks().iter().map(|task| task.id()).collect();
+        let defect_reason = job
+            .defect(ids[1])
+            .expect("the second task is defective")
+            .to_string();
+
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        assert_eq!(summary.succeeded.len(), 2);
+        assert_eq!(summary.succeeded, vec![ids[0], ids[2]]);
+        assert_eq!(summary.failed, vec![(ids[1], defect_reason)]);
+        assert!(summary.cancelled.is_empty());
     }
 
     #[tokio::test]

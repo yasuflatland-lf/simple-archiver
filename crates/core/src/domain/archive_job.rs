@@ -1,6 +1,6 @@
 //! The ArchiveJob aggregate root — planning, reordering, and event application.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::domain::archive_task::{ArchiveTask, TaskId};
 use crate::domain::conflict_policy::ConflictPolicy;
@@ -51,6 +51,26 @@ pub enum PlanError {
         start: u32,
         /// The number of items to number.
         count: usize,
+    },
+}
+
+/// Why a task can never produce output, decided at plan time.
+///
+/// A defect is a per-task verdict, deliberately kept out of [`PlanError`]: a
+/// single unusable source name must fail only its own task, never the batch.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum TaskDefect {
+    /// The source's base name is not usable as an output name on this platform.
+    ///
+    /// The field is named `cause` rather than `source` so `thiserror` does not
+    /// treat it as the error source: `source_name` already names the offending
+    /// item, and the message renders the inner failure inline.
+    #[error("\"{source_name}\" cannot be used as a folder name: {cause}")]
+    UnusableSourceName {
+        /// The source item's base name, as it appeared on disk.
+        source_name: String,
+        /// The naming rule that name violates.
+        cause: NameError,
     },
 }
 
@@ -145,6 +165,9 @@ pub struct ArchiveJob {
     out_dir: OutputDirectory,
     mode: OutputMode,
     policy: ConflictPolicy,
+    /// Tasks that were planned but can never run, with the reason. Keyed by
+    /// TaskId so a reorder does not invalidate it.
+    defects: HashMap<TaskId, TaskDefect>,
 }
 
 impl ArchiveJob {
@@ -235,6 +258,7 @@ impl ArchiveJob {
             mode: OutputMode::Zip,
             // Zip mode resolves collisions through the archiver at run time.
             policy,
+            defects: HashMap::new(),
         })
     }
 
@@ -247,13 +271,9 @@ impl ArchiveJob {
     /// [`OutputName::None`] rather than a fabricated `.zip` label, which keeps it
     /// out of the [`check_unique`] guard for a collision it cannot cause.
     ///
-    /// Returns [`PlanError::Empty`] for no items, [`PlanError::Resolve`] when a
-    /// source's base name is not a valid cross-platform filename, and
-    /// [`PlanError::DuplicateName`] when two producing sources share a base name.
-    ///
-    /// Every source's base name is validated, including a folder source's — even
-    /// though that name is then discarded — so the batch-level `Resolve` error
-    /// behaviour is exactly what it was before the name became a sum type.
+    /// Returns [`PlanError::Empty`] for no items and [`PlanError::DuplicateName`]
+    /// when two producing sources share a base name. An unusable source base name
+    /// is recorded as a per-task [`TaskDefect`] so it does not sink the batch.
     ///
     /// [`plan`]: ArchiveJob::plan
     /// [`check_unique`]: ArchiveJob::check_unique
@@ -267,14 +287,20 @@ impl ArchiveJob {
         }
 
         let mut names: Vec<OutputName> = Vec::with_capacity(items.len());
+        let mut defects = HashMap::new();
         for (i, item) in items.iter().enumerate() {
-            let seq = seq_index(i);
-            let stem = FileStem::new(&item.output_stem())
-                .map_err(|source| PlanError::Resolve { seq, source })?;
-            names.push(match item {
-                SourceItem::Folder(_) => OutputName::None,
-                SourceItem::RarFile(_) | SourceItem::ZipFile(_) => OutputName::Folder(stem),
-            });
+            let id = TaskId::new(seq_index(i));
+            let source_name = item.output_stem();
+            match FileStem::new(&source_name) {
+                Ok(stem) => names.push(match item {
+                    SourceItem::Folder(_) => OutputName::None,
+                    SourceItem::RarFile(_) | SourceItem::ZipFile(_) => OutputName::Folder(stem),
+                }),
+                Err(cause) => {
+                    defects.insert(id, TaskDefect::UnusableSourceName { source_name, cause });
+                    names.push(OutputName::None);
+                }
+            }
         }
 
         Self::check_unique(&names)?;
@@ -297,6 +323,7 @@ impl ArchiveJob {
             out_dir,
             mode: OutputMode::Folder,
             policy,
+            defects,
         })
     }
 
@@ -351,6 +378,14 @@ impl ArchiveJob {
     /// reordering; a task's position does.
     pub fn tasks(&self) -> &[ArchiveTask] {
         &self.tasks
+    }
+
+    /// Return the plan-time defect for task `id`, if the task cannot produce output.
+    ///
+    /// Defects are keyed by stable task identity, so this lookup remains valid
+    /// when tasks are reordered.
+    pub fn defect(&self, id: TaskId) -> Option<&TaskDefect> {
+        self.defects.get(&id)
     }
 
     /// Classify every task into a terminal [`TaskOutcome`], in job order.
@@ -464,20 +499,15 @@ impl ArchiveJob {
     ///
     /// [`plan`]: ArchiveJob::plan
     pub(crate) fn check_unique(names: &[OutputName]) -> Result<(), PlanError> {
-        // Case-insensitive filesystems (Windows / default macOS) resolve names that
-        // differ only in ASCII case to the same file, so uniqueness is checked after
-        // ASCII-lowercasing; otherwise a later task could silently overwrite an
-        // earlier one's output. Non-ASCII case pairs (e.g. É/é) are not folded here:
-        // the current naming rule emits ASCII-only output, and Unicode folding is
-        // deferred to a future issue. This guard is primarily defensive.
+        // Filesystem identity folds Unicode normalization and case, so comparing
+        // the same folded key on every platform prevents silent overwrites.
         let mut seen: HashSet<String> = HashSet::with_capacity(names.len());
         for name in names {
-            // A task that produces no output takes no part in the check.
-            let Some(text) = name.as_str() else { continue };
-            if !seen.insert(text.to_ascii_lowercase()) {
+            // Entries that produce nothing cannot collide (see OutputName::None).
+            let Some(key) = name.fold_key() else { continue };
+            if !seen.insert(key) {
                 return Err(PlanError::DuplicateName {
-                    // Report the original (non-folded) name for a faithful message.
-                    name: text.to_string(),
+                    name: name.as_str().unwrap_or_default().to_string(),
                 });
             }
         }
@@ -1151,6 +1181,90 @@ mod tests {
                 name: "foo".to_string()
             })
         );
+    }
+
+    #[test]
+    fn plan_extract_rejects_nfc_and_nfd_spellings_of_the_same_name() {
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("\u{30AC}\u{30A4}\u{30C9}.rar")),
+            SourceItem::RarFile(PathBuf::from(
+                "\u{30AB}\u{3099}\u{30A4}\u{30C8}\u{3099}.rar",
+            )),
+        ];
+
+        assert_eq!(
+            ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default()),
+            Err(PlanError::DuplicateName {
+                name: "\u{30AB}\u{3099}\u{30A4}\u{30C8}\u{3099}".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn plan_extract_rejects_names_differing_only_in_non_ascii_case() {
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("\u{00C9}tude.rar")),
+            SourceItem::RarFile(PathBuf::from("\u{00E9}tude.rar")),
+        ];
+
+        assert_eq!(
+            ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default()),
+            Err(PlanError::DuplicateName {
+                name: "\u{00E9}tude".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn plan_extract_records_an_unusable_source_name_as_a_task_defect() {
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("good.rar")),
+            SourceItem::RarFile(PathBuf::from("bad:name.rar")),
+        ];
+
+        let job = ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default())
+            .expect("one unusable source name must not sink the batch");
+
+        assert_eq!(job.tasks().len(), 2);
+        assert_eq!(
+            job.defect(TaskId::new(2)),
+            Some(&TaskDefect::UnusableSourceName {
+                source_name: "bad:name".to_string(),
+                cause: NameError::ForbiddenChar { ch: ':' },
+            })
+        );
+    }
+
+    #[test]
+    fn plan_extract_records_a_reserved_source_name_as_a_task_defect() {
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("foo.rar")),
+            SourceItem::RarFile(PathBuf::from("CON.rar")),
+        ];
+
+        let job = ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default())
+            .expect("a reserved source name must not sink the batch");
+
+        assert_eq!(
+            job.defect(TaskId::new(2)),
+            Some(&TaskDefect::UnusableSourceName {
+                source_name: "CON".to_string(),
+                cause: NameError::ReservedName {
+                    name: "CON".to_string(),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn plan_extract_excludes_a_defective_task_from_uniqueness_check() {
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("foo.rar")),
+            SourceItem::RarFile(PathBuf::from("foo:.rar")),
+        ];
+
+        ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default())
+            .expect("a task that cannot produce output cannot collide");
     }
 
     #[test]
