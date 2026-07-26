@@ -302,6 +302,8 @@ export const useJobStore = create<JobState>()((set, get) => ({
   },
 
   reorder: async (from, to) => {
+    // The queue is read-only while a job is running.
+    if (get().running) return;
     try {
       // A structural edit clears the selection (draftEdit), but if the moved row
       // was the only selected one, follow it to its new index so keyboard reorder
@@ -342,6 +344,8 @@ export const useJobStore = create<JobState>()((set, get) => ({
   },
 
   removeItem: async (index) => {
+    // The queue is read-only while a job is running.
+    if (get().running) return;
     try {
       const draft = await archive.removeItem(index);
       set(draftEdit(draft));
@@ -352,6 +356,8 @@ export const useJobStore = create<JobState>()((set, get) => ({
   },
 
   setNamingRule: async (template) => {
+    // The draft settings are read-only while a job is running.
+    if (get().running) return;
     try {
       const draft = await archive.setNamingRule(template);
       set({ draft, error: null });
@@ -362,6 +368,8 @@ export const useJobStore = create<JobState>()((set, get) => ({
   },
 
   setStartNumber: async (start) => {
+    // The draft settings are read-only while a job is running.
+    if (get().running) return;
     try {
       // The start number shifts every per-item number and the hero preview, so
       // recompute previews after the backend stores it.

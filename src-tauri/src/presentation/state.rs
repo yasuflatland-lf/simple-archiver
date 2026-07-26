@@ -257,6 +257,11 @@ pub struct RunState {
 }
 
 impl RunState {
+    /// Whether a job currently occupies the slot.
+    pub fn is_running(&self) -> bool {
+        self.token.is_some()
+    }
+
     /// Claim the active-job slot with `token`.
     ///
     /// Returns `Ok(())` if the slot was idle (and stores the token). If a job is
@@ -841,5 +846,19 @@ mod tests {
             run.try_start(CancellationToken::new()).is_ok(),
             "after finish the slot is free for a new job"
         );
+    }
+
+    /// `is_running` reflects whether the active-job slot is currently occupied.
+    #[test]
+    fn is_running_tracks_try_start_and_finish() {
+        let mut run = RunState::default();
+        assert!(!run.is_running(), "a fresh run state must be idle");
+
+        run.try_start(CancellationToken::new())
+            .expect("claiming an idle slot should succeed");
+        assert!(run.is_running(), "a claimed slot must report running");
+
+        run.finish();
+        assert!(!run.is_running(), "a finished slot must report idle");
     }
 }
