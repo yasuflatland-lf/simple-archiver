@@ -1,12 +1,13 @@
 # mise config environment, loaded only when MISE_ENV=ci-hygiene (set on the `hygiene` CI job).
 #
-# Both hygiene tools compile from source (no prebuilt binary fetched via binstall); cargo-modules
-# additionally pulls in the whole rust-analyzer crate graph (~16 min on a Windows runner, which
-# also does not cache it reliably). They are used ONLY by the `hygiene` job (`cargo machete` /
-# `cargo modules orphans`), so they are kept out of the shared `mise.toml`: otherwise every job
-# (core / frontend / app on macOS+Windows) would compile them via mise-action despite never running
-# them. Renovate's mise manager matches this file by default (`mise.<env>.toml`), so the pins stay
-# tracked.
+# cargo-machete is kept out of the shared `mise.toml` because it is used ONLY by the `hygiene`
+# job (`cargo machete`); otherwise every job (core / frontend / app on macOS+Windows) would
+# install it despite never running it. Renovate's mise manager matches this file by default
+# (`mise.<env>.toml`), so the pin stays tracked.
+#
+# cargo-modules is deliberately NOT here: it publishes no prebuilt binaries, so it is always a
+# ~9 min source build (it pulls in the whole rust-analyzer crate graph), and mise-action's cache
+# key hashes every `mise*.toml`, which meant an unrelated `mise.toml` bump forced that rebuild.
+# It is installed and cached by version in the `hygiene` job instead — see .github/workflows/ci.yml.
 [tools]
-"cargo:cargo-modules" = "0.26.0"
 "cargo:cargo-machete" = "0.9.2"
