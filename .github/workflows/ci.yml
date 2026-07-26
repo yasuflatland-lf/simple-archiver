@@ -32,10 +32,13 @@ env:
 # One in-flight run per PR: Renovate force-pushes its branches repeatedly (17 runs on
 # `renovate/frontend-(npm)` in the last 100 PR runs), and without this every superseded push
 # keeps six jobs running to completion on a commit that will never merge, holding concurrency
-# slots that the current run needs. `push` events on main are keyed by ref and never cancelled,
-# so main's history keeps a complete CI record and the rust-cache save step always runs.
+# slots that the current run needs. Pull-request runs are grouped by PR number, so a new push
+# cancels the previous run. `push` events fall back to `github.run_id`, which is unique per run,
+# so pushes to main never share a group. GitHub cancels a pending run in a group when a newer one
+# is queued regardless of `cancel-in-progress`; sharing a group would silently drop CI for the
+# intermediate commits in a merge burst and skip their rust-cache save.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
