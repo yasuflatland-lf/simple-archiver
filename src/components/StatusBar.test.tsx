@@ -6,7 +6,7 @@ import { resetJobStore, useJobStore } from "@/store/jobStore";
 import { StatusBar } from "./StatusBar";
 
 // Minimal DraftItemDto stub.
-const ITEM = { path: "/a.rar", kind: "rar" as const };
+const ITEM = { path: "/a.rar", kind: "rar" as const, outputStem: "a" };
 
 describe("StatusBar", () => {
   beforeEach(() => resetJobStore());
@@ -20,8 +20,8 @@ describe("StatusBar", () => {
     useJobStore.setState({
       draft: {
         items: [
-          { path: "/a.rar", kind: "rar" },
-          { path: "/b", kind: "folder" },
+          { path: "/a.rar", kind: "rar", outputStem: "a" },
+          { path: "/b", kind: "folder", outputStem: "b" },
         ],
         namingTemplate: null,
         startNumber: 1,
@@ -37,7 +37,7 @@ describe("StatusBar", () => {
   it("shows the singular form when idle with 1 item queued", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/a.rar", kind: "rar" }],
+        items: [{ path: "/a.rar", kind: "rar", outputStem: "a" }],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,

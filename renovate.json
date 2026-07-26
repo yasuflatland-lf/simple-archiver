@@ -7,6 +7,16 @@
   "internalChecksFilter": "strict",
   "prConcurrentLimit": 10,
   "labels": ["dependencies"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track the cargo-modules pin in the CI hygiene job",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": ["CARGO_MODULES_VERSION:\\s*\"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "crate",
+      "depNameTemplate": "cargo-modules"
+    }
+  ],
   "packageRules": [
     {
       "matchManagers": ["npm"],

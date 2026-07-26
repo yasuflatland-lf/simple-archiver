@@ -44,7 +44,11 @@ function draftWith(
   outputDir: string | null = "/out",
 ): DraftSnapshot {
   return {
-    items: paths.map((path) => ({ path, kind: "rar" as const })),
+    items: paths.map((path, index) => ({
+      path,
+      kind: "rar" as const,
+      outputStem: ["a", "b", "c"][index] ?? "archive",
+    })),
     namingTemplate: null,
     startNumber: 1,
     outputDir,

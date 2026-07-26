@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SourceKind } from "@/bindings/SourceKind";
+import type { DraftItemDto } from "@/bindings/DraftItemDto";
 import { pickDirectory } from "@/lib/dialog";
 import { resetJobStore, useJobStore } from "@/store/jobStore";
 
@@ -16,7 +16,7 @@ function setDraft(over: Partial<ReturnType<typeof base>> = {}) {
 }
 function base() {
   return {
-    items: [] as { path: string; kind: SourceKind }[],
+    items: [] as DraftItemDto[],
     namingTemplate: null as string | null,
     startNumber: 1,
     outputDir: null as string | null,
@@ -56,8 +56,8 @@ describe("ResultPreview", () => {
       outputDir: "/out",
       outputMode: "zip",
       items: [
-        { path: "/a.rar", kind: "rar" },
-        { path: "/b.rar", kind: "rar" },
+        { path: "/a.rar", kind: "rar", outputStem: "a" },
+        { path: "/b.rar", kind: "rar", outputStem: "b" },
       ],
     });
     useJobStore.setState({ firstPreview: "photo_01.zip", previewError: null });
@@ -73,11 +73,17 @@ describe("ResultPreview", () => {
     setDraft({
       outputDir: "/out",
       outputMode: "folder",
-      items: [{ path: "/photos/vacation.rar", kind: "rar" }],
+      items: [
+        {
+          path: "/photos/vacation.rar",
+          kind: "rar",
+          outputStem: "backend-stem",
+        },
+      ],
     });
     render(<ResultPreview />);
 
-    expect(screen.getByText("vacation/")).toBeTruthy();
+    expect(screen.getByText("backend-stem/")).toBeTruthy();
     expect(screen.getByText(/1 archive\b/i)).toBeTruthy();
   });
 
@@ -85,7 +91,13 @@ describe("ResultPreview", () => {
     setDraft({
       outputDir: "/out",
       outputMode: "folder",
-      items: [{ path: "/photos/vacation.2024", kind: "folder" }],
+      items: [
+        {
+          path: "/photos/vacation.2024",
+          kind: "folder",
+          outputStem: "vacation.2024",
+        },
+      ],
     });
     render(<ResultPreview />);
     expect(screen.getByText("vacation.2024/")).toBeTruthy();
@@ -103,7 +115,7 @@ describe("ResultPreview", () => {
     setDraft({
       outputDir: "/out",
       outputMode: "zip",
-      items: [{ path: "/a.rar", kind: "rar" }],
+      items: [{ path: "/a.rar", kind: "rar", outputStem: "a" }],
     });
     useJobStore.setState({ firstPreview: null, previewError: null });
     render(<ResultPreview />);
