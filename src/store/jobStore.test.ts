@@ -47,6 +47,7 @@ function makeDraft(
     items: Array.from({ length: itemCount }, (_, i) => ({
       path: `/tmp/item-${i}.rar`,
       kind: "rar" as const,
+      outputStem: `item-${i}`,
     })),
     namingTemplate,
     startNumber,
@@ -255,6 +256,22 @@ describe("reorder", () => {
 
     expect(useJobStore.getState().error).toBe("bad index");
     expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);
+  });
+
+  it("is a no-op while a job is running", async () => {
+    useJobStore.setState({ running: true });
+
+    await useJobStore.getState().reorder(0, 1);
+
+    expect(mockArchive.reorder).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the exact draft-edit IPC contract message", async () => {
+    mockArchive.reorder.mockRejectedValue("a job is running");
+
+    await useJobStore.getState().reorder(0, 1);
+
+    expect(useJobStore.getState().error).toBe("a job is running");
   });
 
   it("keeps the moved row selected at its new index when it was the sole selection", async () => {
@@ -579,6 +596,14 @@ describe("removeItem", () => {
     expect(useJobStore.getState().error).toBe("bad index");
     expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);
   });
+
+  it("is a no-op while a job is running", async () => {
+    useJobStore.setState({ running: true });
+
+    await useJobStore.getState().removeItem(0);
+
+    expect(mockArchive.removeItem).not.toHaveBeenCalled();
+  });
 });
 
 describe("setNamingRule", () => {
@@ -625,6 +650,14 @@ describe("setNamingRule", () => {
     expect(useJobStore.getState().error).toBe("invalid template");
     expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);
   });
+
+  it("is a no-op while a job is running", async () => {
+    useJobStore.setState({ running: true });
+
+    await useJobStore.getState().setNamingRule("photo_{n}");
+
+    expect(mockArchive.setNamingRule).not.toHaveBeenCalled();
+  });
 });
 
 describe("setStartNumber", () => {
@@ -666,6 +699,14 @@ describe("setStartNumber", () => {
 
     expect(useJobStore.getState().error).toBe("boom");
     expect(useJobStore.getState().draft).toEqual(INITIAL_DRAFT);
+  });
+
+  it("is a no-op while a job is running", async () => {
+    useJobStore.setState({ running: true });
+
+    await useJobStore.getState().setStartNumber(5);
+
+    expect(mockArchive.setStartNumber).not.toHaveBeenCalled();
   });
 });
 

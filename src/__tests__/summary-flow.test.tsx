@@ -58,8 +58,8 @@ describe("run → summary flow", () => {
     useJobStore.setState({
       draft: {
         items: [
-          { path: "/in/a.rar", kind: "rar" },
-          { path: "/in/b.rar", kind: "rar" },
+          { path: "/in/a.rar", kind: "rar", outputStem: "a" },
+          { path: "/in/b.rar", kind: "rar", outputStem: "b" },
         ],
         namingTemplate: null,
         startNumber: 1,

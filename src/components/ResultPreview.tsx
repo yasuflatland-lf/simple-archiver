@@ -1,19 +1,7 @@
 import { Folder, Package } from "lucide-react";
 
-import type { SourceKind } from "@/bindings/SourceKind";
 import { useChooseOutputDir } from "@/hooks/useChooseOutputDir";
 import { selectFirstPreview, useJobStore } from "@/store/jobStore";
-
-// Mirror the backend's SourceItem::output_stem (source_item.rs): archives use
-// the file stem (extension stripped); a folder uses its full last path
-// component (no stripping), falling back to "archive" when empty. Input-derived
-// only — no backend naming logic is duplicated.
-function outputStem(item: { path: string; kind: SourceKind }): string {
-  const base = item.path.split(/[\\/]/).filter(Boolean).pop() ?? "archive";
-  if (item.kind === "folder") return base;
-  const dot = base.lastIndexOf(".");
-  return dot > 0 ? base.slice(0, dot) : base;
-}
 
 /**
  * The result-led hero of the OUTPUT rail. One card answers "where + what will I
@@ -86,7 +74,7 @@ export function ResultPreview() {
         <div className="flex items-center gap-2">
           <Folder aria-hidden="true" className="size-5 text-primary" />
           <span className="font-mono text-sm font-semibold text-foreground">
-            {count > 0 ? `${outputStem(items[0])}/` : "<archive name>/"}
+            {count > 0 ? `${items[0].outputStem}/` : "<archive name>/"}
           </span>
           {count > 0 ? (
             <span className="ml-auto text-xs text-muted-foreground">
