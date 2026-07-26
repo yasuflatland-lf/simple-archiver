@@ -9,7 +9,6 @@ use tokio_util::sync::CancellationToken;
 use simple_archiver_core::application::run_archive_job::RunArchiveJob;
 use simple_archiver_core::domain::archive_job::ArchiveJob;
 use simple_archiver_core::domain::naming_rule::NamingRule;
-use simple_archiver_core::domain::output_mode::OutputMode as DomainOutputMode;
 use simple_archiver_core::domain::sequence_number::SequenceNumber;
 use simple_archiver_core::domain::source_item::SourceItem;
 use simple_archiver_core::infrastructure::archive_extractor::ArchiveExtractor;
@@ -214,23 +213,26 @@ pub async fn run_job_inner(
 /// planned job. The absolute path is computed by the domain SSOT
 /// `ArchiveTask::output_destination`, so it cannot diverge from the engine.
 ///
+/// A task that produces nothing has no landing path: its `output_path` is the
+/// empty string and its `output_name` falls back to the source's display name,
+/// so the wire shape is unchanged and no fabricated `.zip` path is reported.
+///
 /// `PathBuf` is rendered to a lossy UTF-8 `String` at this wire boundary.
 fn task_path_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
     let out_dir = job.output_directory().path();
-    let mode = job.output_mode();
     job.tasks()
         .iter()
         .map(|t| {
-            let output_name = match mode {
-                DomainOutputMode::Zip => t.output_name().as_str().to_string(),
-                DomainOutputMode::Folder => t.source().output_stem(),
+            let output_name = match t.output_name().as_str() {
+                Some(name) => name.to_string(),
+                None => t.source().output_stem(),
             };
             // Absolute output path comes from the domain SSOT so it can never
             // drift from the engine's destination formula.
             let output_path = t
-                .output_destination(out_dir, mode)
-                .to_string_lossy()
-                .into_owned();
+                .output_destination(out_dir)
+                .map(|dest| dest.to_string_lossy().into_owned())
+                .unwrap_or_default();
             TaskPathMeta {
                 id: t.id(),
                 output_name,
@@ -353,6 +355,38 @@ mod tests {
         assert_eq!(
             &after, before,
             "{command} must leave the draft unchanged after rejection"
+        );
+    }
+
+    #[test]
+    fn task_path_meta_reports_no_path_for_a_task_that_produces_nothing() {
+        // A folder source in Folder mode writes nothing, so the wire summary must
+        // not claim a landing path it will never create. The base name still falls
+        // back to the source's display name so the DTO shape is unchanged.
+        use simple_archiver_core::domain::conflict_policy::ConflictPolicy as DomainConflictPolicy;
+        use simple_archiver_core::domain::output_directory::OutputDirectory;
+
+        let job = ArchiveJob::plan_extract(
+            vec![
+                SourceItem::Folder(PathBuf::from("/in/photos")),
+                SourceItem::ZipFile(PathBuf::from("/in/docs.zip")),
+            ],
+            OutputDirectory::new(PathBuf::from("/out")),
+            DomainConflictPolicy::default(),
+        )
+        .expect("a folder source and an archive source can be planned together");
+
+        let meta = task_path_meta(&job);
+
+        assert_eq!(meta[0].output_name, "photos");
+        assert_eq!(meta[0].output_path, "");
+        assert_eq!(meta[1].output_name, "docs");
+        assert_eq!(
+            meta[1].output_path,
+            PathBuf::from("/out")
+                .join("docs")
+                .to_string_lossy()
+                .into_owned()
         );
     }
 

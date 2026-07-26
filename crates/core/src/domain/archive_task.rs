@@ -1,7 +1,6 @@
 //! The stable task identity and the archive-task entity.
 
-use crate::domain::file_name::OutputFileName;
-use crate::domain::output_mode::OutputMode;
+use crate::domain::file_name::OutputName;
 use crate::domain::source_item::SourceItem;
 use crate::domain::task_status::{IllegalTransition, TaskEvent, TaskStatus};
 use std::path::{Path, PathBuf};
@@ -45,7 +44,7 @@ impl TaskId {
 pub struct ArchiveTask {
     id: TaskId,
     source: SourceItem,
-    output_name: OutputFileName,
+    output_name: OutputName,
     status: TaskStatus,
 }
 
@@ -53,7 +52,7 @@ impl ArchiveTask {
     /// Create a new `ArchiveTask` in the [`TaskStatus::Pending`] state.
     ///
     /// This constructor is crate-internal; only `ArchiveJob` builds tasks.
-    pub(crate) fn new(id: TaskId, source: SourceItem, output_name: OutputFileName) -> Self {
+    pub(crate) fn new(id: TaskId, source: SourceItem, output_name: OutputName) -> Self {
         Self {
             id,
             source,
@@ -74,8 +73,8 @@ impl ArchiveTask {
         &self.source
     }
 
-    /// Return a reference to the intended output filename.
-    pub fn output_name(&self) -> &OutputFileName {
+    /// Return a reference to the intended output name.
+    pub fn output_name(&self) -> &OutputName {
         &self.output_name
     }
 
@@ -84,28 +83,36 @@ impl ArchiveTask {
         &self.status
     }
 
-    /// Compute this task's output destination path under `out_dir` (pure path
-    /// math; performs no IO).
+    /// Compute this task's output destination path under `out_dir`, or `None`
+    /// when the task produces nothing (pure path math; performs no IO).
     ///
     /// This is the single source of truth for the per-task destination formula:
-    /// `Zip` joins the validated output filename, `Folder` joins the source's
-    /// output stem. Both the engine (`RunArchiveJob`) and the presentation layer
-    /// (`task_path_meta`) consume this so the "where the file lands" computation
-    /// can never drift between them.
-    pub fn output_destination(&self, out_dir: &Path, mode: OutputMode) -> PathBuf {
-        match mode {
-            OutputMode::Zip => out_dir.join(self.output_name().as_str()),
-            OutputMode::Folder => out_dir.join(self.source().output_stem()),
+    /// `Zip` joins the validated output filename, `Folder` joins the validated
+    /// directory stem, and `None` lands nowhere. Both the engine
+    /// (`RunArchiveJob`) and the presentation layer (`task_path_meta`) consume
+    /// this so the "where the file lands" computation can never drift between
+    /// them.
+    ///
+    /// The formula is derived from [`OutputName`] alone — there is deliberately
+    /// no `mode` parameter, because a destination computed from a value plus an
+    /// out-of-band mode flag can disagree with the name the task claims to have.
+    pub fn output_destination(&self, out_dir: &Path) -> Option<PathBuf> {
+        match &self.output_name {
+            OutputName::Zip(name) => Some(out_dir.join(name.as_str())),
+            OutputName::Folder(stem) => Some(out_dir.join(stem.as_str())),
+            OutputName::None => None,
         }
     }
 
     // ── Crate-internal mutators ───────────────────────────────────────────────
 
-    /// Replace the output filename.
+    /// Replace the output name.
     ///
     /// Used by `ArchiveJob` during reordering to restore each position's output
-    /// name after the task objects are swapped between positions.
-    pub(crate) fn set_output_name(&mut self, name: OutputFileName) {
+    /// name after the task objects are swapped between positions. Only
+    /// position-derived (`OutputName::Zip`) names are rebound this way; see
+    /// `ArchiveJob::swap_and_rebind`.
+    pub(crate) fn set_output_name(&mut self, name: OutputName) {
         self.output_name = name;
     }
 
@@ -148,13 +155,13 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::domain::file_name::{FileStem, OutputFileName};
+    use crate::domain::file_name::{FileStem, OutputFileName, OutputName};
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// Build a minimal `OutputFileName` suitable for tests.
-    fn make_output_name(stem: &str) -> OutputFileName {
-        OutputFileName::from_stem(FileStem::new(stem).unwrap())
+    fn make_output_name(stem: &str) -> OutputName {
+        OutputName::Zip(OutputFileName::from_stem(FileStem::new(stem).unwrap()))
     }
 
     /// Build a minimal `SourceItem` suitable for tests.
@@ -384,20 +391,32 @@ mod tests {
 
     #[test]
     fn output_destination_zip_joins_output_name() {
-        // Zip mode: out_dir / <output filename> (e.g. "foo.zip").
         let task = make_task(1); // output_name stem "foo" -> "foo.zip"
         let out_dir = std::path::PathBuf::from("/out");
-        let dest = task.output_destination(&out_dir, OutputMode::Zip);
-        assert_eq!(dest, out_dir.join("foo.zip"));
+        let dest = task.output_destination(&out_dir);
+        assert_eq!(dest, Some(PathBuf::from("/out").join("foo.zip")));
     }
 
     #[test]
-    fn output_destination_folder_joins_source_output_stem() {
-        // Folder mode: out_dir / <source output stem>. A RarFile("a.rar")
-        // source has the stem "a", independent of the output filename.
-        let task = make_task(1);
+    fn output_destination_folder_joins_folder_stem() {
+        // Folder mode: out_dir / <validated directory stem>. The stem comes from
+        // the name itself, not from the source, so no mode flag is consulted.
+        let task = ArchiveTask::new(
+            TaskId::new(1),
+            make_source(),
+            OutputName::Folder(FileStem::new("foo").unwrap()),
+        );
         let out_dir = std::path::PathBuf::from("/out");
-        let dest = task.output_destination(&out_dir, OutputMode::Folder);
-        assert_eq!(dest, out_dir.join("a"));
+        let dest = task.output_destination(&out_dir);
+        assert_eq!(dest, Some(PathBuf::from("/out").join("foo")));
+    }
+
+    #[test]
+    fn output_destination_none_returns_none() {
+        // A task that produces nothing lands nowhere — no fabricated path.
+        let task = ArchiveTask::new(TaskId::new(1), make_source(), OutputName::None);
+        let out_dir = std::path::PathBuf::from("/out");
+
+        assert_eq!(task.output_destination(&out_dir), None);
     }
 }

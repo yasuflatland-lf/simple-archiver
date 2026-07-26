@@ -1,7 +1,9 @@
 //! Output filename value objects with Windows-superset validation.
 //!
 //! A `FileStem` that constructs successfully is a valid filename on both macOS
-//! and Windows; `OutputFileName` appends the `.zip` extension.
+//! and Windows; `OutputFileName` appends the `.zip` extension. `OutputName` is
+//! the sum type a task actually carries: it records both the destination name
+//! and where that name came from.
 
 /// Characters forbidden in a filename on Windows (a superset of macOS rules).
 /// Path separators `/` and `\` are included here.
@@ -81,6 +83,46 @@ impl OutputFileName {
     }
 }
 
+/// What a task will be called at the destination, and where that name came from.
+///
+/// The derivation rule differs by output mode, and reordering must respect that
+/// difference: a Zip name is derived from the task's POSITION and rebinds when
+/// positions change, whereas a Folder name is derived from the task's SOURCE and
+/// travels with the task. Encoding the provenance in the type stops one rebinding
+/// rule from being applied to both, and lets a task that produces nothing say so
+/// instead of carrying a fabricated `.zip` label.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OutputName {
+    /// A `.zip` filename resolved from the naming rule at a list position.
+    Zip(OutputFileName),
+    /// A directory name taken from the source item.
+    ///
+    /// Holds a validated [`FileStem`] rather than a bare `String` so Folder mode
+    /// keeps the same cross-platform name validation as Zip mode.
+    Folder(FileStem),
+    /// This task produces no output at all (a Folder-mode folder source).
+    None,
+}
+
+impl OutputName {
+    /// The name as it appears at the destination, or `None` when nothing is produced.
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            OutputName::Zip(name) => Some(name.as_str()),
+            OutputName::Folder(stem) => Some(stem.as_str()),
+            OutputName::None => Option::None,
+        }
+    }
+
+    /// Whether this task produces an output that can collide with another.
+    ///
+    /// The job-level uniqueness guard consults this so an item that writes
+    /// nothing never takes part in a collision it cannot cause.
+    pub fn produces_output(&self) -> bool {
+        !matches!(self, OutputName::None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +179,25 @@ mod tests {
                 name: "com1".to_string()
             })
         );
+    }
+
+    #[test]
+    fn output_name_as_str_returns_destination_name_or_none() {
+        let zip = OutputName::Zip(OutputFileName::from_stem(FileStem::new("archive").unwrap()));
+        let folder = OutputName::Folder(FileStem::new("photos").unwrap());
+
+        assert_eq!(zip.as_str(), Some("archive.zip"));
+        assert_eq!(folder.as_str(), Some("photos"));
+        assert_eq!(OutputName::None.as_str(), None);
+    }
+
+    #[test]
+    fn output_name_produces_output_is_false_only_for_none() {
+        let zip = OutputName::Zip(OutputFileName::from_stem(FileStem::new("archive").unwrap()));
+        let folder = OutputName::Folder(FileStem::new("photos").unwrap());
+
+        assert!(zip.produces_output());
+        assert!(folder.produces_output());
+        assert!(!OutputName::None.produces_output());
     }
 }

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::domain::archive_task::{ArchiveTask, TaskId};
 use crate::domain::conflict_policy::ConflictPolicy;
-use crate::domain::file_name::{FileStem, NameError, OutputFileName};
+use crate::domain::file_name::{FileStem, NameError, OutputName};
 use crate::domain::naming_rule::NamingRule;
 use crate::domain::output_directory::OutputDirectory;
 use crate::domain::output_mode::OutputMode;
@@ -124,12 +124,17 @@ fn seq_index(i: usize) -> u32 {
 /// The job owns the ordered list of tasks, the [`NamingRule`] used to derive
 /// their output names, and the [`OutputDirectory`] they will be written to.
 ///
-/// **Position/identity invariant:** the task at position `p` always holds the
-/// name `rule.resolve(start + p)`, where `start` is the numbering start passed to
-/// [`ArchiveJob::plan_with_start`] (1 for [`ArchiveJob::plan`]). This is
-/// established at plan time and preserved by every reorder: names are
-/// position-derived and stay with the position, while each task's id and status
+/// **Position/identity invariant (Zip mode):** the task at position `p` always
+/// holds the name `rule.resolve(start + p)`, where `start` is the numbering start
+/// passed to [`ArchiveJob::plan_with_start`] (1 for [`ArchiveJob::plan`]). This is
+/// established at plan time and preserved by every reorder: a Zip name is
+/// position-derived and stays with the position, while each task's id and status
 /// travel with the task.
+///
+/// **Folder mode is the mirror image:** a task's name is derived from its SOURCE
+/// ([`SourceItem::output_stem`]), so it travels with the task under a reorder,
+/// and a folder source produces no output at all. The two rules are told apart by
+/// the [`OutputName`] variant, not by the job's mode flag.
 ///
 /// `ArchiveJob` is a value type with full structural equality: it derives both
 /// `PartialEq` and `Eq`.
@@ -196,7 +201,7 @@ impl ArchiveJob {
             .ok_or(PlanError::SequenceOverflow { start, count })?;
 
         // Resolve a name for every item, propagating the first resolution error.
-        let mut names: Vec<OutputFileName> = Vec::with_capacity(count);
+        let mut names: Vec<OutputName> = Vec::with_capacity(count);
         for i in 0..count {
             // Safe: the range guard above proved `start + last_offset` fits in
             // u32, and `i <= count - 1`, so this addition cannot overflow.
@@ -205,7 +210,8 @@ impl ArchiveJob {
             let name = rule
                 .resolve(seq)
                 .map_err(|source| PlanError::Resolve { seq: seq_n, source })?;
-            names.push(name);
+            // Zip names are position-derived: they rebind when positions change.
+            names.push(OutputName::Zip(name));
         }
 
         // Defensive uniqueness guard. Via this path names cannot collide (the
@@ -235,14 +241,19 @@ impl ArchiveJob {
     /// Plan a Folder-mode (extraction) job from `items`.
     ///
     /// Unlike [`plan`], there is no naming rule: each task's output directory is
-    /// named after the source (see [`SourceItem::output_stem`]). The task's
-    /// `output_name` here is an internal `.zip`-suffixed label, used only by the
-    /// shared [`check_unique`] guard; the execution engine derives the real
-    /// folder path from the source, not from this label.
+    /// named after the source (see [`SourceItem::output_stem`]), so the name is
+    /// source-derived and travels with its task. A folder source has no archive
+    /// to extract and therefore produces nothing at all — it gets
+    /// [`OutputName::None`] rather than a fabricated `.zip` label, which keeps it
+    /// out of the [`check_unique`] guard for a collision it cannot cause.
     ///
     /// Returns [`PlanError::Empty`] for no items, [`PlanError::Resolve`] when a
     /// source's base name is not a valid cross-platform filename, and
-    /// [`PlanError::DuplicateName`] when two sources share a base name.
+    /// [`PlanError::DuplicateName`] when two producing sources share a base name.
+    ///
+    /// Every source's base name is validated, including a folder source's — even
+    /// though that name is then discarded — so the batch-level `Resolve` error
+    /// behaviour is exactly what it was before the name became a sum type.
     ///
     /// [`plan`]: ArchiveJob::plan
     /// [`check_unique`]: ArchiveJob::check_unique
@@ -255,12 +266,15 @@ impl ArchiveJob {
             return Err(PlanError::Empty);
         }
 
-        let mut names: Vec<OutputFileName> = Vec::with_capacity(items.len());
+        let mut names: Vec<OutputName> = Vec::with_capacity(items.len());
         for (i, item) in items.iter().enumerate() {
             let seq = seq_index(i);
             let stem = FileStem::new(&item.output_stem())
                 .map_err(|source| PlanError::Resolve { seq, source })?;
-            names.push(OutputFileName::from_stem(stem));
+            names.push(match item {
+                SourceItem::Folder(_) => OutputName::None,
+                SourceItem::RarFile(_) | SourceItem::ZipFile(_) => OutputName::Folder(stem),
+            });
         }
 
         Self::check_unique(&names)?;
@@ -398,19 +412,34 @@ impl ArchiveJob {
             .ok_or(ReorderError::TaskNotFound(id))
     }
 
-    /// Swap the task objects at positions `a` and `b`, keeping each position's
-    /// output name bound to that position.
+    /// Swap the task objects at positions `a` and `b`, rebinding only names that
+    /// belong to a position.
     ///
-    /// Reordering only changes which task object occupies a position; the output
-    /// name stays bound to the POSITION while the task's id and status travel
-    /// with the task. The implementation therefore (1) saves the current
-    /// name at each position before the swap, (2) calls `self.tasks.swap(a, b)`
-    /// to move the task objects, then (3) restores each position's saved name via
-    /// `set_output_name`. This is infallible — it never calls `rule.resolve` and
-    /// never panics — and it maintains the invariant "the task at position `p`
-    /// holds the name `rule.resolve(p + 1)`" inductively (plan establishes it;
-    /// each move preserves it).
+    /// Only a position-derived name belongs to the position. A `Zip` name is
+    /// resolved from the naming rule at a list position, so it stays bound to the
+    /// POSITION: the implementation (1) saves the current name at each position
+    /// before the swap, (2) calls `self.tasks.swap(a, b)` to move the task
+    /// objects, then (3) restores each position's saved name via
+    /// `set_output_name`. A source-derived `Folder` name — and a `None` name,
+    /// which has nothing to rebind — instead travels with its task, so the swap
+    /// alone is the whole operation. Rebinding those would detach the label from
+    /// the source whose bytes actually land there.
+    ///
+    /// Both positions are inspected so a hypothetical mixed list could never
+    /// rebind a source-derived name onto the wrong task; the factories only ever
+    /// build homogeneous jobs, so in practice one variant decides both.
+    ///
+    /// This is infallible — it never calls `rule.resolve` and never panics — and
+    /// in Zip mode it maintains the invariant "the task at position `p` holds the
+    /// name `rule.resolve(p + 1)`" inductively (plan establishes it; each move
+    /// preserves it).
     fn swap_and_rebind(&mut self, a: usize, b: usize) {
+        let rebind = matches!(self.tasks[a].output_name(), OutputName::Zip(_))
+            && matches!(self.tasks[b].output_name(), OutputName::Zip(_));
+        if !rebind {
+            self.tasks.swap(a, b);
+            return;
+        }
         let name_a = self.tasks[a].output_name().clone();
         let name_b = self.tasks[b].output_name().clone();
         self.tasks.swap(a, b);
@@ -418,7 +447,8 @@ impl ArchiveJob {
         self.tasks[b].set_output_name(name_b);
     }
 
-    /// Verify that all `names` are distinct, returning the first duplicate.
+    /// Verify that all producing `names` are distinct, returning the first
+    /// duplicate.
     ///
     /// A pure, list-level uniqueness check used defensively by [`plan`]. The
     /// current naming rule guarantees injectivity over distinct sequence numbers,
@@ -427,8 +457,13 @@ impl ArchiveJob {
     /// than a silent overwrite. It is also exercised directly by tests with a
     /// hand-built duplicate list.
     ///
+    /// Entries whose [`OutputName::produces_output`] is `false` are skipped: they
+    /// write nothing, so they cannot collide with anything. Counting them would
+    /// reject a whole Folder-mode batch of `foo.rar` plus a folder named `foo`
+    /// for a filesystem collision that can never happen.
+    ///
     /// [`plan`]: ArchiveJob::plan
-    pub(crate) fn check_unique(names: &[OutputFileName]) -> Result<(), PlanError> {
+    pub(crate) fn check_unique(names: &[OutputName]) -> Result<(), PlanError> {
         // Case-insensitive filesystems (Windows / default macOS) resolve names that
         // differ only in ASCII case to the same file, so uniqueness is checked after
         // ASCII-lowercasing; otherwise a later task could silently overwrite an
@@ -437,10 +472,12 @@ impl ArchiveJob {
         // deferred to a future issue. This guard is primarily defensive.
         let mut seen: HashSet<String> = HashSet::with_capacity(names.len());
         for name in names {
-            if !seen.insert(name.as_str().to_ascii_lowercase()) {
+            // A task that produces no output takes no part in the check.
+            let Some(text) = name.as_str() else { continue };
+            if !seen.insert(text.to_ascii_lowercase()) {
                 return Err(PlanError::DuplicateName {
                     // Report the original (non-folded) name for a faithful message.
-                    name: name.as_str().to_string(),
+                    name: text.to_string(),
                 });
             }
         }
@@ -455,7 +492,7 @@ impl ArchiveJob {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::file_name::{FileStem, OutputFileName};
+    use crate::domain::file_name::{FileStem, OutputFileName, OutputName};
     use crate::domain::source_item::SourceItem;
     use crate::domain::task_status::TaskStatus;
     use std::path::PathBuf;
@@ -486,15 +523,23 @@ mod tests {
     }
 
     /// Build an `OutputFileName` from a plain stem (test convenience).
-    fn name(stem: &str) -> OutputFileName {
-        OutputFileName::from_stem(FileStem::new(stem).unwrap())
+    fn name(stem: &str) -> OutputName {
+        OutputName::Zip(OutputFileName::from_stem(FileStem::new(stem).unwrap()))
     }
 
     /// Snapshot the (id, output-name) of each task in list order.
     fn id_name_pairs(job: &ArchiveJob) -> Vec<(u32, String)> {
         job.tasks()
             .iter()
-            .map(|t| (t.id().get(), t.output_name().as_str().to_string()))
+            .map(|t| {
+                (
+                    t.id().get(),
+                    t.output_name()
+                        .as_str()
+                        .expect("Zip tasks always produce output")
+                        .to_string(),
+                )
+            })
             .collect()
     }
 
@@ -513,7 +558,11 @@ mod tests {
         let names: Vec<&str> = job
             .tasks()
             .iter()
-            .map(|t| t.output_name().as_str())
+            .map(|t| {
+                t.output_name()
+                    .as_str()
+                    .expect("Zip tasks always produce output")
+            })
             .collect();
         assert_eq!(names, vec!["file1.zip", "file2.zip", "file3.zip"]);
     }
@@ -705,6 +754,18 @@ mod tests {
         assert_eq!(ArchiveJob::check_unique(&[]), Ok(()));
     }
 
+    #[test]
+    fn check_unique_ignores_entries_that_produce_no_output() {
+        // A non-producing entry writes nothing, so it can never collide — not
+        // even with another non-producing entry.
+        let names = [
+            OutputName::Folder(FileStem::new("foo").unwrap()),
+            OutputName::None,
+            OutputName::None,
+        ];
+        assert_eq!(ArchiveJob::check_unique(&names), Ok(()));
+    }
+
     // ── move_up / move_down: invariant ────────────────────────────────────────
 
     #[test]
@@ -802,7 +863,11 @@ mod tests {
         let names: Vec<&str> = job
             .tasks()
             .iter()
-            .map(|t| t.output_name().as_str())
+            .map(|t| {
+                t.output_name()
+                    .as_str()
+                    .expect("Zip tasks always produce output")
+            })
             .collect();
         assert_eq!(names, vec!["file1.zip", "file2.zip", "file3.zip"]);
     }
@@ -924,13 +989,13 @@ mod tests {
         // Status travels with the task object.
         assert_eq!(moved.status(), &TaskStatus::Extracting);
         // The name is rebound to the new position (index 0 → "file1.zip").
-        assert_eq!(moved.output_name().as_str(), "file1.zip");
+        assert_eq!(moved.output_name().as_str(), Some("file1.zip"));
 
         // The displaced task (originally id=1, now at index 1) is still Pending
         // and has the name bound to index 1 ("file2.zip").
         let displaced = job.tasks().iter().find(|t| t.id().get() == 1).unwrap();
         assert_eq!(displaced.status(), &TaskStatus::Pending);
-        assert_eq!(displaced.output_name().as_str(), "file2.zip");
+        assert_eq!(displaced.output_name().as_str(), Some("file2.zip"));
     }
 
     // ── Eq bound (compile-time guard) ─────────────────────────────────────────
@@ -1043,20 +1108,72 @@ mod tests {
     }
 
     #[test]
+    fn plan_extract_assigns_none_output_name_to_folder_source() {
+        // A folder source has no archive to extract in Folder mode, so it says so
+        // rather than carrying a `.zip` label for output it never writes.
+        let job = ArchiveJob::plan_extract(
+            vec![SourceItem::Folder(PathBuf::from("/a/foo"))],
+            out_dir(),
+            ConflictPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(job.tasks()[0].output_name(), &OutputName::None);
+    }
+
+    #[test]
+    fn plan_extract_accepts_archive_and_folder_with_the_same_base_name() {
+        // Regression: the folder source produces nothing in Folder mode, so it
+        // cannot collide with `foo.rar`'s output directory. Before `OutputName`,
+        // it carried a fabricated `foo.zip` label and failed the WHOLE batch with
+        // `DuplicateName` for a filesystem collision that can never happen.
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("/a/foo.rar")),
+            SourceItem::Folder(PathBuf::from("/b/foo")),
+        ];
+
+        ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default())
+            .expect("the folder source produces no output, so there is no collision");
+    }
+
+    #[test]
     fn plan_extract_rejects_two_sources_with_the_same_base_name() {
-        // foo.rar and foo.zip both want folder "foo" → duplicate.
+        // foo.rar and foo.zip both want folder "foo" → duplicate. A real
+        // collision is still rejected; the reported name is the directory that
+        // would be overwritten, not an internal `.zip` label.
         let items = vec![
             SourceItem::RarFile(PathBuf::from("/a/foo.rar")),
             SourceItem::ZipFile(PathBuf::from("/b/foo.zip")),
         ];
-        // `name` is the internal `.zip`-suffixed label the uniqueness guard compares;
-        // Folder mode produces no `.zip` — the folder would be named `foo`.
         assert_eq!(
             ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default()),
             Err(PlanError::DuplicateName {
-                name: "foo.zip".to_string()
+                name: "foo".to_string()
             })
         );
+    }
+
+    #[test]
+    fn move_up_in_folder_mode_keeps_output_names_with_their_sources() {
+        // Regression: a Folder name is derived from the SOURCE, so it must travel
+        // with its task. Before `OutputName`, `swap_and_rebind` applied the Zip
+        // rule to every mode and left the name with the POSITION, so after one
+        // move `foo.rar`'s task claimed the label `bar` while its bytes still
+        // landed in `out/foo`.
+        let items = vec![
+            SourceItem::RarFile(PathBuf::from("/a/foo.rar")),
+            SourceItem::ZipFile(PathBuf::from("/b/bar.zip")),
+        ];
+        let mut job =
+            ArchiveJob::plan_extract(items, out_dir(), ConflictPolicy::default()).unwrap();
+        let second = job.tasks()[1].id();
+
+        job.move_up(second).unwrap();
+
+        for task in job.tasks() {
+            let expected = task.source().output_stem();
+            assert_eq!(task.output_name().as_str(), Some(expected.as_str()));
+        }
     }
 
     #[test]
