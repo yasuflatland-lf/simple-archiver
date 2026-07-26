@@ -11,7 +11,7 @@ use crate::domain::output_directory::OutputDirectory;
 use crate::domain::output_mode::OutputMode;
 use crate::domain::sequence_number::SequenceNumber;
 use crate::domain::source_item::SourceItem;
-use crate::domain::task_status::{IllegalTransition, TaskEvent, TaskStatus};
+use crate::domain::task_status::{IllegalTransition, SkipReason, TaskEvent, TaskStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Errors
@@ -100,9 +100,9 @@ pub enum JobError {
 
 /// The terminal classification of a single task within a finished job.
 ///
-/// This is the domain projection of a task's final [`TaskStatus`] onto the three
-/// buckets a run summary cares about: success, cancellation, and failure. It is a
-/// pure value type with full structural equality.
+/// This is the domain projection of a task's final [`TaskStatus`] onto the four
+/// buckets a run summary cares about: success, skip, cancellation, and failure.
+/// It is a pure value type with full structural equality.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TaskOutcome {
     /// The task completed successfully.
@@ -111,6 +111,13 @@ pub enum TaskOutcome {
         id: TaskId,
         /// The path the task actually wrote.
         written_to: PathBuf,
+    },
+    /// The task finished without producing output.
+    Skipped {
+        /// The identity of the skipped task.
+        id: TaskId,
+        /// Why no output was produced.
+        reason: SkipReason,
     },
     /// The task was cancelled before completion (not a failure).
     Cancelled(TaskId),
@@ -397,12 +404,13 @@ impl ArchiveJob {
     /// Classify every task into a terminal [`TaskOutcome`], in job order.
     ///
     /// This is the domain's run-summary policy: `Completed` is a success,
-    /// `Cancelled` is its own bucket (NOT a failure), and `Failed { reason }`
-    /// carries its reason. Non-terminal tasks (e.g. a worker whose terminal status
-    /// was dropped because the aggregator had already torn down) are reconciled as
-    /// `Failed` with a synthesized reason so the result is total — every task is
-    /// always accounted for. This is the last line of defence: workers report even
-    /// a panic as a real `Fail`, so a reconciled reason means the event was lost.
+    /// `Skipped` is its own bucket, `Cancelled` is its own bucket (NOT a failure),
+    /// and `Failed { reason }` carries its reason. Non-terminal tasks (e.g. a
+    /// worker whose terminal status was dropped because the aggregator had
+    /// already torn down) are reconciled as `Failed` with a synthesized reason so
+    /// the result is total — every task is always accounted for. This is the last
+    /// line of defence: workers report even a panic as a real `Fail`, so a
+    /// reconciled reason means the event was lost.
     ///
     /// Outcomes are returned in job/task order, matching [`ArchiveJob::tasks`].
     pub fn outcomes(&self) -> Vec<TaskOutcome> {
@@ -412,6 +420,10 @@ impl ArchiveJob {
                 TaskStatus::Completed { written_to } => TaskOutcome::Succeeded {
                     id: t.id(),
                     written_to: written_to.clone(),
+                },
+                TaskStatus::Skipped { reason } => TaskOutcome::Skipped {
+                    id: t.id(),
+                    reason: reason.clone(),
                 },
                 TaskStatus::Cancelled => TaskOutcome::Cancelled(t.id()),
                 TaskStatus::Failed { reason } => TaskOutcome::Failed {
@@ -1107,6 +1119,23 @@ mod tests {
                 TaskOutcome::Cancelled(ids[2]),
             ]
         );
+    }
+
+    #[test]
+    fn outcomes_classify_skipped_into_its_own_bucket() {
+        let mut job = ArchiveJob::plan(sources(1), rule("file{n}"), out_dir()).unwrap();
+        let id = job.tasks()[0].id();
+        let reason = SkipReason::ExistingKept(PathBuf::from("/out/file1.zip"));
+
+        job.apply_event(
+            id,
+            TaskEvent::Skip {
+                reason: reason.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(job.outcomes(), vec![TaskOutcome::Skipped { id, reason }]);
     }
 
     // ── plan output mode ──────────────────────────────────────────────────────

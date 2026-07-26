@@ -3,7 +3,7 @@
 //! collision). Blocking filesystem work runs on a `spawn_blocking` thread so the
 //! async engine is never blocked.
 
-use crate::application::ports::{PlaceError, Placer};
+use crate::application::ports::{PlaceError, Placer, Written};
 use crate::domain::conflict_policy::ConflictPolicy;
 use crate::infrastructure::path_utils::{resolve_path_blocking, ClaimResult, Resolution};
 use std::path::{Path, PathBuf};
@@ -25,7 +25,7 @@ impl Placer for FsPlacer {
         src_tree: &Path,
         desired_dest: &Path,
         policy: ConflictPolicy,
-    ) -> Result<PathBuf, PlaceError> {
+    ) -> Result<Written, PlaceError> {
         let src = src_tree.to_path_buf();
         let desired = desired_dest.to_path_buf();
         // Blocking std::fs work off the async runtime; flatten JoinError into Io.
@@ -40,7 +40,7 @@ fn place_blocking(
     src: &Path,
     desired: &Path,
     policy: ConflictPolicy,
-) -> Result<PathBuf, PlaceError> {
+) -> Result<Written, PlaceError> {
     let resolution = resolve_path_blocking(
         desired,
         policy,
@@ -52,10 +52,10 @@ fn place_blocking(
     match resolution {
         Resolution::Write(dest, ()) => {
             copy_tree_or_cleanup(src, &dest)?;
-            Ok(dest)
+            Ok(Written::At(dest))
         }
         // Leave the existing folder untouched; nothing is copied.
-        Resolution::SkipExisting(path) => Ok(path),
+        Resolution::SkipExisting(path) => Ok(Written::KeptExisting(path)),
     }
 }
 
@@ -114,6 +114,15 @@ fn copy_tree(src: &Path, dest: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    fn expect_written_at(written: Written) -> PathBuf {
+        match written {
+            Written::At(path) => path,
+            Written::KeptExisting(path) => {
+                panic!("expected bytes to be written, but existing path was kept: {path:?}")
+            }
+        }
+    }
+
     /// Build a temp source tree: `root/a.txt` + `root/sub/b.txt`.
     fn make_source_tree() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
@@ -129,10 +138,12 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         let dest = out.path().join("foo");
 
-        let final_path = FsPlacer::new()
-            .place(src.path(), &dest, ConflictPolicy::AutoRename)
-            .await
-            .unwrap();
+        let final_path = expect_written_at(
+            FsPlacer::new()
+                .place(src.path(), &dest, ConflictPolicy::AutoRename)
+                .await
+                .unwrap(),
+        );
 
         assert_eq!(final_path, dest);
         assert_eq!(std::fs::read(dest.join("a.txt")).unwrap(), b"alpha");
@@ -151,10 +162,12 @@ mod tests {
         std::fs::create_dir(&dest).unwrap();
         std::fs::write(dest.join("keep.txt"), b"original").unwrap();
 
-        let final_path = FsPlacer::new()
-            .place(src.path(), &dest, ConflictPolicy::AutoRename)
-            .await
-            .unwrap();
+        let final_path = expect_written_at(
+            FsPlacer::new()
+                .place(src.path(), &dest, ConflictPolicy::AutoRename)
+                .await
+                .unwrap(),
+        );
 
         // The original is untouched; the new tree landed in "foo (2)".
         assert_eq!(final_path, out.path().join("foo (2)"));
@@ -178,7 +191,7 @@ mod tests {
 
         // Skip returns the existing path untouched: no copy happened, so the
         // source files are absent and only the sentinel remains.
-        assert_eq!(final_path, dest);
+        assert_eq!(final_path, Written::KeptExisting(dest.clone()));
         assert_eq!(std::fs::read(dest.join("keep.txt")).unwrap(), b"original");
         assert!(
             !dest.join("a.txt").exists(),
@@ -197,10 +210,12 @@ mod tests {
         std::fs::create_dir(&dest).unwrap();
         std::fs::write(dest.join("keep.txt"), b"original").unwrap();
 
-        let final_path = FsPlacer::new()
-            .place(src.path(), &dest, ConflictPolicy::Overwrite)
-            .await
-            .unwrap();
+        let final_path = expect_written_at(
+            FsPlacer::new()
+                .place(src.path(), &dest, ConflictPolicy::Overwrite)
+                .await
+                .unwrap(),
+        );
 
         // Overwrite removes the existing dir then extracts in place: the sentinel
         // is gone and the source files are now present at the original path.
@@ -246,8 +261,8 @@ mod tests {
                 .await
         };
         let (placed_a, placed_b) = tokio::join!(place_a, place_b);
-        let placed_a = placed_a.unwrap();
-        let placed_b = placed_b.unwrap();
+        let placed_a = expect_written_at(placed_a.unwrap());
+        let placed_b = expect_written_at(placed_b.unwrap());
 
         assert_ne!(
             placed_a, placed_b,

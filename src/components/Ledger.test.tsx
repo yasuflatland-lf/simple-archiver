@@ -56,6 +56,7 @@ function draftWith(
 /** A mixed summary: one succeeded, one cancelled, one failed. */
 const MIXED_SUMMARY: JobSummaryDto = {
   succeeded: [10],
+  skipped: [],
   cancelled: [11],
   failed: [{ taskId: 12, reason: "unrar error: boom" }],
   results: [
@@ -94,6 +95,7 @@ describe("Ledger", () => {
       draft: draftWith(["/a.rar"]),
       summary: {
         succeeded: [1],
+        skipped: [],
         cancelled: [],
         failed: [],
         results: [
@@ -127,6 +129,34 @@ describe("Ledger", () => {
     expect(screen.getByText("out_1.zip")).toBeTruthy();
     expect(screen.getByText("out_2.zip")).toBeTruthy();
     expect(screen.getByText("out_3.zip")).toBeTruthy();
+  });
+
+  it("renders a skipped row as No change with no Copy action", () => {
+    useJobStore.setState({
+      draft: draftWith(["/in/folder"]),
+      summary: {
+        succeeded: [],
+        skipped: [10],
+        cancelled: [],
+        failed: [],
+        results: [
+          {
+            taskId: 10,
+            outputName: "folder",
+            outputPath: "",
+            status: "skipped",
+            reason: "Not an archive — nothing to extract",
+          },
+        ],
+      },
+    });
+
+    render(<Ledger />);
+
+    expect(screen.getByText(/No change\s*·\s*1/)).toBeTruthy();
+    const row = screen.getByText("folder").closest("tr") as HTMLElement;
+    expect(within(row).queryByRole("button", { name: /copy/i })).toBeNull();
+    expect(within(row).getByText("—")).toBeTruthy();
   });
 
   it("insets the sequence-number cell so the row numbers align with the sticky header", () => {
@@ -184,6 +214,7 @@ describe("Ledger", () => {
       draft: draftWith(["/in/a.rar"]),
       summary: {
         succeeded: [10],
+        skipped: [],
         cancelled: [],
         failed: [],
         results: [
@@ -255,6 +286,7 @@ describe("Ledger", () => {
       progress,
       summary: {
         succeeded: [10],
+        skipped: [],
         cancelled: [],
         failed: [],
         results: [
@@ -280,6 +312,7 @@ describe("Ledger", () => {
       progress: null,
       summary: {
         succeeded: [10],
+        skipped: [],
         cancelled: [],
         failed: [],
         results: [
@@ -507,6 +540,7 @@ describe("Ledger", () => {
         draft: draftWith(["/in/a.rar"]),
         summary: {
           succeeded: [10],
+          skipped: [],
           cancelled: [],
           failed: [],
           results: [
@@ -545,6 +579,7 @@ describe("Ledger", () => {
         draft: draftWith(["/in/a.rar"]),
         summary: {
           succeeded: [10],
+          skipped: [],
           cancelled: [],
           failed: [],
           results: [

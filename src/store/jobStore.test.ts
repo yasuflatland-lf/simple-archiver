@@ -120,6 +120,7 @@ describe("addItems", () => {
     // keyed to the OLD ordering. Editing the draft must invalidate them.
     const summary: JobSummaryDto = {
       succeeded: [10],
+      skipped: [],
       cancelled: [],
       failed: [{ taskId: 11, reason: "boom" }],
       results: [],
@@ -160,6 +161,7 @@ describe("addItems", () => {
     const lastBatch = {
       summary: {
         succeeded: [1],
+        skipped: [],
         cancelled: [],
         failed: [],
         results: [],
@@ -220,6 +222,7 @@ describe("reorder", () => {
     // must be cleared, or TaskList.computeStatus classifies the wrong rows.
     const summary: JobSummaryDto = {
       succeeded: [10],
+      skipped: [],
       cancelled: [],
       failed: [{ taskId: 11, reason: "boom" }],
       results: [],
@@ -542,6 +545,7 @@ describe("removeItem", () => {
     // (summary/progress/taskIdByIndex) from any prior finished job.
     const summary: JobSummaryDto = {
       succeeded: [10],
+      skipped: [],
       cancelled: [],
       failed: [{ taskId: 11, reason: "boom" }],
       results: [],
@@ -879,6 +883,7 @@ describe("runJob", () => {
   it("flips running true synchronously and false after resolving with a summary", async () => {
     const summary: JobSummaryDto = {
       succeeded: [1, 2],
+      skipped: [],
       cancelled: [],
       failed: [],
       results: [],
@@ -927,6 +932,7 @@ describe("runJob", () => {
 
     const summary: JobSummaryDto = {
       succeeded: [11, 22],
+      skipped: [],
       cancelled: [],
       failed: [],
       results: [],
@@ -944,6 +950,7 @@ describe("runJob", () => {
     const lastBatch = {
       summary: {
         succeeded: [1],
+        skipped: [],
         cancelled: [],
         failed: [],
         results: [],
@@ -955,6 +962,7 @@ describe("runJob", () => {
 
     const summary: JobSummaryDto = {
       succeeded: [1],
+      skipped: [],
       cancelled: [],
       failed: [],
       results: [],
@@ -983,6 +991,7 @@ describe("runJob", () => {
 
     const summary: JobSummaryDto = {
       succeeded: [11],
+      skipped: [],
       cancelled: [],
       failed: [],
       results: [],
@@ -1003,6 +1012,7 @@ describe("runJob", () => {
 
     const summary: JobSummaryDto = {
       succeeded: [33, 44],
+      skipped: [],
       cancelled: [],
       failed: [],
       results: [],
@@ -1113,6 +1123,7 @@ describe("reset", () => {
   it("clears summary, progress, error, taskIdByIndex, and previewNames", async () => {
     const summary: JobSummaryDto = {
       succeeded: [10],
+      skipped: [],
       cancelled: [],
       failed: [{ taskId: 11, reason: "boom" }],
       results: [],
@@ -1160,6 +1171,7 @@ describe("reset", () => {
     // defensive running: false patch in the success branch.
     const summary: JobSummaryDto = {
       succeeded: [10],
+      skipped: [],
       cancelled: [],
       failed: [],
       results: [],
@@ -1222,6 +1234,7 @@ describe("clearResults", () => {
   // A mixed three-task summary; only its length feeds the auto-continue count.
   const SUMMARY: JobSummaryDto = {
     succeeded: [10, 11],
+    skipped: [],
     cancelled: [],
     failed: [{ taskId: 12, reason: "boom" }],
     results: [
@@ -1353,6 +1366,7 @@ describe("clearResults", () => {
 describe("restoreResults", () => {
   const SUMMARY: JobSummaryDto = {
     succeeded: [1],
+    skipped: [],
     cancelled: [],
     failed: [],
     results: [

@@ -17,6 +17,7 @@ const ITEM = { path: "/a.rar", kind: "rar" as const };
 
 const SUMMARY: JobSummaryDto = {
   succeeded: [1],
+  skipped: [],
   cancelled: [],
   failed: [],
   results: [],

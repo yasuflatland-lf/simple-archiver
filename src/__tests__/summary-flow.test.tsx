@@ -35,6 +35,7 @@ describe("run → summary flow", () => {
   it("flips running off and projects the summary into the ledger when a job finishes", async () => {
     runJob.mockResolvedValue({
       succeeded: [1],
+      skipped: [],
       cancelled: [],
       failed: [{ taskId: 2, reason: "unrar error: boom" }],
       results: [
@@ -80,6 +81,40 @@ describe("run → summary flow", () => {
     expect(screen.getByText(/1 succeeded/i)).toBeTruthy();
     expect(screen.getByText("out_2.zip")).toBeTruthy();
     expect(screen.getByText(/unrar error: boom/)).toBeTruthy();
+  });
+
+  it("renders a no-path skipped result as No change without Copy", async () => {
+    runJob.mockResolvedValue({
+      succeeded: [],
+      skipped: [1],
+      cancelled: [],
+      failed: [],
+      results: [
+        {
+          taskId: 1,
+          outputName: "folder",
+          outputPath: "",
+          status: "skipped",
+          reason: "Not an archive — nothing to extract",
+        },
+      ],
+    });
+    useJobStore.setState({
+      draft: {
+        items: [{ path: "/in/folder", kind: "folder" }],
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: "/out",
+        outputMode: "folder",
+        conflictPolicy: "autoRename",
+      },
+    });
+
+    await useJobStore.getState().runJob();
+    render(<Ledger />);
+
+    expect(screen.getByText(/No change\s*·\s*1/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /copy path/i })).toBeNull();
   });
 
   it("requesting cancel does not flip running off (summary still arrives via runJob)", async () => {

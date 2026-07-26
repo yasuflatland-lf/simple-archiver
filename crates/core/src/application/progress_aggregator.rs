@@ -8,7 +8,7 @@ use crate::application::progress::{JobProgress, TaskProgressEntry};
 use crate::domain::archive_job::{ArchiveJob, JobError, TaskOutcome};
 use crate::domain::archive_task::TaskId;
 use crate::domain::task_progress::TaskProgress;
-use crate::domain::task_status::TaskEvent;
+use crate::domain::task_status::{SkipReason, TaskEvent};
 
 /// A message sent by a worker to the aggregator over the internal channel.
 pub(crate) enum WorkerMsg {
@@ -26,6 +26,8 @@ pub(crate) enum WorkerMsg {
 pub struct JobSummary {
     /// Tasks that completed, each with the path it actually wrote, in job order.
     pub succeeded: Vec<(TaskId, PathBuf)>,
+    /// Tasks that finished without producing output, in job order.
+    pub skipped: Vec<(TaskId, SkipReason)>,
     /// Tasks that were cancelled, in job order.
     pub cancelled: Vec<TaskId>,
     /// Tasks that failed, paired with their reason, in job order.
@@ -93,17 +95,20 @@ impl Aggregator {
     /// this method is a thin map that fills the `JobSummary` buckets in job order.
     pub fn into_summary(self) -> JobSummary {
         let mut succeeded = Vec::new();
+        let mut skipped = Vec::new();
         let mut cancelled = Vec::new();
         let mut failed = Vec::new();
         for outcome in self.job.outcomes() {
             match outcome {
                 TaskOutcome::Succeeded { id, written_to } => succeeded.push((id, written_to)),
+                TaskOutcome::Skipped { id, reason } => skipped.push((id, reason)),
                 TaskOutcome::Cancelled(id) => cancelled.push(id),
                 TaskOutcome::Failed { id, reason } => failed.push((id, reason)),
             }
         }
         JobSummary {
             succeeded,
+            skipped,
             cancelled,
             failed,
         }
@@ -252,6 +257,55 @@ mod tests {
         assert_eq!(s.succeeded, vec![(id[1], written_to("f2.zip"))]);
         assert_eq!(s.cancelled, vec![id[0]]);
         assert!(s.failed.is_empty());
+    }
+
+    #[test]
+    fn summary_partitions_a_mixed_job_into_four_terminal_buckets() {
+        let j = job(4);
+        let id = ids(&j);
+        let mut agg = Aggregator::new(j, Instant::now());
+
+        agg.apply(WorkerMsg::Status {
+            task: id[0],
+            event: TaskEvent::StartCompressing,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[0],
+            event: TaskEvent::Complete {
+                written_to: written_to("f1.zip"),
+            },
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[1],
+            event: TaskEvent::Skip {
+                reason: SkipReason::NotApplicable,
+            },
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[2],
+            event: TaskEvent::Cancel,
+        })
+        .unwrap();
+        agg.apply(WorkerMsg::Status {
+            task: id[3],
+            event: TaskEvent::Fail {
+                reason: "boom".to_string(),
+            },
+        })
+        .unwrap();
+
+        let summary = agg.into_summary();
+        assert_eq!(
+            summary.succeeded.len()
+                + summary.skipped.len()
+                + summary.cancelled.len()
+                + summary.failed.len(),
+            id.len()
+        );
+        assert_eq!(summary.skipped, vec![(id[1], SkipReason::NotApplicable)]);
     }
 
     #[test]

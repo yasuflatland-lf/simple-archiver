@@ -27,6 +27,12 @@ describe("statusVisual", () => {
     expect(v.className).toContain("text-status-warning-foreground");
   });
 
+  it("maps skipped to 'No change' with a non-empty icon", () => {
+    const v = statusVisual("skipped");
+    expect(v.label).toBe("No change");
+    expect(v.icon).not.toBe("");
+  });
+
   it("maps failed to 'Failed' and the danger tokens", () => {
     const v = statusVisual("failed");
     expect(v.label).toBe("Failed");
@@ -39,6 +45,7 @@ describe("statusVisual", () => {
 describe("taskOutcomeFor", () => {
   const summary: JobSummaryDto = {
     succeeded: [1, 2],
+    skipped: [5],
     cancelled: [3],
     failed: [{ taskId: 4, reason: "boom" }],
     results: [],
@@ -50,6 +57,10 @@ describe("taskOutcomeFor", () => {
 
   it("resolves a cancelled id to a cancelled outcome", () => {
     expect(taskOutcomeFor(3, summary)).toEqual({ kind: "cancelled" });
+  });
+
+  it("resolves a skipped id to a skipped outcome", () => {
+    expect(taskOutcomeFor(5, summary)).toEqual({ kind: "skipped" });
   });
 
   it("resolves a failed id to a failed outcome carrying its reason", () => {
@@ -93,6 +104,7 @@ describe("computeStatus", () => {
   it("maps a succeeded id to its label once finished", () => {
     const summary: JobSummaryDto = {
       succeeded: [10],
+      skipped: [],
       cancelled: [],
       failed: [],
       results: [],
@@ -100,9 +112,21 @@ describe("computeStatus", () => {
     expect(computeStatus(0, false, null, summary, [10])).toBe("Succeeded");
   });
 
+  it("maps a skipped id to its label once finished", () => {
+    const summary: JobSummaryDto = {
+      succeeded: [],
+      skipped: [10],
+      cancelled: [],
+      failed: [],
+      results: [],
+    };
+    expect(computeStatus(0, false, null, summary, [10])).toBe("No change");
+  });
+
   it("maps a cancelled id to its label once finished", () => {
     const summary: JobSummaryDto = {
       succeeded: [],
+      skipped: [],
       cancelled: [10],
       failed: [],
       results: [],
@@ -113,6 +137,7 @@ describe("computeStatus", () => {
   it("maps a failed id to its label plus the verbatim reason", () => {
     const summary: JobSummaryDto = {
       succeeded: [],
+      skipped: [],
       cancelled: [],
       failed: [{ taskId: 10, reason: "boom" }],
       results: [],
@@ -123,6 +148,7 @@ describe("computeStatus", () => {
   it("returns 'Done' when a summary exists but the row has no mapped task id", () => {
     const summary: JobSummaryDto = {
       succeeded: [],
+      skipped: [],
       cancelled: [],
       failed: [],
       results: [],
@@ -133,6 +159,7 @@ describe("computeStatus", () => {
   it("returns 'Done' when a summary exists but the id is in no bucket", () => {
     const summary: JobSummaryDto = {
       succeeded: [],
+      skipped: [],
       cancelled: [],
       failed: [],
       results: [],

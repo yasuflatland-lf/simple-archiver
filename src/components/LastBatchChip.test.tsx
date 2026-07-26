@@ -31,6 +31,7 @@ vi.mock("@/lib/reveal", () => ({
 
 const SUMMARY: JobSummaryDto = {
   succeeded: [1, 2, 3],
+  skipped: [],
   cancelled: [],
   failed: [],
   results: [],

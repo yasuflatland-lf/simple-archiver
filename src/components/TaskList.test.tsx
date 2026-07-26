@@ -405,6 +405,7 @@ describe("TaskList status", () => {
       taskIdByIndex: [10, 11, 12],
       summary: {
         succeeded: [10],
+        skipped: [],
         cancelled: [11],
         failed: [{ taskId: 12, reason: "boom" }],
         results: [],
@@ -434,6 +435,7 @@ describe("TaskList status", () => {
       taskIdByIndex: [],
       summary: {
         succeeded: [],
+        skipped: [],
         cancelled: [],
         failed: [],
         results: [],
@@ -490,7 +492,13 @@ describe("TaskList progress", () => {
       previewNames: ["out1.zip"],
       running: false,
       taskIdByIndex: [1],
-      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
+      summary: {
+        succeeded: [1],
+        skipped: [],
+        cancelled: [],
+        failed: [],
+        results: [],
+      },
     });
 
     render(<TaskList />);

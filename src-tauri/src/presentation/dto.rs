@@ -87,14 +87,17 @@ pub struct TaskProgressDto {
 pub struct JobSummaryDto {
     /// Raw ids of tasks that completed successfully, in job order.
     pub succeeded: Vec<u32>,
+    /// Raw ids of tasks that finished without producing output, in job order.
+    pub skipped: Vec<u32>,
     /// Raw ids of tasks that were cancelled, in job order.
     pub cancelled: Vec<u32>,
     /// Tasks that failed, paired with their reason, in job order.
     pub failed: Vec<FailedTaskDto>,
     /// Per-task results in job order, each carrying the task's absolute output
     /// path and terminal status. Additive companion to the legacy
-    /// `succeeded`/`cancelled`/`failed` buckets: it is the single per-task
-    /// projection the completion UI uses to surface "where did my files go".
+    /// `succeeded`/`skipped`/`cancelled`/`failed` buckets: it is the single
+    /// per-task projection the completion UI uses to surface "where did my files
+    /// go".
     pub results: Vec<TaskResultDto>,
 }
 
@@ -109,12 +112,11 @@ pub struct FailedTaskDto {
     pub reason: String,
 }
 
-/// One task's terminal result, carrying its absolute output path.
+/// One task's terminal result, carrying its output-path claim.
 ///
 /// This is the per-task projection the completion UI reads to surface where each
-/// produced file/folder landed. The `output_path` is computed in the presentation
-/// layer from the planned job (PathBuf rendered to a lossy UTF-8 string at this
-/// wire boundary), mirroring the engine's destination formula.
+/// produced file/folder landed or which existing destination was kept.
+/// `output_path` is empty when the task claims no path.
 #[derive(Serialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/bindings/")]
@@ -124,11 +126,12 @@ pub struct TaskResultDto {
     /// The output base name, e.g. `"photo_001.zip"` (Zip mode) or the folder
     /// name (Folder mode).
     pub output_name: String,
-    /// The absolute output path the task wrote to.
+    /// The absolute output path the task wrote to or kept; empty when the task
+    /// claims no output path.
     pub output_path: String,
     /// The task's terminal status.
     pub status: TaskStatusDto,
-    /// The failure reason; `Some` only when `status` is [`TaskStatusDto::Failed`].
+    /// The human-readable explanation for a failed or skipped task.
     pub reason: Option<String>,
 }
 
@@ -139,6 +142,8 @@ pub struct TaskResultDto {
 pub enum TaskStatusDto {
     /// The task completed successfully.
     Succeeded,
+    /// The task finished without producing output.
+    Skipped,
     /// The task was cancelled before completion.
     Cancelled,
     /// The task failed.
@@ -377,6 +382,7 @@ mod tests {
     fn job_summary_dto_serializes_to_camel_case_shape() {
         let summary = JobSummaryDto {
             succeeded: vec![1, 3],
+            skipped: vec![5],
             cancelled: vec![4],
             failed: vec![FailedTaskDto {
                 task_id: 2,
@@ -392,6 +398,7 @@ mod tests {
         };
         let v = serde_json::to_value(&summary).unwrap();
         assert_eq!(v["succeeded"], json!([1, 3]));
+        assert_eq!(v["skipped"], json!([5]));
         assert_eq!(v["cancelled"], json!([4]));
         assert_eq!(v["failed"][0]["taskId"], json!(2));
         assert_eq!(v["failed"][0]["reason"], json!("boom"));
@@ -411,6 +418,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(TaskStatusDto::Succeeded).unwrap(),
             json!("succeeded")
+        );
+        assert_eq!(
+            serde_json::to_value(TaskStatusDto::Skipped).unwrap(),
+            json!("skipped")
         );
         assert_eq!(
             serde_json::to_value(TaskStatusDto::Cancelled).unwrap(),

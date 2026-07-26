@@ -153,6 +153,7 @@ describe("archive client", () => {
     it("invokes run_job with no arguments", async () => {
       vi.mocked(invoke).mockResolvedValue({
         succeeded: [],
+        skipped: [],
         cancelled: [],
         failed: [],
       });
@@ -161,7 +162,12 @@ describe("archive client", () => {
     });
 
     it("returns the JobSummaryDto from the backend", async () => {
-      const summary = { succeeded: [1, 2], cancelled: [], failed: [] };
+      const summary = {
+        succeeded: [1, 2],
+        skipped: [],
+        cancelled: [],
+        failed: [],
+      };
       vi.mocked(invoke).mockResolvedValue(summary);
       const result = await runJob();
       expect(result).toEqual(summary);

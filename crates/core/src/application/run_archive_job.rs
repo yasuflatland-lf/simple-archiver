@@ -15,7 +15,7 @@ use crate::application::eta_estimator::{EtaTracker, ETA_WINDOW};
 use crate::application::extract_context::ExtractContext;
 use crate::application::format_registry::{FormatRegistry, Prepared};
 use crate::application::ports::{
-    ArchiveError, Archiver, Clock, ExtractError, Extractor, PlaceError, Placer,
+    ArchiveError, Archiver, Clock, ExtractError, Extractor, PlaceError, Placer, Written,
 };
 use crate::application::progress::ProgressSink;
 use crate::application::progress_aggregator::{Aggregator, JobSummary, WorkerMsg};
@@ -25,7 +25,7 @@ use crate::domain::conflict_policy::ConflictPolicy;
 use crate::domain::output_mode::OutputMode;
 use crate::domain::source_item::SourceItem;
 use crate::domain::task_progress::TaskProgress;
-use crate::domain::task_status::TaskEvent;
+use crate::domain::task_status::{SkipReason, TaskEvent};
 
 /// Forwards per-task byte progress onto the internal worker->aggregator channel.
 struct ChannelReporter {
@@ -48,7 +48,6 @@ struct WorkItem {
     source: SourceItem,
     defect: Option<String>,
     dest: Option<PathBuf>,
-    out_dir: PathBuf,
     mode: OutputMode,
     policy: ConflictPolicy,
 }
@@ -124,7 +123,6 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
                 defect: job.defect(t.id()).map(ToString::to_string),
                 // Single source of truth for the destination formula (domain).
                 dest: t.output_destination(&out_dir),
-                out_dir: out_dir.clone(),
                 mode,
                 policy,
             })
@@ -354,14 +352,12 @@ async fn run_one_inner<A: Archiver, E: Extractor, P: Placer>(
     let Some(prepared) = extract_phase(&item, registry, &tx, &cancellation_token).await else {
         return;
     };
-    // `StartCompressing` doubles as "start writing output" for both modes so the
-    // existing Pending→Extracting→Compressing→Completed state machine is reused.
-    let _ = tx.send(WorkerMsg::Status {
-        task: item.task,
-        event: TaskEvent::StartCompressing,
-    });
     let event = match (item.mode, &item.dest) {
         (OutputMode::Zip, Some(dest)) => {
+            let _ = tx.send(WorkerMsg::Status {
+                task: item.task,
+                event: TaskEvent::StartCompressing,
+            });
             let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
             let ctx = CompressContext::new(item.task, reporter, cancellation_token);
             map_archive_result(
@@ -378,13 +374,18 @@ async fn run_one_inner<A: Archiver, E: Extractor, P: Placer>(
             reason: "no output destination for a zip task".to_string(),
         },
         (OutputMode::Folder, Some(dest)) => {
+            // `StartCompressing` doubles as "start writing output" for Folder
+            // mode, where the write is placement rather than compression.
+            let _ = tx.send(WorkerMsg::Status {
+                task: item.task,
+                event: TaskEvent::StartCompressing,
+            });
             map_place_result(placer.place(prepared.dir(), dest, item.policy).await)
         }
-        // No destination means the task produces nothing (a folder source has no
-        // archive to extract in Folder mode). Use `out_dir` as a placeholder for
-        // the terminal path until issue #245 replaces this arm with a real skip.
-        (OutputMode::Folder, None) => TaskEvent::Complete {
-            written_to: item.out_dir,
+        // Ruling R3: a folder source in Folder mode is an explicit skip because
+        // there is no archive to extract.
+        (OutputMode::Folder, None) => TaskEvent::Skip {
+            reason: SkipReason::NotApplicable,
         },
     };
     let _ = tx.send(WorkerMsg::Status {
@@ -405,8 +406,8 @@ fn cancel_before_start(
     // of these carries a terminal/load-bearing event. A failed send means the
     // aggregator already tore down during teardown; the dropped terminal status is
     // then reconstructed by `into_summary`'s state reconciliation (a non-terminal
-    // task is classified from its final `TaskStatus`), so `succeeded + cancelled +
-    // failed` stays whole.
+    // task is classified from its final `TaskStatus`), so `succeeded + skipped +
+    // cancelled + failed` stays whole.
     // Not-started cancellation checkpoint: cancel before any extraction/compression.
     if token.is_cancelled() {
         let _ = tx.send(WorkerMsg::Status {
@@ -463,11 +464,13 @@ async fn extract_phase<E: Extractor>(
     }
 }
 
-/// Maps a compress result to the terminal `TaskEvent`: `Ok -> Complete`,
-/// `Cancelled -> Cancel`, any other error -> `Fail { reason }`.
-fn map_archive_result(result: Result<PathBuf, ArchiveError>) -> TaskEvent {
+/// Maps a compress result to the corresponding terminal `TaskEvent`.
+fn map_archive_result(result: Result<Written, ArchiveError>) -> TaskEvent {
     match result {
-        Ok(written_to) => TaskEvent::Complete { written_to },
+        Ok(Written::At(written_to)) => TaskEvent::Complete { written_to },
+        Ok(Written::KeptExisting(path)) => TaskEvent::Skip {
+            reason: SkipReason::ExistingKept(path),
+        },
         Err(ArchiveError::Cancelled) => TaskEvent::Cancel,
         Err(e) => TaskEvent::Fail {
             reason: e.to_string(),
@@ -475,10 +478,13 @@ fn map_archive_result(result: Result<PathBuf, ArchiveError>) -> TaskEvent {
     }
 }
 
-/// Maps a place result to the terminal `TaskEvent`: `Ok -> Complete`, else `Fail`.
-fn map_place_result(result: Result<PathBuf, PlaceError>) -> TaskEvent {
+/// Maps a place result to the corresponding terminal `TaskEvent`.
+fn map_place_result(result: Result<Written, PlaceError>) -> TaskEvent {
     match result {
-        Ok(written_to) => TaskEvent::Complete { written_to },
+        Ok(Written::At(written_to)) => TaskEvent::Complete { written_to },
+        Ok(Written::KeptExisting(path)) => TaskEvent::Skip {
+            reason: SkipReason::ExistingKept(path),
+        },
         Err(e) => TaskEvent::Fail {
             reason: e.to_string(),
         },
@@ -542,7 +548,7 @@ mod tests {
             dest: &Path,
             policy: ConflictPolicy,
             ctx: &CompressContext,
-        ) -> Result<PathBuf, ArchiveError> {
+        ) -> Result<Written, ArchiveError> {
             self.seen_policies.lock().unwrap().push(policy);
             self.calls.fetch_add(1, Ordering::SeqCst);
             self.live.fetch_add(1, Ordering::SeqCst);
@@ -562,7 +568,7 @@ mod tests {
             } else if self.fail_names.contains(&name) {
                 Err(ArchiveError::Backend("boom".to_string()))
             } else {
-                Ok(dest.to_path_buf())
+                Ok(Written::At(dest.to_path_buf()))
             }
         }
     }
@@ -641,10 +647,10 @@ mod tests {
             src_tree: &Path,
             desired_dest: &Path,
             _policy: ConflictPolicy,
-        ) -> Result<std::path::PathBuf, PlaceError> {
+        ) -> Result<Written, PlaceError> {
             assert!(src_tree.is_dir(), "placer receives a real extracted dir");
             self.placed.lock().unwrap().push(desired_dest.to_path_buf());
-            Ok(desired_dest.to_path_buf())
+            Ok(Written::At(desired_dest.to_path_buf()))
         }
     }
 
@@ -766,7 +772,7 @@ mod tests {
             dest_zip: &Path,
             _policy: ConflictPolicy,
             _ctx: &CompressContext,
-        ) -> Result<PathBuf, ArchiveError> {
+        ) -> Result<Written, ArchiveError> {
             let written_to = if dest_zip.exists() {
                 let stem = dest_zip.file_stem().unwrap().to_string_lossy().to_string();
                 let ext = dest_zip.extension().unwrap().to_string_lossy().to_string();
@@ -775,7 +781,24 @@ mod tests {
                 dest_zip.to_path_buf()
             };
             std::fs::write(&written_to, b"archive")?;
-            Ok(written_to)
+            Ok(Written::At(written_to))
+        }
+    }
+
+    /// An occupied destination under `Skip` is kept byte-for-byte and reported
+    /// through the archiver's existing-path return.
+    struct KeepingExistingArchiver;
+    impl Archiver for KeepingExistingArchiver {
+        async fn compress(
+            &self,
+            _src_dir: &Path,
+            dest_zip: &Path,
+            policy: ConflictPolicy,
+            _ctx: &CompressContext,
+        ) -> Result<Written, ArchiveError> {
+            assert_eq!(policy, ConflictPolicy::Skip);
+            assert!(dest_zip.exists());
+            Ok(Written::KeptExisting(dest_zip.to_path_buf()))
         }
     }
 
@@ -806,6 +829,42 @@ mod tests {
         // Build the expectation with `join`, never a "/a/b" literal: only the
         // Windows CI job catches a hard-coded forward-slash path.
         assert_eq!(summary.succeeded[0].1, out_dir.path().join("foo_1 (2).zip"));
+    }
+
+    #[tokio::test]
+    async fn zip_skip_with_occupied_destination_is_skipped_and_keeps_bytes() {
+        let out_dir = tempfile::tempdir().unwrap();
+        let destination = out_dir.path().join("foo_1.zip");
+        std::fs::write(&destination, b"pre-existing").unwrap();
+        let job = ArchiveJob::plan_with_start(
+            vec![SourceItem::RarFile(PathBuf::from("foo.rar"))],
+            NamingRule::parse("foo").unwrap(),
+            OutputDirectory::new(out_dir.path().to_path_buf()),
+            1,
+            ConflictPolicy::Skip,
+        )
+        .unwrap();
+        let id = job.tasks()[0].id();
+        let engine = RunArchiveJob::new(
+            Arc::new(KeepingExistingArchiver),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(1),
+        );
+
+        let summary = engine
+            .execute(job, &FixedClock(Instant::now()), &RecordingSink::default())
+            .await;
+
+        assert_eq!(
+            summary.skipped,
+            vec![(
+                id,
+                SkipReason::ExistingKept(out_dir.path().join("foo_1.zip"))
+            )]
+        );
+        assert!(summary.succeeded.is_empty());
+        assert_eq!(std::fs::read(&destination).unwrap(), b"pre-existing");
     }
 
     /// A panicking worker used to emit no terminal event at all, leaving the task
@@ -973,7 +1032,7 @@ mod tests {
             dest: &Path,
             _policy: ConflictPolicy,
             ctx: &CompressContext,
-        ) -> Result<PathBuf, ArchiveError> {
+        ) -> Result<Written, ArchiveError> {
             let name = dest.file_name().unwrap().to_string_lossy().to_string();
             if name == self.cancel_target {
                 // Wait until the sibling has completed so firing the token cannot
@@ -985,12 +1044,12 @@ mod tests {
                 if ctx.is_cancelled() {
                     return Err(ArchiveError::Cancelled);
                 }
-                Ok(dest.to_path_buf())
+                Ok(Written::At(dest.to_path_buf()))
             } else {
                 // The sibling ignores cancellation and always succeeds, then signals
                 // the target it may fire the token.
                 self.sibling_done.notify_one();
-                Ok(dest.to_path_buf())
+                Ok(Written::At(dest.to_path_buf()))
             }
         }
     }
@@ -1297,11 +1356,11 @@ mod tests {
             dest: &Path,
             _policy: ConflictPolicy,
             ctx: &CompressContext,
-        ) -> Result<PathBuf, ArchiveError> {
+        ) -> Result<Written, ArchiveError> {
             for i in 0..self.ticks {
                 ctx.report(i, self.ticks);
             }
-            Ok(dest.to_path_buf())
+            Ok(Written::At(dest.to_path_buf()))
         }
     }
 
@@ -1357,12 +1416,12 @@ mod tests {
             dest: &Path,
             _policy: ConflictPolicy,
             ctx: &CompressContext,
-        ) -> Result<PathBuf, ArchiveError> {
+        ) -> Result<Written, ArchiveError> {
             // 0, 1, 2, ... — a leading zero tick, then real bytes, like ZipArchiver.
             for i in 0..self.ticks {
                 ctx.report(i, self.ticks);
             }
-            Ok(dest.to_path_buf())
+            Ok(Written::At(dest.to_path_buf()))
         }
     }
 
@@ -1602,7 +1661,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn folder_mode_skips_folder_sources_without_placing() {
+    async fn folder_mode_folder_source_ends_skipped_not_applicable() {
         // A Folder source has nothing to extract in Folder mode: only the zip is
         // placed; the folder source produces no output directory.
         let items = vec![
@@ -1630,17 +1689,68 @@ mod tests {
 
         let summary = engine.execute(job, &clock, &sink).await;
 
-        // Both tasks succeed: the zip via extract -> place, the folder as a skip
-        // (a terminal Complete with no placement).
-        let mut succeeded = succeeded_ids(&summary);
-        succeeded.sort_by_key(|i| i.get());
-        let mut want = expected.clone();
-        want.sort_by_key(|i| i.get());
-        assert_eq!(succeeded, want);
+        assert_eq!(succeeded_ids(&summary), vec![expected[1]]);
+        assert_eq!(
+            summary.skipped,
+            vec![(expected[0], SkipReason::NotApplicable)]
+        );
         assert!(summary.failed.is_empty());
 
         // Only the zip source produced an output directory; the folder did not.
         let placed = placed.lock().unwrap().clone();
         assert_eq!(placed, vec![PathBuf::from("/out/b")]);
+    }
+
+    /// A placer that mirrors AutoRename for the first occupied destination.
+    struct AutoRenamingPlacer;
+    impl Placer for AutoRenamingPlacer {
+        async fn place(
+            &self,
+            _src_tree: &Path,
+            desired_dest: &Path,
+            policy: ConflictPolicy,
+        ) -> Result<Written, PlaceError> {
+            assert_eq!(policy, ConflictPolicy::AutoRename);
+            let written_to = if desired_dest.exists() {
+                let base = desired_dest.file_name().unwrap().to_string_lossy();
+                desired_dest.with_file_name(format!("{base} (2)"))
+            } else {
+                desired_dest.to_path_buf()
+            };
+            std::fs::create_dir(&written_to)?;
+            Ok(Written::At(written_to))
+        }
+    }
+
+    #[tokio::test]
+    async fn folder_mode_skip_claims_no_path_written_by_another_task() {
+        let out_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(out_dir.path().join("foo")).unwrap();
+        let job = ArchiveJob::plan_extract(
+            vec![
+                SourceItem::RarFile(PathBuf::from("/in/foo.rar")),
+                SourceItem::Folder(PathBuf::from("/in/foo (2)")),
+            ],
+            OutputDirectory::new(out_dir.path().to_path_buf()),
+            ConflictPolicy::AutoRename,
+        )
+        .unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|task| task.id()).collect();
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(AutoRenamingPlacer),
+            nz(1),
+        );
+
+        let summary = engine
+            .execute(job, &FixedClock(Instant::now()), &RecordingSink::default())
+            .await;
+
+        assert_eq!(
+            summary.succeeded,
+            vec![(ids[0], out_dir.path().join("foo (2)"))]
+        );
+        assert_eq!(summary.skipped, vec![(ids[1], SkipReason::NotApplicable)]);
     }
 }

@@ -100,7 +100,8 @@ export function previewOutputName(
 
 /**
  * Start the archive job for the current draft.
- * Resolves with a summary once the job finishes (succeeded, cancelled, or failed tasks).
+ * Resolves with a summary once the job finishes (succeeded, skipped, cancelled,
+ * or failed tasks).
  */
 export function runJob(): Promise<JobSummaryDto> {
   return invoke<JobSummaryDto>("run_job");
