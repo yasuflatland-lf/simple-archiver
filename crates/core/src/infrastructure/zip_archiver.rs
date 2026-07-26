@@ -3,7 +3,9 @@
 use crate::application::compress_context::CompressContext;
 use crate::application::ports::{ArchiveError, Archiver};
 use crate::domain::conflict_policy::ConflictPolicy;
-use crate::infrastructure::path_utils::{classified_components, next_free_path, PathPart};
+use crate::infrastructure::path_utils::{
+    classified_components, resolve_path, ClaimResult, PathPart, Resolution,
+};
 use async_zip::base::write::ZipFileWriter;
 use async_zip::{Compression, ZipEntryBuilder};
 use std::path::{Path, PathBuf};
@@ -55,19 +57,11 @@ impl Archiver for ZipArchiver {
         // destination already exists; `Overwrite` has removed the old file here;
         // `AutoRename` has chosen a free `name (n).zip`. Resolved after the cancel
         // checkpoint so a cancelled `Overwrite` never deletes the existing file.
-        let dest = match resolve_destination(dest_zip, policy).await? {
-            Some(path) => path,
+        let (dest, file) = match resolve_destination(dest_zip, policy).await? {
+            Some(claimed) => claimed,
             None => return Ok(()),
         };
 
-        // `create_new` still guarantees we never clobber: the policy resolution
-        // above has already freed the path (renamed or removed), so the only
-        // collision left is a concurrent writer, which should fail the task.
-        let file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&dest)
-            .await?;
         let mut writer = ZipFileWriter::with_tokio(file);
 
         // After the output file is created, run the write loop in an inner scope so
@@ -188,7 +182,7 @@ async fn remove_partial_output(dest_zip: &Path) {
     }
 }
 
-/// Resolve `dest_zip` into the path to actually write, applying `policy`:
+/// Atomically resolve `dest_zip` and return its already-open file:
 ///
 /// - [`ConflictPolicy::AutoRename`]: never clobber — return the first free
 ///   `name (2).zip`, `name (3).zip`, … (or `dest_zip` itself if free).
@@ -197,38 +191,47 @@ async fn remove_partial_output(dest_zip: &Path) {
 /// - [`ConflictPolicy::Overwrite`]: remove an existing `dest_zip`, then write at
 ///   the same path. A missing file is not an error.
 ///
-/// Mirrors `FsPlacer`'s collision handling for Folder mode. Returns `Some(path)`
-/// to write at `path`, or `None` to skip writing entirely.
+/// Mirrors `FsPlacer`'s collision handling for Folder mode. Returns the claimed
+/// path with the file handle that claimed it, or `None` to skip writing entirely.
 async fn resolve_destination(
     dest_zip: &Path,
     policy: ConflictPolicy,
-) -> Result<Option<PathBuf>, ArchiveError> {
-    match policy {
-        ConflictPolicy::AutoRename => Ok(Some(non_colliding_zip(dest_zip))),
-        ConflictPolicy::Skip => {
-            if dest_zip.exists() {
-                Ok(None)
-            } else {
-                Ok(Some(dest_zip.to_path_buf()))
-            }
-        }
-        ConflictPolicy::Overwrite => {
-            match tokio::fs::remove_file(dest_zip).await {
-                Ok(()) => {}
-                // Nothing to overwrite — proceed to write at the desired path.
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(ArchiveError::Io(e)),
-            }
-            Ok(Some(dest_zip.to_path_buf()))
-        }
+) -> Result<Option<(PathBuf, tokio::fs::File)>, ArchiveError> {
+    let resolution = resolve_path(
+        dest_zip,
+        policy,
+        |n| renamed_zip_candidate(dest_zip, n),
+        claim_zip_file,
+        tokio::fs::remove_file,
+    )
+    .await?;
+
+    match resolution {
+        Resolution::Write(path, file) => Ok(Some((path, file))),
+        Resolution::SkipExisting(_) => Ok(None),
     }
 }
 
-/// Return `desired` if free, else `stem (2).ext`, `stem (3).ext`, … inserting the
-/// ` (n)` BEFORE the extension so the `.zip` suffix is preserved (e.g.
+/// Atomically claim a zip path by opening a brand-new file. Only an existing
+/// path advances AutoRename or triggers Skip; every other error propagates.
+async fn claim_zip_file(path: PathBuf) -> std::io::Result<ClaimResult<tokio::fs::File>> {
+    match tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .await
+    {
+        Ok(file) => Ok(ClaimResult::Claimed(file)),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Ok(ClaimResult::Taken),
+        Err(err) => Err(err),
+    }
+}
+
+/// Build `stem (n).ext`, inserting the counter before the extension so the
+/// `.zip` suffix is preserved (e.g.
 /// `photo_01.zip` → `photo_01 (2).zip`). The Folder placer appends ` (n)` to the
 /// whole final component; a file keeps its extension, so the suffix goes before it.
-fn non_colliding_zip(desired: &Path) -> PathBuf {
+fn renamed_zip_candidate(desired: &Path, n: u32) -> PathBuf {
     let parent = desired.parent().unwrap_or_else(|| Path::new("."));
     let stem = desired
         .file_stem()
@@ -237,14 +240,11 @@ fn non_colliding_zip(desired: &Path) -> PathBuf {
     let ext = desired
         .extension()
         .map(|e| e.to_string_lossy().into_owned());
-    // Zip mode: insert ` (n)` before the extension so the suffix is preserved.
-    next_free_path(desired, |n| {
-        let file_name = match &ext {
-            Some(ext) => format!("{stem} ({n}).{ext}"),
-            None => format!("{stem} ({n})"),
-        };
-        parent.join(file_name)
-    })
+    let file_name = match ext {
+        Some(ext) => format!("{stem} ({n}).{ext}"),
+        None => format!("{stem} ({n})"),
+    };
+    parent.join(file_name)
 }
 
 /// Walk `root` and return the paths of every regular file it contains.
@@ -483,6 +483,39 @@ mod tests {
 
         assert_eq!(zip_entry_names(&dest), vec!["a.txt".to_string()]);
         assert!(!out.path().join("o (2).zip").exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_auto_rename_compressions_claim_distinct_files() {
+        let src_a = tempfile::tempdir().unwrap();
+        std::fs::write(src_a.path().join("a.txt"), b"alpha").unwrap();
+        let src_b = tempfile::tempdir().unwrap();
+        std::fs::write(src_b.path().join("b.txt"), b"beta").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let desired_a = out.path().join("foo.zip");
+        let desired_b = out.path().join("foo (2).zip");
+        std::fs::write(&desired_a, b"pre-existing").unwrap();
+
+        let archiver = ZipArchiver::new();
+        let ctx_a = CompressContext::detached();
+        let ctx_b = CompressContext::detached();
+        let (result_a, result_b) = tokio::join!(
+            archiver.compress(src_a.path(), &desired_a, ConflictPolicy::AutoRename, &ctx_a,),
+            archiver.compress(src_b.path(), &desired_b, ConflictPolicy::AutoRename, &ctx_b,),
+        );
+
+        result_a.unwrap();
+        result_b.unwrap();
+        let outputs: Vec<PathBuf> = std::fs::read_dir(out.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(
+            outputs.len(),
+            3,
+            "the existing file and both concurrent outputs must be distinct"
+        );
+        assert!(outputs.iter().all(|path| path.is_file()));
     }
 
     #[tokio::test]

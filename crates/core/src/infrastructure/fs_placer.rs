@@ -5,7 +5,7 @@
 
 use crate::application::ports::{PlaceError, Placer};
 use crate::domain::conflict_policy::ConflictPolicy;
-use crate::infrastructure::path_utils::next_free_path;
+use crate::infrastructure::path_utils::{resolve_path_blocking, ClaimResult, Resolution};
 use std::path::{Path, PathBuf};
 
 /// Copies extracted trees into the output directory without overwriting.
@@ -35,37 +35,37 @@ impl Placer for FsPlacer {
     }
 }
 
-/// Resolve the destination according to `policy`, then copy `src` into it.
-///
-/// - `AutoRename`: pick the first non-colliding name and copy.
-/// - `Skip`: if the destination already exists, return it untouched (no copy).
-/// - `Overwrite`: remove an existing destination, then copy into the original path.
+/// Atomically resolve and claim the destination, then copy `src` into it.
 fn place_blocking(
     src: &Path,
     desired: &Path,
     policy: ConflictPolicy,
 ) -> Result<PathBuf, PlaceError> {
-    match policy {
-        ConflictPolicy::AutoRename => {
-            let dest = non_colliding(desired);
+    let resolution = resolve_path_blocking(
+        desired,
+        policy,
+        |n| renamed_folder_candidate(desired, n),
+        claim_directory,
+        std::fs::remove_dir_all,
+    )?;
+
+    match resolution {
+        Resolution::Write(dest, ()) => {
             copy_tree_or_cleanup(src, &dest)?;
             Ok(dest)
         }
-        ConflictPolicy::Skip => {
-            if desired.exists() {
-                // Leave the existing folder untouched; nothing is copied.
-                return Ok(desired.to_path_buf());
-            }
-            copy_tree_or_cleanup(src, desired)?;
-            Ok(desired.to_path_buf())
-        }
-        ConflictPolicy::Overwrite => {
-            if desired.exists() {
-                std::fs::remove_dir_all(desired)?;
-            }
-            copy_tree_or_cleanup(src, desired)?;
-            Ok(desired.to_path_buf())
-        }
+        // Leave the existing folder untouched; nothing is copied.
+        Resolution::SkipExisting(path) => Ok(path),
+    }
+}
+
+/// Atomically claim a directory path. Only `AlreadyExists` means the ladder may
+/// advance; every other filesystem error must fail the task at this exact path.
+fn claim_directory(path: PathBuf) -> std::io::Result<ClaimResult<()>> {
+    match std::fs::create_dir(&path) {
+        Ok(()) => Ok(ClaimResult::Claimed(())),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Ok(ClaimResult::Taken),
+        Err(err) => Err(err),
     }
 }
 
@@ -82,26 +82,26 @@ fn copy_tree_or_cleanup(src: &Path, dest: &Path) -> Result<(), PlaceError> {
     Ok(())
 }
 
-/// Return `desired` if it does not exist, else `desired (2)`, `desired (3)`, …
-/// on the final component until a free path is found.
-fn non_colliding(desired: &Path) -> PathBuf {
+/// Build `desired (n)` by appending the counter to the whole final component.
+fn renamed_folder_candidate(desired: &Path, n: u32) -> PathBuf {
     let parent = desired.parent().unwrap_or_else(|| Path::new("."));
     let base = desired
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "archive".to_string());
-    // Folder mode: append ` (n)` to the whole final component.
-    next_free_path(desired, |n| parent.join(format!("{base} ({n})")))
+    parent.join(format!("{base} ({n})"))
 }
 
-/// Recursively copy the directory tree at `src` into a fresh directory `dest`.
+/// Fill the already-claimed directory `dest` with the tree at `src`.
 fn copy_tree(src: &Path, dest: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dest)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let from = entry.path();
         let to = dest.join(entry.file_name());
         if entry.file_type()?.is_dir() {
+            // Only nested directories use `create_dir_all`; the destination root
+            // was already atomically claimed with `create_dir`.
+            std::fs::create_dir_all(&to)?;
             copy_tree(&from, &to)?;
         } else {
             std::fs::copy(&from, &to)?;
@@ -213,6 +213,82 @@ mod tests {
         assert_eq!(
             std::fs::read(dest.join("sub").join("b.txt")).unwrap(),
             b"beta"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_auto_rename_placements_never_merge_source_trees() {
+        let src_a = tempfile::tempdir().unwrap();
+        std::fs::write(src_a.path().join("a.txt"), b"alpha").unwrap();
+        let src_b = tempfile::tempdir().unwrap();
+        std::fs::write(src_b.path().join("b.txt"), b"beta").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let placer = FsPlacer::new();
+        let desired_a = out.path().join("foo");
+        let desired_b = out.path().join("foo (2)");
+        std::fs::create_dir(&desired_a).unwrap();
+        let start = tokio::sync::Barrier::new(2);
+
+        // Align both calls at the blocking boundary so the old probe-then-write
+        // implementation lets both workers observe the same free rung.
+        let place_a = async {
+            start.wait().await;
+            tokio::task::yield_now().await;
+            placer
+                .place(src_a.path(), &desired_a, ConflictPolicy::AutoRename)
+                .await
+        };
+        let place_b = async {
+            start.wait().await;
+            tokio::task::yield_now().await;
+            placer
+                .place(src_b.path(), &desired_b, ConflictPolicy::AutoRename)
+                .await
+        };
+        let (placed_a, placed_b) = tokio::join!(place_a, place_b);
+        let placed_a = placed_a.unwrap();
+        let placed_b = placed_b.unwrap();
+
+        assert_ne!(
+            placed_a, placed_b,
+            "concurrent workers must claim distinct destination directories"
+        );
+        assert_eq!(std::fs::read(placed_a.join("a.txt")).unwrap(), b"alpha");
+        assert!(
+            !placed_a.join("b.txt").exists(),
+            "the first destination must contain only the first source tree"
+        );
+        assert_eq!(std::fs::read(placed_b.join("b.txt")).unwrap(), b"beta");
+        assert!(
+            !placed_b.join("a.txt").exists(),
+            "the second destination must contain only the second source tree"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn auto_rename_propagates_permission_denied_without_advancing() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let src = make_source_tree();
+        let out = tempfile::tempdir().unwrap();
+        let desired = out.path().join("foo");
+        std::fs::set_permissions(out.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let result = FsPlacer::new()
+            .place(src.path(), &desired, ConflictPolicy::AutoRename)
+            .await;
+
+        // Restore permissions before asserting so `TempDir` can always clean up.
+        std::fs::set_permissions(out.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let err = result.unwrap_err();
+        match err {
+            PlaceError::Io(err) => {
+                assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+            }
+        }
+        assert!(
+            !out.path().join("foo (2)").exists(),
+            "a permission error must not advance to a renamed sibling"
         );
     }
 
