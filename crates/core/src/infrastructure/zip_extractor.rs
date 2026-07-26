@@ -11,6 +11,7 @@ use crate::application::extract_context::ExtractContext;
 use crate::application::ports::{ExtractError, ExtractedTree, Extractor};
 use crate::infrastructure::path_utils::{classified_components, PathPart};
 use crate::infrastructure::temp_workspace::TempWorkspace;
+use crate::infrastructure::zip_repair::{self, RepairedZip};
 use async_zip::tokio::read::seek::ZipFileReader;
 use std::path::{Path, PathBuf};
 
@@ -33,11 +34,20 @@ impl Extractor for ZipExtractor {
     ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
         let workspace = TempWorkspace::new()?; // io::Error -> ExtractError::Io
 
+        // Some repackers emit an extra field `async_zip` refuses to parse, which
+        // fails an otherwise valid archive outright (and panics on the overflow
+        // check while building that error). Clamp those declared sizes into a temp
+        // copy first; an archive that needs no repair is read in place, at the cost
+        // of one central-directory read. `repaired` owns the copy, so it stays bound
+        // for the whole extraction.
+        let repaired = zip_repair::repair_extra_fields(src_archive).await?;
+        let source = repaired.as_ref().map_or(src_archive, RepairedZip::path);
+
         // Open the archive with tokio and wrap in a buffered reader: the seek
         // reader (`ZipFileReader::with_tokio`) requires `AsyncBufRead + AsyncSeek`.
         // `tokio::fs::File` implements `AsyncSeek` but NOT `AsyncBufRead`, so the
         // `BufReader` adds the missing buffered-read layer.
-        let file = tokio::fs::File::open(src_archive).await?; // io::Error -> ExtractError::Io
+        let file = tokio::fs::File::open(source).await?; // io::Error -> ExtractError::Io
 
         // A 256 KiB buffer cuts the number of blocking-pool read round trips ~32x versus
         // the 8 KiB default, which matters on large archives where every fill_buf is a
@@ -156,6 +166,7 @@ fn safe_relative_path(name: &str) -> Result<Option<PathBuf>, ExtractError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::infrastructure::zip_repair::zip_with_oversized_extra_field;
     use std::io::Write as _;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
@@ -255,6 +266,23 @@ mod tests {
         let extracted = std::fs::read(root.join("青の祓魔師 第08巻").join("第01話.txt"))
             .expect("file extracted under decoded UTF-8 name");
         assert_eq!(extracted, b"chapter");
+    }
+
+    #[tokio::test]
+    async fn extracts_zip_whose_extra_field_declares_more_bytes_than_it_has() {
+        // `async_zip` rejects the whole archive when an extra field's declared
+        // subfield size overruns the field (and, with overflow checks on, panics
+        // building that error). Every other extractor ignores the unparseable
+        // field, so the entry data — which is intact — must still come out.
+        let zip = zip_with_oversized_extra_field("scan_01.jpg", b"jpeg-bytes");
+
+        let tree = ZipExtractor::new()
+            .extract(zip.path(), &ExtractContext::detached())
+            .await
+            .expect("a malformed extra field must not fail an otherwise valid zip");
+
+        let extracted = std::fs::read(tree.path().join("scan_01.jpg")).expect("entry extracted");
+        assert_eq!(extracted, b"jpeg-bytes");
     }
 
     #[tokio::test]

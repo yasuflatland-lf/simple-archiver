@@ -343,9 +343,11 @@ impl ArchiveJob {
     ///
     /// This is the domain's run-summary policy: `Completed` is a success,
     /// `Cancelled` is its own bucket (NOT a failure), and `Failed { reason }`
-    /// carries its reason. Non-terminal tasks (e.g. a worker that panicked before
-    /// emitting `Complete`/`Fail`) are reconciled as `Failed` with a synthesized
-    /// reason so the result is total — every task is always accounted for.
+    /// carries its reason. Non-terminal tasks (e.g. a worker whose terminal status
+    /// was dropped because the aggregator had already torn down) are reconciled as
+    /// `Failed` with a synthesized reason so the result is total — every task is
+    /// always accounted for. This is the last line of defence: workers report even
+    /// a panic as a real `Fail`, so a reconciled reason means the event was lost.
     ///
     /// Outcomes are returned in job/task order, matching [`ArchiveJob::tasks`].
     pub fn outcomes(&self) -> Vec<TaskOutcome> {

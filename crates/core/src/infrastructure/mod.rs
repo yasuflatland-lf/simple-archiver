@@ -22,3 +22,5 @@ pub mod unrar_extractor;
 pub mod zip_archiver;
 #[cfg(not(loom))]
 pub mod zip_extractor;
+#[cfg(not(loom))]
+mod zip_repair;
