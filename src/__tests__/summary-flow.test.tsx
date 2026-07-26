@@ -101,7 +101,7 @@ describe("run → summary flow", () => {
     });
     useJobStore.setState({
       draft: {
-        items: [{ path: "/in/folder", kind: "folder" }],
+        items: [{ path: "/in/folder", kind: "folder", outputStem: "folder" }],
         namingTemplate: null,
         startNumber: 1,
         outputDir: "/out",
