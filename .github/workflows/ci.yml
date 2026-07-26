@@ -1,9 +1,22 @@
 name: CI
 
+# Skipped only for changes that no job in this workflow verifies:
+# - `site/**` is already ignored by `knip.json` and is built and checked by deploy-pages.yml.
+# - `**/*.md` is safe because no CI gate reads or analyzes Markdown.
+# - `LICENSE` is safe because no CI gate reads it.
+# `pnpm knip` is the one repo-wide gate. Therefore `docs/**`, `.claude/**`, and
+# `.superpowers/**` are deliberately not ignored even though they contain no CI-relevant code
+# today: knip would gate a `.ts` or `.js` file added there. GitHub only skips when EVERY changed
+# file matches, so a PR touching both a `.md` file and `src/` still runs the full workflow.
 on:
   push:
     branches: [main]
+    paths-ignore: &ci-irrelevant-paths
+      - "site/**"
+      - "**/*.md"
+      - "LICENSE"
   pull_request:
+    paths-ignore: *ci-irrelevant-paths
 
 # CI-only debuginfo trimming. `line-tables-only` keeps file:line in panic and test-failure
 # backtraces (all CI needs) and drops variable/type DWARF, which nothing in CI reads. This cuts
