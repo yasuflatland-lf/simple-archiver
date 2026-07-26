@@ -13,4 +13,10 @@ export type DraftItemDto = {
    * Whether the item is a folder, a rar, or a zip.
    */
   kind: SourceKind;
+  /**
+   * The base name this item's output is derived from, as computed by the
+   * domain (`SourceItem::output_stem`). Shipped from Rust so the frontend
+   * never re-derives it.
+   */
+  outputStem: string;
 };

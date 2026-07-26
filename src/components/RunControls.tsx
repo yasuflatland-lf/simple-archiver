@@ -19,6 +19,7 @@ const RUN_REASON_ID = "run-disabled-reason";
 const READINESS_CHIP_LABEL: Record<Readiness, string> = {
   "add-files": "Add files",
   "choose-destination": "Choose a destination",
+  "set-naming-template": "Set a name template",
   ready: "",
 };
 
@@ -61,6 +62,7 @@ function ReadinessChip({ readiness }: { readiness: Readiness }) {
 export function RunControls() {
   const itemCount = useJobStore((s) => s.draft.items.length);
   const outputDir = useJobStore((s) => s.draft.outputDir);
+  const namingTemplate = useJobStore((s) => s.draft.namingTemplate);
   const outputMode = useJobStore((s) => s.draft.outputMode);
   const conflictPolicy = useJobStore((s) => s.draft.conflictPolicy);
   const running = useJobStore((s) => s.running);
@@ -70,7 +72,12 @@ export function RunControls() {
   // Compute readiness once; derive the reason string from it so both the
   // Run button's accessible-disabled semantics and the ReadinessChip share
   // the same Readiness value without calling readinessFor twice.
-  const readiness = readinessFor(itemCount, outputDir);
+  const readiness = readinessFor(
+    itemCount,
+    outputDir,
+    outputMode,
+    namingTemplate,
+  );
   const runReason = runUnavailableReason(readiness);
   const runDisabled = runReason !== "";
 

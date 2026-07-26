@@ -35,6 +35,7 @@ function makeDraft(count: number): DraftSnapshot {
     items: Array.from({ length: count }, (_, i) => ({
       path: `/tmp/item-${i}.rar`,
       kind: "rar" as const,
+      outputStem: `item-${i}`,
     })),
     namingTemplate: null,
     startNumber: 1,
