@@ -59,16 +59,30 @@ jobs:
   hygiene:
     name: hygiene (deps + orphan files)
     runs-on: ubuntu-latest
-    # Load mise.ci-hygiene.toml so mise-action installs cargo-modules here only — it compiles
-    # rust-analyzer from source (~16 min on Windows), and this is the sole job that runs it.
+    # Load mise.ci-hygiene.toml so mise-action installs cargo-machete here only.
     env:
       MISE_ENV: ci-hygiene
+      # Single source of truth for the pin; also the cache key below. Tracked by the Renovate
+      # custom manager in renovate.json.
+      CARGO_MODULES_VERSION: "0.26.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
         with:
-          # `rust` is required because both tools are cargo subcommands invoked as `cargo <sub>`.
-          install_args: rust cargo:cargo-machete cargo:cargo-modules
+          # `rust` is required because cargo-machete is a cargo subcommand invoked as `cargo machete`.
+          install_args: rust cargo:cargo-machete
+      # cargo-modules ships no prebuilt binary, so it is a ~9 min source build. Cache it keyed on
+      # its own version alone: mise-action's cache key hashes every `mise*.toml`, so leaving it
+      # under mise meant any `rust`/`node`/`pnpm`/`cargo-nextest` bump rebuilt it from scratch.
+      # `--root` pins the install location so the cache path does not depend on CARGO_HOME.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cargo-modules-cache
+        with:
+          path: ~/.cargo-tools
+          key: cargo-modules-${{ runner.os }}-${{ env.CARGO_MODULES_VERSION }}
+      - if: steps.cargo-modules-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-modules@${{ env.CARGO_MODULES_VERSION }} --locked --root ~/.cargo-tools
+      - run: echo "$HOME/.cargo-tools/bin" >> "$GITHUB_PATH"
       # Unused Cargo.toml dependencies across the whole workspace (no compilation needed).
       # Intentional declarations (transitive version pins, PR5 pre-declarations) are
       # allow-listed via `[package.metadata.cargo-machete]` in each crate's Cargo.toml.
