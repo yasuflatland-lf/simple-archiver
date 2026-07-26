@@ -1,6 +1,7 @@
 //! The ArchiveJob aggregate root — planning, reordering, and event application.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use crate::domain::archive_task::{ArchiveTask, TaskId};
 use crate::domain::conflict_policy::ConflictPolicy;
@@ -105,7 +106,12 @@ pub enum JobError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TaskOutcome {
     /// The task completed successfully.
-    Succeeded(TaskId),
+    Succeeded {
+        /// The identity of the completed task.
+        id: TaskId,
+        /// The path the task actually wrote.
+        written_to: PathBuf,
+    },
     /// The task was cancelled before completion (not a failure).
     Cancelled(TaskId),
     /// The task failed, carrying its reason.
@@ -403,7 +409,10 @@ impl ArchiveJob {
         self.tasks
             .iter()
             .map(|t| match t.status() {
-                TaskStatus::Completed => TaskOutcome::Succeeded(t.id()),
+                TaskStatus::Completed { written_to } => TaskOutcome::Succeeded {
+                    id: t.id(),
+                    written_to: written_to.clone(),
+                },
                 TaskStatus::Cancelled => TaskOutcome::Cancelled(t.id()),
                 TaskStatus::Failed { reason } => TaskOutcome::Failed {
                     id: t.id(),
@@ -550,6 +559,16 @@ mod tests {
     /// assertions are independent of the policy.
     fn policy() -> ConflictPolicy {
         ConflictPolicy::default()
+    }
+
+    fn written_to() -> PathBuf {
+        PathBuf::from("/out/f1")
+    }
+
+    fn complete() -> TaskEvent {
+        TaskEvent::Complete {
+            written_to: written_to(),
+        }
     }
 
     /// Build an `OutputFileName` from a plain stem (test convenience).
@@ -958,12 +977,12 @@ mod tests {
         let id1 = job.tasks()[0].id();
 
         // `Complete` is illegal from `Pending`.
-        let result = job.apply_event(id1, TaskEvent::Complete);
+        let result = job.apply_event(id1, complete());
 
         match result {
             Err(JobError::Illegal(IllegalTransition { from, event })) => {
                 assert_eq!(from, TaskStatus::Pending);
-                assert_eq!(event, TaskEvent::Complete);
+                assert_eq!(event, complete());
             }
             other => panic!("expected JobError::Illegal, got {other:?}"),
         }
@@ -1062,7 +1081,7 @@ mod tests {
         // Drive task 0 -> Completed.
         job.apply_event(ids[0], TaskEvent::StartCompressing)
             .unwrap();
-        job.apply_event(ids[0], TaskEvent::Complete).unwrap();
+        job.apply_event(ids[0], complete()).unwrap();
         // Drive task 1 -> Failed { reason: "boom" }.
         job.apply_event(
             ids[1],
@@ -1077,7 +1096,10 @@ mod tests {
         assert_eq!(
             job.outcomes(),
             vec![
-                TaskOutcome::Succeeded(ids[0]),
+                TaskOutcome::Succeeded {
+                    id: ids[0],
+                    written_to: written_to(),
+                },
                 TaskOutcome::Failed {
                     id: ids[1],
                     reason: "boom".to_string(),
@@ -1299,12 +1321,18 @@ mod tests {
         // (mirrors a worker that panicked before emitting Complete/Fail).
         job.apply_event(ids[0], TaskEvent::StartCompressing)
             .unwrap();
-        job.apply_event(ids[0], TaskEvent::Complete).unwrap();
+        job.apply_event(ids[0], complete()).unwrap();
         job.apply_event(ids[1], TaskEvent::StartCompressing)
             .unwrap();
 
         let outcomes = job.outcomes();
-        assert_eq!(outcomes[0], TaskOutcome::Succeeded(ids[0]));
+        assert_eq!(
+            outcomes[0],
+            TaskOutcome::Succeeded {
+                id: ids[0],
+                written_to: written_to(),
+            }
+        );
         assert_eq!(
             outcomes[1],
             TaskOutcome::Failed {

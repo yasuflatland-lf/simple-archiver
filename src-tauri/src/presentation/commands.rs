@@ -168,10 +168,9 @@ pub async fn run_job_inner(
     job: ArchiveJob,
     token: CancellationToken,
 ) -> JobSummaryDto {
-    // Capture per-task output paths from the planned job BEFORE it moves into the
-    // engine: the engine returns task ids only, so the path formula is mirrored
-    // here at the IPC boundary to enrich the wire summary with output locations.
-    let meta = task_path_meta(&job);
+    // Capture planned paths before the job moves into the engine. They are used
+    // only when a task is cancelled, fails, or otherwise never writes.
+    let meta = planned_path_meta(&job);
 
     let engine = RunArchiveJob::with_default_parallelism(
         Arc::new(ZipArchiver::new()),
@@ -186,16 +185,15 @@ pub async fn run_job_inner(
     job_summary_dto(summary, &meta)
 }
 
-/// Recompute each task's id, output base name, and absolute output path from the
-/// planned job. The absolute path is computed by the domain SSOT
-/// `ArchiveTask::output_destination`, so it cannot diverge from the engine.
+/// Recompute each task's planned output metadata as a fallback for tasks that
+/// are cancelled, fail, or otherwise never write an output.
 ///
 /// A task that produces nothing has no landing path: its `output_path` is the
 /// empty string and its `output_name` falls back to the source's display name,
 /// so the wire shape is unchanged and no fabricated `.zip` path is reported.
 ///
 /// `PathBuf` is rendered to a lossy UTF-8 `String` at this wire boundary.
-fn task_path_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
+fn planned_path_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
     let out_dir = job.output_directory().path();
     job.tasks()
         .iter()
@@ -204,8 +202,7 @@ fn task_path_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
                 Some(name) => name.to_string(),
                 None => t.source().output_stem(),
             };
-            // Absolute output path comes from the domain SSOT so it can never
-            // drift from the engine's destination formula.
+            // Use the same domain formula as the engine's requested destination.
             let output_path = t
                 .output_destination(out_dir)
                 .map(|dest| dest.to_string_lossy().into_owned())
@@ -299,10 +296,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn task_path_meta_reports_no_path_for_a_task_that_produces_nothing() {
-        // A folder source in Folder mode writes nothing, so the wire summary must
-        // not claim a landing path it will never create. The base name still falls
-        // back to the source's display name so the DTO shape is unchanged.
+    fn planned_path_meta_reports_no_path_for_a_task_that_produces_nothing() {
+        // A folder source in Folder mode writes nothing, so its planned fallback
+        // must not claim a landing path. The base name still falls back to the
+        // source's display name so the DTO shape is unchanged.
         use simple_archiver_core::domain::conflict_policy::ConflictPolicy as DomainConflictPolicy;
         use simple_archiver_core::domain::output_directory::OutputDirectory;
 
@@ -316,7 +313,7 @@ mod tests {
         )
         .expect("a folder source and an archive source can be planned together");
 
-        let meta = task_path_meta(&job);
+        let meta = planned_path_meta(&job);
 
         assert_eq!(meta[0].output_name, "photos");
         assert_eq!(meta[0].output_path, "");

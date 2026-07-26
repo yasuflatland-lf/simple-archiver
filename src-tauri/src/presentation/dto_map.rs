@@ -60,13 +60,11 @@ impl From<&JobProgress> for ProgressEvent {
     }
 }
 
-/// Per-task output metadata the presentation layer recomputes from the planned
-/// job: task id, output base name, and absolute output path, in job/task order.
+/// Per-task fallback metadata recomputed from the planned job, in task order.
 ///
-/// This is the bridge that lets the wire summary carry output paths without the
-/// core engine producing them — the engine returns task ids only. The path is
-/// computed via the domain SSOT `ArchiveTask::output_destination` (see
-/// `commands::task_path_meta`).
+/// Succeeded tasks use the real path carried by the core summary. This planned
+/// name and path are retained only for cancelled, failed, or unaccounted tasks
+/// that never wrote an output (see `commands::planned_path_meta`).
 pub(crate) struct TaskPathMeta {
     pub(crate) id: TaskId,
     pub(crate) output_name: String,
@@ -87,31 +85,51 @@ pub(crate) struct TaskPathMeta {
 /// synthesized reason rather than silently dropped.
 pub(crate) fn job_summary_dto(summary: JobSummary, meta: &[TaskPathMeta]) -> JobSummaryDto {
     // Index each task id to its terminal status (and reason, for failures).
-    let mut status_by_id: HashMap<u32, (TaskStatusDto, Option<String>)> = HashMap::new();
-    for id in &summary.succeeded {
-        status_by_id.insert(id.get(), (TaskStatusDto::Succeeded, None));
+    let mut status_by_id: HashMap<u32, (TaskStatusDto, Option<String>, Option<&std::path::Path>)> =
+        HashMap::new();
+    for (id, written_to) in &summary.succeeded {
+        status_by_id.insert(
+            id.get(),
+            (TaskStatusDto::Succeeded, None, Some(written_to.as_path())),
+        );
     }
     for id in &summary.cancelled {
-        status_by_id.insert(id.get(), (TaskStatusDto::Cancelled, None));
+        status_by_id.insert(id.get(), (TaskStatusDto::Cancelled, None, None));
     }
     for (id, reason) in &summary.failed {
-        status_by_id.insert(id.get(), (TaskStatusDto::Failed, Some(reason.clone())));
+        status_by_id.insert(
+            id.get(),
+            (TaskStatusDto::Failed, Some(reason.clone()), None),
+        );
     }
 
     let results = meta
         .iter()
         .map(|m| {
             let raw = m.id.get();
-            let (status, reason) = status_by_id.get(&raw).cloned().unwrap_or_else(|| {
-                (
-                    TaskStatusDto::Failed,
-                    Some("task was not accounted for in the run summary".to_string()),
-                )
-            });
+            let (status, reason, written_to) =
+                status_by_id.get(&raw).cloned().unwrap_or_else(|| {
+                    (
+                        TaskStatusDto::Failed,
+                        Some("task was not accounted for in the run summary".to_string()),
+                        None,
+                    )
+                });
+            let (output_name, output_path) = written_to.map_or_else(
+                || (m.output_name.clone(), m.output_path.clone()),
+                |path| {
+                    (
+                        path.file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
+                        path.to_string_lossy().into_owned(),
+                    )
+                },
+            );
             TaskResultDto {
                 task_id: raw,
-                output_name: m.output_name.clone(),
-                output_path: m.output_path.clone(),
+                output_name,
+                output_path,
                 status,
                 reason,
             }
@@ -119,7 +137,7 @@ pub(crate) fn job_summary_dto(summary: JobSummary, meta: &[TaskPathMeta]) -> Job
         .collect();
 
     JobSummaryDto {
-        succeeded: summary.succeeded.iter().map(|id| id.get()).collect(),
+        succeeded: summary.succeeded.iter().map(|(id, _)| id.get()).collect(),
         cancelled: summary.cancelled.iter().map(|id| id.get()).collect(),
         failed: summary
             .failed
@@ -302,6 +320,10 @@ mod tests {
             .collect()
     }
 
+    fn succeeded(id: TaskId, name: &str) -> (TaskId, PathBuf) {
+        (id, PathBuf::from("/out").join(name))
+    }
+
     #[test]
     fn job_summary_dto_builds_results_for_a_mixed_run() {
         // task 0 -> succeeded, task 1 -> failed, task 2 -> cancelled.
@@ -310,7 +332,7 @@ mod tests {
         let meta = zip_meta(&job);
 
         let summary = JobSummary {
-            succeeded: vec![ids[0]],
+            succeeded: vec![succeeded(ids[0], "out_1.zip")],
             cancelled: vec![ids[2]],
             failed: vec![(ids[1], "boom".to_string())],
         };
@@ -348,12 +370,62 @@ mod tests {
     }
 
     #[test]
+    fn job_summary_dto_prefers_real_path_for_succeeded_task() {
+        let job = three_item_zip_job();
+        let id = job.tasks()[0].id();
+        let meta = vec![TaskPathMeta {
+            id,
+            output_name: "planned.zip".to_string(),
+            output_path: PathBuf::from("/out")
+                .join("planned.zip")
+                .to_string_lossy()
+                .into_owned(),
+        }];
+        let written_to = PathBuf::from("/out").join("actual (2).zip");
+        let summary = JobSummary {
+            succeeded: vec![(id, written_to.clone())],
+            cancelled: Vec::new(),
+            failed: Vec::new(),
+        };
+
+        let dto = job_summary_dto(summary, &meta);
+
+        assert_eq!(dto.results[0].output_path, written_to.to_string_lossy());
+        assert_eq!(dto.results[0].output_name, "actual (2).zip");
+    }
+
+    #[test]
+    fn job_summary_dto_falls_back_to_planned_path_for_failed_task() {
+        let job = three_item_zip_job();
+        let id = job.tasks()[0].id();
+        let planned_path = PathBuf::from("/out").join("planned.zip");
+        let meta = vec![TaskPathMeta {
+            id,
+            output_name: "planned.zip".to_string(),
+            output_path: planned_path.to_string_lossy().into_owned(),
+        }];
+        let summary = JobSummary {
+            succeeded: Vec::new(),
+            cancelled: Vec::new(),
+            failed: vec![(id, "boom".to_string())],
+        };
+
+        let dto = job_summary_dto(summary, &meta);
+
+        assert_eq!(dto.results[0].output_path, planned_path.to_string_lossy());
+        assert_eq!(dto.results[0].output_name, "planned.zip");
+    }
+
+    #[test]
     fn job_summary_dto_reason_only_on_failed() {
         let job = three_item_zip_job();
         let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let meta = zip_meta(&job);
         let summary = JobSummary {
-            succeeded: vec![ids[0], ids[2]],
+            succeeded: vec![
+                succeeded(ids[0], "out_1.zip"),
+                succeeded(ids[2], "out_3.zip"),
+            ],
             cancelled: Vec::new(),
             failed: vec![(ids[1], "kaput".to_string())],
         };
@@ -395,7 +467,7 @@ mod tests {
             .collect();
 
         let summary = JobSummary {
-            succeeded: vec![ids[0]],
+            succeeded: vec![succeeded(ids[0], "photos")],
             cancelled: Vec::new(),
             failed: Vec::new(),
         };
@@ -421,7 +493,7 @@ mod tests {
         let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
         let meta = zip_meta(&job);
         let summary = JobSummary {
-            succeeded: vec![ids[0]],
+            succeeded: vec![succeeded(ids[0], "out_1.zip")],
             cancelled: vec![ids[2]],
             failed: vec![(ids[1], "boom".to_string())],
         };

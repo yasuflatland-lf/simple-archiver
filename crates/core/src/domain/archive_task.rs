@@ -89,9 +89,8 @@ impl ArchiveTask {
     /// This is the single source of truth for the per-task destination formula:
     /// `Zip` joins the validated output filename, `Folder` joins the validated
     /// directory stem, and `None` lands nowhere. Both the engine
-    /// (`RunArchiveJob`) and the presentation layer (`task_path_meta`) consume
-    /// this so the "where the file lands" computation can never drift between
-    /// them.
+    /// (`RunArchiveJob`) and the presentation layer (`planned_path_meta`) consume
+    /// this so the requested-destination computation cannot drift between them.
     ///
     /// The formula is derived from [`OutputName`] alone — there is deliberately
     /// no `mode` parameter, because a destination computed from a value plus an
@@ -172,6 +171,22 @@ mod tests {
     /// Build a minimal `ArchiveTask` with the given id string.
     fn make_task(id: u32) -> ArchiveTask {
         ArchiveTask::new(TaskId::new(id), make_source(), make_output_name("foo"))
+    }
+
+    fn written_to() -> PathBuf {
+        PathBuf::from("/out/foo.zip")
+    }
+
+    fn complete() -> TaskEvent {
+        TaskEvent::Complete {
+            written_to: written_to(),
+        }
+    }
+
+    fn completed() -> TaskStatus {
+        TaskStatus::Completed {
+            written_to: written_to(),
+        }
     }
 
     // ── TaskId ────────────────────────────────────────────────────────────────
@@ -264,9 +279,9 @@ mod tests {
     fn apply_complete_from_compressing_transitions_to_completed() {
         let mut task = make_task(1);
         task.apply_event(TaskEvent::StartCompressing).unwrap();
-        let result = task.apply_event(TaskEvent::Complete);
+        let result = task.apply_event(complete());
         assert_eq!(result, Ok(()));
-        assert_eq!(task.status(), &TaskStatus::Completed);
+        assert_eq!(task.status(), &completed());
     }
 
     #[test]
@@ -296,7 +311,7 @@ mod tests {
         let mut task = make_task(1);
         assert_eq!(task.status(), &TaskStatus::Pending);
 
-        let result = task.apply_event(TaskEvent::Complete);
+        let result = task.apply_event(complete());
 
         assert!(
             result.is_err(),
@@ -312,12 +327,12 @@ mod tests {
     #[test]
     fn apply_illegal_transition_error_carries_correct_from_and_event() {
         let mut task = make_task(1);
-        let result = task.apply_event(TaskEvent::Complete);
+        let result = task.apply_event(complete());
 
         match result {
             Err(IllegalTransition { from, event }) => {
                 assert_eq!(from, TaskStatus::Pending);
-                assert_eq!(event, TaskEvent::Complete);
+                assert_eq!(event, complete());
             }
             Ok(()) => panic!("expected IllegalTransition error"),
         }
@@ -328,12 +343,12 @@ mod tests {
         let mut task = make_task(1);
         // Drive to Completed.
         task.apply_event(TaskEvent::StartCompressing).unwrap();
-        task.apply_event(TaskEvent::Complete).unwrap();
-        assert_eq!(task.status(), &TaskStatus::Completed);
+        task.apply_event(complete()).unwrap();
+        assert_eq!(task.status(), &completed());
 
         let result = task.apply_event(TaskEvent::StartExtracting);
         assert!(result.is_err());
-        assert_eq!(task.status(), &TaskStatus::Completed);
+        assert_eq!(task.status(), &completed());
     }
 
     #[test]
@@ -351,7 +366,7 @@ mod tests {
         );
 
         // Complete is illegal from a terminal Failed state.
-        let result = task.apply_event(TaskEvent::Complete);
+        let result = task.apply_event(complete());
         assert!(result.is_err());
         // The original Failed { reason } must be restored exactly on the error path.
         assert_eq!(

@@ -48,6 +48,7 @@ struct WorkItem {
     source: SourceItem,
     defect: Option<String>,
     dest: Option<PathBuf>,
+    out_dir: PathBuf,
     mode: OutputMode,
     policy: ConflictPolicy,
 }
@@ -123,6 +124,7 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
                 defect: job.defect(t.id()).map(ToString::to_string),
                 // Single source of truth for the destination formula (domain).
                 dest: t.output_destination(&out_dir),
+                out_dir: out_dir.clone(),
                 mode,
                 policy,
             })
@@ -379,9 +381,11 @@ async fn run_one_inner<A: Archiver, E: Extractor, P: Placer>(
             map_place_result(placer.place(prepared.dir(), dest, item.policy).await)
         }
         // No destination means the task produces nothing (a folder source has no
-        // archive to extract in Folder mode): terminate as a skip (Complete with
-        // no placement) instead of copying the source folder (spec §11 default).
-        (OutputMode::Folder, None) => TaskEvent::Complete,
+        // archive to extract in Folder mode). Use `out_dir` as a placeholder for
+        // the terminal path until issue #245 replaces this arm with a real skip.
+        (OutputMode::Folder, None) => TaskEvent::Complete {
+            written_to: item.out_dir,
+        },
     };
     let _ = tx.send(WorkerMsg::Status {
         task: item.task,
@@ -461,9 +465,9 @@ async fn extract_phase<E: Extractor>(
 
 /// Maps a compress result to the terminal `TaskEvent`: `Ok -> Complete`,
 /// `Cancelled -> Cancel`, any other error -> `Fail { reason }`.
-fn map_archive_result(result: Result<(), ArchiveError>) -> TaskEvent {
+fn map_archive_result(result: Result<PathBuf, ArchiveError>) -> TaskEvent {
     match result {
-        Ok(()) => TaskEvent::Complete,
+        Ok(written_to) => TaskEvent::Complete { written_to },
         Err(ArchiveError::Cancelled) => TaskEvent::Cancel,
         Err(e) => TaskEvent::Fail {
             reason: e.to_string(),
@@ -474,7 +478,7 @@ fn map_archive_result(result: Result<(), ArchiveError>) -> TaskEvent {
 /// Maps a place result to the terminal `TaskEvent`: `Ok -> Complete`, else `Fail`.
 fn map_place_result(result: Result<PathBuf, PlaceError>) -> TaskEvent {
     match result {
-        Ok(_) => TaskEvent::Complete,
+        Ok(written_to) => TaskEvent::Complete { written_to },
         Err(e) => TaskEvent::Fail {
             reason: e.to_string(),
         },
@@ -538,7 +542,7 @@ mod tests {
             dest: &Path,
             policy: ConflictPolicy,
             ctx: &CompressContext,
-        ) -> Result<(), ArchiveError> {
+        ) -> Result<PathBuf, ArchiveError> {
             self.seen_policies.lock().unwrap().push(policy);
             self.calls.fetch_add(1, Ordering::SeqCst);
             self.live.fetch_add(1, Ordering::SeqCst);
@@ -558,7 +562,7 @@ mod tests {
             } else if self.fail_names.contains(&name) {
                 Err(ArchiveError::Backend("boom".to_string()))
             } else {
-                Ok(())
+                Ok(dest.to_path_buf())
             }
         }
     }
@@ -675,6 +679,10 @@ mod tests {
         NonZeroUsize::new(v).unwrap()
     }
 
+    fn succeeded_ids(summary: &JobSummary) -> Vec<TaskId> {
+        summary.succeeded.iter().map(|(id, _)| *id).collect()
+    }
+
     #[tokio::test]
     async fn cancellation_before_compression_cancels_tasks_without_calling_archiver() {
         let job = folder_job(3);
@@ -740,6 +748,64 @@ mod tests {
             seen.iter().all(|p| *p == ConflictPolicy::Overwrite),
             "every compress call must receive the job's policy, got {seen:?}"
         );
+    }
+
+    /// An archiver that resolves an occupied destination the way `ZipArchiver`
+    /// does under `AutoRename`: it writes (and returns) the ` (2)` sibling.
+    ///
+    /// Deliberately a fake rather than the real adapter — the application layer
+    /// must not depend on `infrastructure`, and the renaming ladder itself is
+    /// already covered by `ZipArchiver`'s own tests and the `src-tauri`
+    /// end-to-end test. What this engine test owns is the *threading*: whatever
+    /// path the archiver reports must reach the summary.
+    struct RenamingArchiver;
+    impl Archiver for RenamingArchiver {
+        async fn compress(
+            &self,
+            _src_dir: &Path,
+            dest_zip: &Path,
+            _policy: ConflictPolicy,
+            _ctx: &CompressContext,
+        ) -> Result<PathBuf, ArchiveError> {
+            let written_to = if dest_zip.exists() {
+                let stem = dest_zip.file_stem().unwrap().to_string_lossy().to_string();
+                let ext = dest_zip.extension().unwrap().to_string_lossy().to_string();
+                dest_zip.with_file_name(format!("{stem} (2).{ext}"))
+            } else {
+                dest_zip.to_path_buf()
+            };
+            std::fs::write(&written_to, b"archive")?;
+            Ok(written_to)
+        }
+    }
+
+    /// R2: the summary must carry the path that was actually written. With the
+    /// planned `foo_1.zip` already occupied, the writer lands on `foo_1 (2).zip`
+    /// and that — not the plan — is what the summary reports.
+    #[tokio::test]
+    async fn occupied_destination_reports_the_auto_renamed_path() {
+        let out_dir = tempfile::tempdir().unwrap();
+        std::fs::write(out_dir.path().join("foo_1.zip"), b"pre-existing").unwrap();
+        let job = ArchiveJob::plan(
+            vec![SourceItem::RarFile(PathBuf::from("a.rar"))],
+            NamingRule::parse("foo").unwrap(),
+            OutputDirectory::new(out_dir.path().to_path_buf()),
+        )
+        .unwrap();
+        let engine = RunArchiveJob::new(
+            Arc::new(RenamingArchiver),
+            Arc::new(FakeExtractor::new()),
+            Arc::new(FakePlacer::new()),
+            nz(1),
+        );
+
+        let summary = engine
+            .execute(job, &FixedClock(Instant::now()), &RecordingSink::default())
+            .await;
+
+        // Build the expectation with `join`, never a "/a/b" literal: only the
+        // Windows CI job catches a hard-coded forward-slash path.
+        assert_eq!(summary.succeeded[0].1, out_dir.path().join("foo_1 (2).zip"));
     }
 
     /// A panicking worker used to emit no terminal event at all, leaving the task
@@ -828,7 +894,7 @@ mod tests {
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = engine.execute(job, &clock, &sink).await;
-        let mut succeeded = summary.succeeded.clone();
+        let mut succeeded = succeeded_ids(&summary);
         succeeded.sort_by_key(|i| i.get());
         assert_eq!(succeeded, expected);
         assert!(summary.failed.is_empty());
@@ -849,7 +915,7 @@ mod tests {
         let sink = RecordingSink::default();
         let clock = FixedClock(Instant::now());
         let summary = engine.execute(job, &clock, &sink).await;
-        let mut succeeded = summary.succeeded.clone();
+        let mut succeeded = succeeded_ids(&summary);
         succeeded.sort_by_key(|i| i.get());
         assert_eq!(succeeded, vec![id[0], id[2]]);
         // The recorded reason is the full `ArchiveError::to_string()` (spec: the
@@ -878,7 +944,7 @@ mod tests {
 
         let summary = engine.execute(job, &clock, &sink).await;
 
-        let mut succeeded = summary.succeeded.clone();
+        let mut succeeded = succeeded_ids(&summary);
         succeeded.sort_by_key(|i| i.get());
         assert_eq!(succeeded, vec![id[0], id[2]]);
         assert_eq!(summary.cancelled, vec![id[1]]);
@@ -907,7 +973,7 @@ mod tests {
             dest: &Path,
             _policy: ConflictPolicy,
             ctx: &CompressContext,
-        ) -> Result<(), ArchiveError> {
+        ) -> Result<PathBuf, ArchiveError> {
             let name = dest.file_name().unwrap().to_string_lossy().to_string();
             if name == self.cancel_target {
                 // Wait until the sibling has completed so firing the token cannot
@@ -919,12 +985,12 @@ mod tests {
                 if ctx.is_cancelled() {
                     return Err(ArchiveError::Cancelled);
                 }
-                Ok(())
+                Ok(dest.to_path_buf())
             } else {
                 // The sibling ignores cancellation and always succeeds, then signals
                 // the target it may fire the token.
                 self.sibling_done.notify_one();
-                Ok(())
+                Ok(dest.to_path_buf())
             }
         }
     }
@@ -966,7 +1032,7 @@ mod tests {
             !summary.succeeded.is_empty(),
             "a sibling task must still complete"
         );
-        assert_eq!(summary.succeeded, vec![ids[0]]);
+        assert_eq!(succeeded_ids(&summary), vec![ids[0]]);
         assert!(summary.failed.is_empty());
     }
 
@@ -1072,7 +1138,7 @@ mod tests {
         // Both tasks succeed; reaching Completed proves the rar task walked the
         // legal Pending -> Extracting -> Compressing -> Completed sequence (an
         // out-of-order event would trip the engine's debug_assert).
-        let mut succeeded = summary.succeeded.clone();
+        let mut succeeded = succeeded_ids(&summary);
         succeeded.sort_by_key(|i| i.get());
         let mut expected = ids.clone();
         expected.sort_by_key(|i| i.get());
@@ -1115,7 +1181,7 @@ mod tests {
         // Both tasks succeed; reaching Completed proves the zip task walked the
         // legal Pending -> Extracting -> Compressing -> Completed sequence (an
         // out-of-order event would trip the engine's debug_assert).
-        let mut succeeded = summary.succeeded.clone();
+        let mut succeeded = succeeded_ids(&summary);
         succeeded.sort_by_key(|i| i.get());
         let mut expected = ids.clone();
         expected.sort_by_key(|i| i.get());
@@ -1155,7 +1221,7 @@ mod tests {
 
         let summary = engine.execute(job, &clock, &sink).await;
 
-        assert_eq!(summary.succeeded, vec![ids[0]]);
+        assert_eq!(succeeded_ids(&summary), vec![ids[0]]);
         assert_eq!(summary.failed.len(), 1);
         assert_eq!(summary.failed[0].0, ids[1]);
         assert_eq!(summary.failed[0].1, "extract error: extract boom");
@@ -1188,7 +1254,7 @@ mod tests {
 
         let summary = engine.execute(job, &clock, &sink).await;
 
-        assert_eq!(summary.succeeded, vec![ids[0]]);
+        assert_eq!(succeeded_ids(&summary), vec![ids[0]]);
         assert_eq!(summary.failed.len(), 1);
         assert_eq!(summary.failed[0].0, ids[1]);
         assert_eq!(summary.failed[0].1, "extract error: extract boom");
@@ -1228,14 +1294,14 @@ mod tests {
         async fn compress(
             &self,
             _src: &Path,
-            _dest: &Path,
+            dest: &Path,
             _policy: ConflictPolicy,
             ctx: &CompressContext,
-        ) -> Result<(), ArchiveError> {
+        ) -> Result<PathBuf, ArchiveError> {
             for i in 0..self.ticks {
                 ctx.report(i, self.ticks);
             }
-            Ok(())
+            Ok(dest.to_path_buf())
         }
     }
 
@@ -1288,15 +1354,15 @@ mod tests {
         async fn compress(
             &self,
             _src: &Path,
-            _dest: &Path,
+            dest: &Path,
             _policy: ConflictPolicy,
             ctx: &CompressContext,
-        ) -> Result<(), ArchiveError> {
+        ) -> Result<PathBuf, ArchiveError> {
             // 0, 1, 2, ... — a leading zero tick, then real bytes, like ZipArchiver.
             for i in 0..self.ticks {
                 ctx.report(i, self.ticks);
             }
-            Ok(())
+            Ok(dest.to_path_buf())
         }
     }
 
@@ -1480,7 +1546,7 @@ mod tests {
 
         // Both tasks succeed via extract → place (Compressing reused as the write
         // phase), and the archiver's compress() is never called in Folder mode.
-        let mut succeeded = summary.succeeded.clone();
+        let mut succeeded = succeeded_ids(&summary);
         succeeded.sort_by_key(|i| i.get());
         let mut want = expected.clone();
         want.sort_by_key(|i| i.get());
@@ -1530,7 +1596,7 @@ mod tests {
         let summary = engine.execute(job, &clock, &sink).await;
 
         assert_eq!(summary.succeeded.len(), 2);
-        assert_eq!(summary.succeeded, vec![ids[0], ids[2]]);
+        assert_eq!(succeeded_ids(&summary), vec![ids[0], ids[2]]);
         assert_eq!(summary.failed, vec![(ids[1], defect_reason)]);
         assert!(summary.cancelled.is_empty());
     }
@@ -1566,7 +1632,7 @@ mod tests {
 
         // Both tasks succeed: the zip via extract -> place, the folder as a skip
         // (a terminal Complete with no placement).
-        let mut succeeded = summary.succeeded.clone();
+        let mut succeeded = succeeded_ids(&summary);
         succeeded.sort_by_key(|i| i.get());
         let mut want = expected.clone();
         want.sort_by_key(|i| i.get());
