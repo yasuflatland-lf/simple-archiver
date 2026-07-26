@@ -34,7 +34,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Only the tools this job runs: rustfmt/clippy come from the `rust` entry's components,
+      # and this is the sole job that uses cargo-llvm-cov.
+      # `install_args` restricts `mise install` to exactly the tools named, and mise does NOT pull in a
+      # declared-but-unnamed tool as a dependency: with cargo-binstall omitted the cargo backend finds no
+      # binstall on PATH and silently falls back to `cargo install <tool> --locked`, a from-source build.
       - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          install_args: rust cargo-binstall cargo:cargo-llvm-cov cargo:cargo-nextest
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -57,7 +64,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # No coverage is collected here, so cargo-llvm-cov is not installed.
       - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          # cargo-binstall must be named or the `cargo:` tools below fall back to a source build.
+          install_args: rust cargo-binstall cargo:cargo-nextest
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -75,13 +86,31 @@ jobs:
   hygiene:
     name: hygiene (deps + orphan files)
     runs-on: ubuntu-latest
-    # Load mise.ci-hygiene.toml so mise-action installs cargo-modules here only — it compiles
-    # rust-analyzer from source (~16 min on Windows), and this is the sole job that runs it.
+    # Load mise.ci-hygiene.toml so mise-action installs cargo-machete here only.
     env:
       MISE_ENV: ci-hygiene
+      # Single source of truth for the pin; also the cache key below. Tracked by the Renovate
+      # custom manager in renovate.json.
+      CARGO_MODULES_VERSION: "0.26.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          # `rust` is required because cargo-machete is a cargo subcommand invoked as `cargo machete`.
+          # cargo-binstall must be named or the `cargo:` tools below fall back to a source build.
+          install_args: rust cargo-binstall cargo:cargo-machete
+      # cargo-modules ships no prebuilt binary, so it is a ~9 min source build. Cache it keyed on
+      # its own version alone: mise-action's cache key hashes every `mise*.toml`, so leaving it
+      # under mise meant any `rust`/`node`/`pnpm`/`cargo-nextest` bump rebuilt it from scratch.
+      # `--root` pins the install location so the cache path does not depend on CARGO_HOME.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cargo-modules-cache
+        with:
+          path: ~/.cargo-tools
+          key: cargo-modules-${{ runner.os }}-${{ env.CARGO_MODULES_VERSION }}
+      - if: steps.cargo-modules-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-modules@${{ env.CARGO_MODULES_VERSION }} --locked --root ~/.cargo-tools
+      - run: echo "$HOME/.cargo-tools/bin" >> "$GITHUB_PATH"
       # Unused Cargo.toml dependencies across the whole workspace (no compilation needed).
       # Intentional declarations (transitive version pins, PR5 pre-declarations) are
       # allow-listed via `[package.metadata.cargo-machete]` in each crate's Cargo.toml.
@@ -97,7 +126,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # This job is pure JavaScript; without install_args it installs the Rust toolchain and
+      # builds cargo-nextest + cargo-llvm-cov from source (4m21s on a cold cache) for nothing.
       - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          install_args: node pnpm
       - run: pnpm install --frozen-lockfile
       # Frontend format check (config in .oxfmtrc.json); fails if any file is unformatted.
       - run: pnpm fmt:check
@@ -123,26 +156,35 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Runs nextest and the pnpm/tauri build; coverage is collected by the `core` job only.
       - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          # cargo-binstall must be named or the `cargo:` tools below fall back to a source build.
+          install_args: rust node pnpm cargo-binstall cargo:cargo-nextest
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Belt and suspenders: mise.toml requests clippy components, but
       # ensure they exist on the active toolchain even if a cached install lacks them.
       - run: rustup component add clippy
-      # Core tests on Windows only: the `core` job already covers them on Linux,
-      # and macOS shares Linux's `/` path separator, so a macOS rerun adds nothing.
-      # Windows is kept because it is the sole job that catches `\` vs `/` regressions.
-      - if: matrix.os == 'windows-latest'
-        run: cargo nextest run -p simple-archiver-core --profile ci
       # PR6: the presentation crate's tests (Tauri command surface, progress
       # event sink, run_job integration) only build on runners with the Tauri
       # toolchain, which the app job has. Run them here so they are covered in CI.
       - if: matrix.os == 'macos-latest'
         run: cargo clippy -p simple-archiver --all-targets -- -D warnings
-      - run: cargo nextest run -p simple-archiver --profile ci
+      # Windows additionally runs the core suite: the `core` job already covers it on Linux, and
+      # macOS shares Linux's `/` path separator, so Windows is the sole job that catches `\` vs
+      # `/` regressions. Both crates go through ONE nextest invocation so cargo resolves the
+      # workspace and walks the fingerprint tree once instead of twice — on the Windows runner
+      # that scan is the bulk of the second invocation's non-compile time.
+      - if: matrix.os == 'windows-latest'
+        run: cargo nextest run -p simple-archiver-core -p simple-archiver --profile ci
+      - if: matrix.os == 'macos-latest'
+        run: cargo nextest run -p simple-archiver --profile ci
+      # node_modules is installed for `pnpm tauri build` below (beforeBuildCommand: pnpm build),
+      # not for tests: the vitest suite is jsdom-only with no OS-dependent behaviour, so it runs
+      # once in the `frontend` job rather than a third time here on each OS.
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
       # Smoke-build the app in the dev profile (--debug): this reuses the already
       # compiled `target/debug` dependency tree from the nextest steps above, so
       # the full dependency tree is no longer recompiled a second time under the
