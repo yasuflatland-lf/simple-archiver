@@ -16,6 +16,15 @@ env:
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
   CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
+# One in-flight run per PR: Renovate force-pushes its branches repeatedly (17 runs on
+# `renovate/frontend-(npm)` in the last 100 PR runs), and without this every superseded push
+# keeps six jobs running to completion on a commit that will never merge, holding concurrency
+# slots that the current run needs. `push` events on main are keyed by ref and never cancelled,
+# so main's history keeps a complete CI record and the rust-cache save step always runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   core:
     name: core (rust, pure)
