@@ -7,10 +7,10 @@ import { resetJobStore, useJobStore } from "@/store/jobStore";
 import { ResetButton } from "./ResetButton";
 
 // Minimal DraftItemDto stub.
-const ITEM = { path: "/a.rar", kind: "rar" as const };
+const ITEM = { path: "/a.rar", kind: "rar" as const, outputStem: "a" };
 
 // A draft with N items; the other fields are the store defaults.
-function draftWith(items: { path: string; kind: "rar" }[]) {
+function draftWith(items: { path: string; kind: "rar"; outputStem: string }[]) {
   return {
     items,
     namingTemplate: null,

@@ -14,6 +14,7 @@ function seedQueue(itemCount: number, selectedIndices: number[]): void {
     items: Array.from({ length: itemCount }, (_, i) => ({
       path: `/tmp/item-${i}.rar`,
       kind: "rar" as const,
+      outputStem: `item-${i}`,
     })),
     namingTemplate: null,
     startNumber: 1,

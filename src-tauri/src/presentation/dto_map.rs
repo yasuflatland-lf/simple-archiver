@@ -198,6 +198,7 @@ pub(crate) fn draft_item_from_source(item: &SourceItem) -> DraftItemDto {
     DraftItemDto {
         path: path.to_string_lossy().into_owned(),
         kind,
+        output_stem: item.output_stem(),
     }
 }
 
@@ -516,6 +517,7 @@ mod tests {
             DraftItemDto {
                 path: "/some/folder".to_string(),
                 kind: SourceKind::Folder,
+                output_stem: "folder".to_string(),
             }
         );
     }
@@ -529,6 +531,7 @@ mod tests {
             DraftItemDto {
                 path: "/some/file.rar".to_string(),
                 kind: SourceKind::Rar,
+                output_stem: "file".to_string(),
             }
         );
     }
@@ -542,6 +545,7 @@ mod tests {
             DraftItemDto {
                 path: "/some/file.zip".to_string(),
                 kind: SourceKind::Zip,
+                output_stem: "file".to_string(),
             }
         );
     }
