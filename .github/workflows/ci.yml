@@ -141,8 +141,10 @@ jobs:
       - if: matrix.os == 'macos-latest'
         run: cargo clippy -p simple-archiver --all-targets -- -D warnings
       - run: cargo nextest run -p simple-archiver --profile ci
+      # node_modules is installed for `pnpm tauri build` below (beforeBuildCommand: pnpm build),
+      # not for tests: the vitest suite is jsdom-only with no OS-dependent behaviour, so it runs
+      # once in the `frontend` job rather than a third time here on each OS.
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
       # Smoke-build the app in the dev profile (--debug): this reuses the already
       # compiled `target/debug` dependency tree from the nextest steps above, so
       # the full dependency tree is no longer recompiled a second time under the
