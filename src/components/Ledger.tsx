@@ -18,7 +18,12 @@ const COPIED_HINT_MS = 1500;
 
 // Outcome groups render in action-first order: failures first so the rows a user
 // must act on lead; successes last.
-const GROUP_ORDER: TaskOutcome[] = ["failed", "cancelled", "succeeded"];
+const GROUP_ORDER: TaskOutcome[] = [
+  "failed",
+  "cancelled",
+  "skipped",
+  "succeeded",
+];
 
 // Run an IPC-touching action and surface a failure through the shared store
 // error path rather than swallowing it, mirroring the other event handlers
@@ -67,8 +72,9 @@ interface LedgerRowProps {
  * The per-row status is conveyed by the enclosing outcome group, so the row
  * carries no status chip. Failed rows render their reason in place of the size.
  * Copy writes the row's intended absolute output path to the clipboard; even a
- * failed row exposes it so the path can still be pasted. On success a small
- * "Copied" popup pops in over the button and fades out on its own.
+ * failed row exposes it so the path can still be pasted. A skipped row with no
+ * output path shows a dash and offers no Copy action. On success a small "Copied"
+ * popup pops in over the button and fades out on its own.
  */
 function LedgerRow({
   index,
@@ -95,15 +101,23 @@ function LedgerRow({
         <span aria-hidden="true" className="px-1.5 text-muted-foreground">
           →
         </span>
-        <span>{result.outputName}</span>
+        <span>{result.outputPath === "" ? "—" : result.outputName}</span>
       </td>
 
       {/* size for non-failed rows; the failure reason (emphasised) for failed rows.
           whitespace-nowrap keeps the size on one line so it fits its content and
           stays aligned with Copy at the right. */}
       <td className="py-2 pr-3 font-mono text-xs whitespace-nowrap">
-        {result.status === "failed" ? (
-          <span className="text-status-danger-foreground">{result.reason}</span>
+        {result.status === "failed" || result.status === "skipped" ? (
+          <span
+            className={
+              result.status === "failed"
+                ? "text-status-danger-foreground"
+                : "text-status-warning-foreground"
+            }
+          >
+            {result.reason}
+          </span>
         ) : (
           <span className="text-muted-foreground">{size ?? ""}</span>
         )}
@@ -112,14 +126,16 @@ function LedgerRow({
       {/* Per-row Copy action with a transient "Copied" popup confirmation. */}
       <td className="py-2 pr-4">
         <div className="relative flex justify-end">
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={`Copy path of ${result.outputName}`}
-            onClick={() => onCopy(result.taskId, result.outputPath)}
-          >
-            <Copy aria-hidden="true" />
-          </Button>
+          {result.outputPath !== "" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Copy path of ${result.outputName}`}
+              onClick={() => onCopy(result.taskId, result.outputPath)}
+            >
+              <Copy aria-hidden="true" />
+            </Button>
+          )}
 
           {/* Decorative pop-in confirmation anchored above the button; the polite
               announcement for assistive tech is the sr-only <output> in Ledger.
@@ -176,12 +192,18 @@ export function Ledger() {
 
   const results = summary.results;
   const succeeded = results.filter((r) => r.status === "succeeded").length;
+  const skipped = results.filter((r) => r.status === "skipped").length;
   const cancelled = results.filter((r) => r.status === "cancelled").length;
   const failed = results.filter((r) => r.status === "failed").length;
 
   // Header subline: per-outcome counts, omitting zero categories.
   const sublineParts: string[] = [];
   if (succeeded) sublineParts.push(`${succeeded} succeeded`);
+  if (skipped) {
+    sublineParts.push(
+      `${skipped} ${statusVisual("skipped").label.toLowerCase()}`,
+    );
+  }
   if (cancelled) sublineParts.push(`${cancelled} cancelled`);
   if (failed) sublineParts.push(`${failed} failed`);
   const subline = sublineParts.join(" · ");
@@ -191,6 +213,7 @@ export function Ledger() {
   // the bg-* variants resolve.
   const segments = [
     { key: "succeeded", n: succeeded, bg: "bg-status-success-foreground" },
+    { key: "skipped", n: skipped, bg: "bg-status-warning-foreground" },
     { key: "cancelled", n: cancelled, bg: "bg-status-warning-foreground" },
     { key: "failed", n: failed, bg: "bg-status-danger-foreground" },
   ].filter((s) => s.n > 0);

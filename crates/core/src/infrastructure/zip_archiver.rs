@@ -1,7 +1,7 @@
 //! Zip archiving adapter backed by `async_zip` (tokio).
 
 use crate::application::compress_context::CompressContext;
-use crate::application::ports::{ArchiveError, Archiver};
+use crate::application::ports::{ArchiveError, Archiver, Written};
 use crate::domain::conflict_policy::ConflictPolicy;
 use crate::infrastructure::path_utils::{
     classified_components, resolve_path, ClaimResult, PathPart, Resolution,
@@ -33,7 +33,7 @@ impl Archiver for ZipArchiver {
         dest_zip: &Path,
         policy: ConflictPolicy,
         ctx: &CompressContext,
-    ) -> Result<PathBuf, ArchiveError> {
+    ) -> Result<Written, ArchiveError> {
         // Collect the file list from the walk BEFORE creating the output file.
         // If `dest_zip` lives inside `src_dir`, this guarantees it cannot appear
         // in the walk at all, so it is never archived into itself — regardless
@@ -59,7 +59,7 @@ impl Archiver for ZipArchiver {
         // checkpoint so a cancelled `Overwrite` never deletes the existing file.
         let (dest, file) = match resolve_destination(dest_zip, policy).await? {
             Resolution::Write(path, file) => (path, file),
-            Resolution::SkipExisting(path) => return Ok(path),
+            Resolution::SkipExisting(path) => return Ok(Written::KeptExisting(path)),
         };
 
         let mut writer = ZipFileWriter::with_tokio(file);
@@ -128,7 +128,7 @@ impl Archiver for ZipArchiver {
             remove_partial_output(&dest).await;
             return Err(e);
         }
-        Ok(dest)
+        Ok(Written::At(dest))
     }
 }
 
@@ -398,7 +398,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(written_to, out.path().join("o (2).zip"));
+        assert_eq!(written_to, Written::At(out.path().join("o (2).zip")));
         assert_eq!(
             std::fs::read(&dest).unwrap(),
             b"pre-existing",
@@ -452,7 +452,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(written_to, dest);
+        assert_eq!(written_to, Written::KeptExisting(dest.clone()));
         assert_eq!(std::fs::read(&dest).unwrap(), b"pre-existing");
         assert!(!out.path().join("o (2).zip").exists());
     }
@@ -477,7 +477,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(written_to, dest);
+        assert_eq!(written_to, Written::At(dest.clone()));
         assert_eq!(zip_entry_names(&dest), vec!["a.txt".to_string()]);
         assert!(!out.path().join("o (2).zip").exists());
     }

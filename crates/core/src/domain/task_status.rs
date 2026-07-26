@@ -2,6 +2,18 @@
 
 use std::path::PathBuf;
 
+/// Why a task finished without producing anything.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SkipReason {
+    /// The destination already existed and ConflictPolicy::Skip kept it.
+    /// Carries the path that was left untouched.
+    ExistingKept(PathBuf),
+    /// There was nothing to produce: a folder source in Folder mode has no
+    /// archive to extract. Carries no path — this task claims no output, so it
+    /// can never contradict another row's claim about that path.
+    NotApplicable,
+}
+
 /// Represents the current lifecycle state of a single archive task.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TaskStatus {
@@ -13,6 +25,8 @@ pub enum TaskStatus {
     Compressing,
     /// Task finished successfully, having written `written_to`.
     Completed { written_to: PathBuf },
+    /// Terminal: finished without producing output.
+    Skipped { reason: SkipReason },
     /// Task failed with the given reason.
     Failed { reason: String },
     /// Task was cancelled before completion.
@@ -28,6 +42,8 @@ pub enum TaskEvent {
     StartCompressing,
     /// The write finished; carries the path that was actually written.
     Complete { written_to: PathBuf },
+    /// The task finished without writing anything.
+    Skip { reason: SkipReason },
     /// An error occurred; carries a human-readable description.
     Fail { reason: String },
     /// The user (or the system) cancelled the task.
@@ -48,7 +64,8 @@ impl TaskStatus {
     /// Apply `event` to the current state, returning the next state or an
     /// [`IllegalTransition`] error if the combination is not permitted.
     ///
-    /// Terminal states (`Completed`, `Failed`, `Cancelled`) reject every event.
+    /// Terminal states (`Completed`, `Skipped`, `Failed`, `Cancelled`) reject
+    /// every event.
     pub fn apply(self, event: TaskEvent) -> Result<TaskStatus, IllegalTransition> {
         match (self, event) {
             // ── Legal forward transitions ──────────────────────────────────
@@ -59,6 +76,12 @@ impl TaskStatus {
             (TaskStatus::Compressing, TaskEvent::Complete { written_to }) => {
                 Ok(TaskStatus::Completed { written_to })
             }
+
+            // ── Skip from any non-terminal state ──────────────────────────
+            (
+                TaskStatus::Pending | TaskStatus::Extracting | TaskStatus::Compressing,
+                TaskEvent::Skip { reason },
+            ) => Ok(TaskStatus::Skipped { reason }),
 
             // ── Fail from any non-terminal state ──────────────────────────
             (
@@ -101,6 +124,16 @@ mod tests {
     fn completed() -> TaskStatus {
         TaskStatus::Completed {
             written_to: written_to(),
+        }
+    }
+
+    fn existing_kept() -> SkipReason {
+        SkipReason::ExistingKept(PathBuf::from("/out/existing"))
+    }
+
+    fn skip() -> TaskEvent {
+        TaskEvent::Skip {
+            reason: existing_kept(),
         }
     }
 
@@ -162,6 +195,35 @@ mod tests {
     #[test]
     fn compressing_complete_goes_to_completed() {
         assert_transition(TaskStatus::Compressing, complete(), completed());
+    }
+
+    #[test]
+    fn skip_is_legal_from_every_non_terminal_state() {
+        for state in [
+            TaskStatus::Pending,
+            TaskStatus::Extracting,
+            TaskStatus::Compressing,
+        ] {
+            assert_transition(
+                state,
+                skip(),
+                TaskStatus::Skipped {
+                    reason: existing_kept(),
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn skip_reason_survives_the_transition() {
+        let reason = SkipReason::NotApplicable;
+        let status = TaskStatus::Pending
+            .apply(TaskEvent::Skip {
+                reason: reason.clone(),
+            })
+            .expect("Skip from Pending should succeed");
+
+        assert_eq!(status, TaskStatus::Skipped { reason });
     }
 
     // ── Fail transitions (reason is carried through) ──────────────────────────
@@ -280,6 +342,7 @@ mod tests {
                 reason: "irrelevant".to_string(),
             },
             TaskEvent::Cancel,
+            skip(),
         ]
     }
 
@@ -306,6 +369,18 @@ mod tests {
     fn cancelled_rejects_all_events() {
         for event in all_events() {
             assert_illegal(TaskStatus::Cancelled, event);
+        }
+    }
+
+    #[test]
+    fn skipped_rejects_all_events() {
+        for event in all_events() {
+            assert_illegal(
+                TaskStatus::Skipped {
+                    reason: SkipReason::NotApplicable,
+                },
+                event,
+            );
         }
     }
 

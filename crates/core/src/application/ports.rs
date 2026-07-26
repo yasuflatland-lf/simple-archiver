@@ -12,6 +12,16 @@ use crate::domain::conflict_policy::ConflictPolicy;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
+/// What a write attempt produced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Written {
+    /// Bytes were written at this path.
+    At(PathBuf),
+    /// Nothing was written; this path already existed and was kept
+    /// (ConflictPolicy::Skip).
+    KeptExisting(PathBuf),
+}
+
 /// Error returned by an [`Archiver`].
 ///
 /// `Backend` carries a stringified message from the concrete archiving library
@@ -48,16 +58,15 @@ pub trait Archiver: Send + Sync {
     ///   nothing.
     /// - [`ConflictPolicy::Overwrite`]: remove the existing file, then write.
     ///
-    /// Returns the path actually written, which differs from `dest_zip` when
-    /// [`ConflictPolicy::AutoRename`] resolved a collision. Under
-    /// [`ConflictPolicy::Skip`], returns the existing destination path.
+    /// Returns whether bytes were written and at which path. The path differs
+    /// from `dest_zip` when [`ConflictPolicy::AutoRename`] resolved a collision.
     fn compress(
         &self,
         src_dir: &Path,
         dest_zip: &Path,
         policy: ConflictPolicy,
         ctx: &CompressContext,
-    ) -> impl Future<Output = Result<PathBuf, ArchiveError>> + Send;
+    ) -> impl Future<Output = Result<Written, ArchiveError>> + Send;
 }
 
 /// A source of monotonic time, behind a port so the application can be tested
@@ -146,13 +155,13 @@ pub trait Placer: Send + Sync {
     /// - [`ConflictPolicy::Overwrite`]: if `desired_dest` already exists, remove
     ///   it first, then copy the tree to `desired_dest`.
     ///
-    /// Returns the path actually written (or the pre-existing path under `Skip`).
+    /// Returns whether bytes were written and at which path.
     fn place(
         &self,
         src_tree: &Path,
         desired_dest: &Path,
         policy: ConflictPolicy,
-    ) -> impl Future<Output = Result<PathBuf, PlaceError>> + Send;
+    ) -> impl Future<Output = Result<Written, PlaceError>> + Send;
 }
 
 #[cfg(test)]
@@ -195,8 +204,8 @@ mod tests {
             _src_tree: &std::path::Path,
             desired_dest: &std::path::Path,
             _policy: crate::domain::conflict_policy::ConflictPolicy,
-        ) -> Result<std::path::PathBuf, super::PlaceError> {
-            Ok(desired_dest.to_path_buf())
+        ) -> Result<super::Written, super::PlaceError> {
+            Ok(super::Written::At(desired_dest.to_path_buf()))
         }
     }
 }

@@ -2,12 +2,11 @@
 import type { TaskStatusDto } from "./TaskStatusDto";
 
 /**
- * One task's terminal result, carrying its absolute output path.
+ * One task's terminal result, carrying its output-path claim.
  *
  * This is the per-task projection the completion UI reads to surface where each
- * produced file/folder landed. The `output_path` is computed in the presentation
- * layer from the planned job (PathBuf rendered to a lossy UTF-8 string at this
- * wire boundary), mirroring the engine's destination formula.
+ * produced file/folder landed or which existing destination was kept.
+ * `output_path` is empty when the task claims no path.
  */
 export type TaskResultDto = {
   /**
@@ -20,7 +19,8 @@ export type TaskResultDto = {
    */
   outputName: string;
   /**
-   * The absolute output path the task wrote to.
+   * The absolute output path the task wrote to or kept; empty when the task
+   * claims no output path.
    */
   outputPath: string;
   /**
@@ -28,7 +28,7 @@ export type TaskResultDto = {
    */
   status: TaskStatusDto;
   /**
-   * The failure reason; `Some` only when `status` is [`TaskStatusDto::Failed`].
+   * The human-readable explanation for a failed or skipped task.
    */
   reason: string | null;
 };

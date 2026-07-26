@@ -65,7 +65,13 @@ describe("ResetButton – visibility", () => {
     useJobStore.setState({
       draft: draftWith([ITEM]),
       running: false,
-      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
+      summary: {
+        succeeded: [1],
+        skipped: [],
+        cancelled: [],
+        failed: [],
+        results: [],
+      },
     });
     render(<ResetButton />);
     expect(screen.getByRole("button", { name: /new batch/i })).toBeTruthy();
@@ -91,6 +97,7 @@ describe("ResetButton – label", () => {
       running: false,
       summary: {
         succeeded: [],
+        skipped: [],
         cancelled: [],
         failed: [{ taskId: 1, reason: "error" }],
         results: [],
@@ -157,7 +164,13 @@ describe("ResetButton – confirm dialog", () => {
     useJobStore.setState({
       draft: draftWith([ITEM]),
       running: false,
-      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
+      summary: {
+        succeeded: [1],
+        skipped: [],
+        cancelled: [],
+        failed: [],
+        results: [],
+      },
       reset,
     });
     const user = userEvent.setup();
@@ -175,7 +188,13 @@ describe("ResetButton – confirm dialog", () => {
     useJobStore.setState({
       draft: draftWith([ITEM]),
       running: false,
-      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
+      summary: {
+        succeeded: [1],
+        skipped: [],
+        cancelled: [],
+        failed: [],
+        results: [],
+      },
       reset,
     });
     const user = userEvent.setup();

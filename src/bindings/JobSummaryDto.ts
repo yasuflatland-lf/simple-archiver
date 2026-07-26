@@ -11,6 +11,10 @@ export type JobSummaryDto = {
    */
   succeeded: Array<number>;
   /**
+   * Raw ids of tasks that finished without producing output, in job order.
+   */
+  skipped: Array<number>;
+  /**
    * Raw ids of tasks that were cancelled, in job order.
    */
   cancelled: Array<number>;
@@ -21,8 +25,9 @@ export type JobSummaryDto = {
   /**
    * Per-task results in job order, each carrying the task's absolute output
    * path and terminal status. Additive companion to the legacy
-   * `succeeded`/`cancelled`/`failed` buckets: it is the single per-task
-   * projection the completion UI uses to surface "where did my files go".
+   * `succeeded`/`skipped`/`cancelled`/`failed` buckets: it is the single
+   * per-task projection the completion UI uses to surface "where did my files
+   * go".
    */
   results: Array<TaskResultDto>;
 };

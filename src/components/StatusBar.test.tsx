@@ -115,7 +115,13 @@ describe("StatusBar", () => {
   // it anymore (no role="status" panel in the footer).
   it("does not render the run summary panel in the footer when a job has finished", () => {
     useJobStore.setState({
-      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
+      summary: {
+        succeeded: [1],
+        skipped: [],
+        cancelled: [],
+        failed: [],
+        results: [],
+      },
     });
     render(<StatusBar />);
     expect(screen.queryByRole("status")).toBeNull();
@@ -161,7 +167,13 @@ describe("StatusBar – reset action moved out", () => {
         conflictPolicy: "autoRename",
       },
       running: false,
-      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
+      summary: {
+        succeeded: [1],
+        skipped: [],
+        cancelled: [],
+        failed: [],
+        results: [],
+      },
     });
     render(<StatusBar />);
     expect(

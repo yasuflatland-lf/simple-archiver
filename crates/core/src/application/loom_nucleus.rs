@@ -13,10 +13,10 @@ use crate::domain::naming_rule::NamingRule;
 use crate::domain::output_directory::OutputDirectory;
 use crate::domain::source_item::SourceItem;
 use crate::domain::task_progress::TaskProgress;
-use crate::domain::task_status::TaskEvent;
+use crate::domain::task_status::{SkipReason, TaskEvent};
 
-/// Messages the success worker emits: StartCompressing + Progress + Complete.
-const SUCCESS_MSGS: usize = 3;
+/// Messages the success worker emits: StartCompressing + Progress + Complete + Skip.
+const SUCCESS_MSGS: usize = 4;
 /// Messages the cancel worker emits: StartCompressing + Cancel.
 const CANCEL_MSGS: usize = 2;
 /// Messages the failure worker emits: Fail.
@@ -25,7 +25,7 @@ const FAILURE_MSGS: usize = 1;
 #[allow(dead_code)]
 pub(crate) fn model_terminal_messages_are_not_lost() {
     loom::model(|| {
-        let job = folder_job(3);
+        let job = folder_job(4);
         let ids: Vec<TaskId> = job.tasks().iter().map(|task| task.id()).collect();
         let started_at = Instant::now();
 
@@ -33,6 +33,7 @@ pub(crate) fn model_terminal_messages_are_not_lost() {
 
         let success_tx = tx.clone();
         let success_task = ids[0];
+        let skip_task = ids[3];
         let success = thread::spawn(move || {
             success_tx
                 .send(WorkerMsg::Status {
@@ -51,6 +52,14 @@ pub(crate) fn model_terminal_messages_are_not_lost() {
                     task: success_task,
                     event: TaskEvent::Complete {
                         written_to: PathBuf::from("/out/f1"),
+                    },
+                })
+                .expect("aggregator receiver should be alive");
+            success_tx
+                .send(WorkerMsg::Status {
+                    task: skip_task,
+                    event: TaskEvent::Skip {
+                        reason: SkipReason::NotApplicable,
                     },
                 })
                 .expect("aggregator receiver should be alive");
@@ -95,10 +104,11 @@ pub(crate) fn model_terminal_messages_are_not_lost() {
         // returning `Err(RecvError)` — a `while let Ok(_) = rx.recv()` drain-to-
         // closure deadlocks under loom. We therefore drain exactly the messages
         // the workers above are defined to emit. The count is derived from those
-        // worker bodies (success: Start+Progress+Complete = 3, cancel: Start+Cancel
-        // = 2, failure: Fail = 1) rather than a magic literal, so it stays honest
-        // as the worker set changes, while loom still verifies that EVERY emitted
-        // message is received before `into_summary` finalizes (no message lost).
+        // worker bodies (success/skip: Start+Progress+Complete+Skip = 4, cancel:
+        // Start+Cancel = 2, failure: Fail = 1) rather than a magic literal, so it
+        // stays honest as the worker set changes, while loom still verifies that
+        // EVERY emitted message is received before `into_summary` finalizes (no
+        // message lost).
         let expected_messages = SUCCESS_MSGS + CANCEL_MSGS + FAILURE_MSGS;
         for _ in 0..expected_messages {
             let msg = rx.recv().expect("worker message should not be lost");
@@ -116,6 +126,14 @@ pub(crate) fn model_terminal_messages_are_not_lost() {
         assert_eq!(summary.succeeded, vec![(ids[0], PathBuf::from("/out/f1"))]);
         assert_eq!(summary.cancelled, vec![ids[1]]);
         assert_eq!(summary.failed, vec![(ids[2], "boom".to_string())]);
+        assert_eq!(summary.skipped, vec![(ids[3], SkipReason::NotApplicable)]);
+        assert_eq!(
+            summary.succeeded.len()
+                + summary.skipped.len()
+                + summary.cancelled.len()
+                + summary.failed.len(),
+            ids.len()
+        );
     });
 }
 

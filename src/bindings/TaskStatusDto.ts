@@ -3,4 +3,4 @@
 /**
  * A task's terminal status on the wire.
  */
-export type TaskStatusDto = "succeeded" | "cancelled" | "failed";
+export type TaskStatusDto = "succeeded" | "skipped" | "cancelled" | "failed";

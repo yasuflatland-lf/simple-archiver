@@ -18,6 +18,7 @@ use simple_archiver_core::domain::conflict_policy::ConflictPolicy as DomainConfl
 use simple_archiver_core::domain::output_mode::OutputMode as DomainOutputMode;
 use simple_archiver_core::domain::source_item::SourceItem;
 use simple_archiver_core::domain::task_progress::TaskProgress;
+use simple_archiver_core::domain::task_status::SkipReason;
 
 use super::dto::{
     ConflictPolicy as ConflictPolicyDto, DraftItemDto, FailedTaskDto, JobSummaryDto,
@@ -62,9 +63,10 @@ impl From<&JobProgress> for ProgressEvent {
 
 /// Per-task fallback metadata recomputed from the planned job, in task order.
 ///
-/// Succeeded tasks use the real path carried by the core summary. This planned
-/// name and path are retained only for cancelled, failed, or unaccounted tasks
-/// that never wrote an output (see `commands::planned_path_meta`).
+/// Succeeded tasks and `ExistingKept` skips use the real path carried by the core
+/// summary; `NotApplicable` skips use an empty path. This planned name and path
+/// are retained only for cancelled, failed, or unaccounted tasks that never wrote
+/// an output (see `commands::planned_path_meta`).
 pub(crate) struct TaskPathMeta {
     pub(crate) id: TaskId,
     pub(crate) output_name: String,
@@ -77,29 +79,61 @@ pub(crate) struct TaskPathMeta {
 /// The legacy `succeeded`/`cancelled`/`failed` buckets are populated exactly as
 /// the old `From<JobSummary>` impl did. The additive `results` vec is built in
 /// `meta` order (which mirrors the planned job's task order), classifying each
-/// task from the three summary vecs and attaching a `reason` only for failures.
+/// task from the four summary vecs and attaching a `reason` for failures and
+/// skips.
 ///
-/// A task id present in `meta` but absent from all three summary buckets cannot
+/// A task id present in `meta` but absent from all four summary buckets cannot
 /// happen for a finished job (`into_summary` reconciles every task into exactly
 /// one bucket); if it ever did, it is conservatively reported as `Failed` with a
 /// synthesized reason rather than silently dropped.
 pub(crate) fn job_summary_dto(summary: JobSummary, meta: &[TaskPathMeta]) -> JobSummaryDto {
-    // Index each task id to its terminal status (and reason, for failures).
-    let mut status_by_id: HashMap<u32, (TaskStatusDto, Option<String>, Option<&std::path::Path>)> =
+    #[derive(Clone, Copy)]
+    enum ResultPath<'a> {
+        Planned,
+        Reported(&'a std::path::Path),
+        Empty,
+    }
+
+    // Index each task id to its terminal status, explanation, and path source.
+    let mut status_by_id: HashMap<u32, (TaskStatusDto, Option<String>, ResultPath<'_>)> =
         HashMap::new();
     for (id, written_to) in &summary.succeeded {
         status_by_id.insert(
             id.get(),
-            (TaskStatusDto::Succeeded, None, Some(written_to.as_path())),
+            (
+                TaskStatusDto::Succeeded,
+                None,
+                ResultPath::Reported(written_to.as_path()),
+            ),
         );
     }
+    for (id, reason) in &summary.skipped {
+        let (explanation, path) = match reason {
+            SkipReason::ExistingKept(path) => (
+                "Destination already exists".to_string(),
+                ResultPath::Reported(path.as_path()),
+            ),
+            SkipReason::NotApplicable => (
+                "Not an archive — nothing to extract".to_string(),
+                ResultPath::Empty,
+            ),
+        };
+        status_by_id.insert(id.get(), (TaskStatusDto::Skipped, Some(explanation), path));
+    }
     for id in &summary.cancelled {
-        status_by_id.insert(id.get(), (TaskStatusDto::Cancelled, None, None));
+        status_by_id.insert(
+            id.get(),
+            (TaskStatusDto::Cancelled, None, ResultPath::Planned),
+        );
     }
     for (id, reason) in &summary.failed {
         status_by_id.insert(
             id.get(),
-            (TaskStatusDto::Failed, Some(reason.clone()), None),
+            (
+                TaskStatusDto::Failed,
+                Some(reason.clone()),
+                ResultPath::Planned,
+            ),
         );
     }
 
@@ -107,25 +141,24 @@ pub(crate) fn job_summary_dto(summary: JobSummary, meta: &[TaskPathMeta]) -> Job
         .iter()
         .map(|m| {
             let raw = m.id.get();
-            let (status, reason, written_to) =
+            let (status, reason, result_path) =
                 status_by_id.get(&raw).cloned().unwrap_or_else(|| {
                     (
                         TaskStatusDto::Failed,
                         Some("task was not accounted for in the run summary".to_string()),
-                        None,
+                        ResultPath::Planned,
                     )
                 });
-            let (output_name, output_path) = written_to.map_or_else(
-                || (m.output_name.clone(), m.output_path.clone()),
-                |path| {
-                    (
-                        path.file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
-                            .unwrap_or_default(),
-                        path.to_string_lossy().into_owned(),
-                    )
-                },
-            );
+            let (output_name, output_path) = match result_path {
+                ResultPath::Planned => (m.output_name.clone(), m.output_path.clone()),
+                ResultPath::Reported(path) => (
+                    path.file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    path.to_string_lossy().into_owned(),
+                ),
+                ResultPath::Empty => (m.output_name.clone(), String::new()),
+            };
             TaskResultDto {
                 task_id: raw,
                 output_name,
@@ -138,6 +171,7 @@ pub(crate) fn job_summary_dto(summary: JobSummary, meta: &[TaskPathMeta]) -> Job
 
     JobSummaryDto {
         succeeded: summary.succeeded.iter().map(|(id, _)| id.get()).collect(),
+        skipped: summary.skipped.iter().map(|(id, _)| id.get()).collect(),
         cancelled: summary.cancelled.iter().map(|id| id.get()).collect(),
         failed: summary
             .failed
@@ -265,6 +299,7 @@ mod tests {
         // With no task ids and no meta, every bucket and `results` is empty.
         let summary = JobSummary {
             succeeded: Vec::new(),
+            skipped: Vec::new(),
             cancelled: Vec::new(),
             failed: Vec::new(),
         };
@@ -273,6 +308,7 @@ mod tests {
             dto,
             JobSummaryDto {
                 succeeded: Vec::new(),
+                skipped: Vec::new(),
                 cancelled: Vec::new(),
                 failed: Vec::new(),
                 results: Vec::new(),
@@ -334,6 +370,7 @@ mod tests {
 
         let summary = JobSummary {
             succeeded: vec![succeeded(ids[0], "out_1.zip")],
+            skipped: Vec::new(),
             cancelled: vec![ids[2]],
             failed: vec![(ids[1], "boom".to_string())],
         };
@@ -385,6 +422,7 @@ mod tests {
         let written_to = PathBuf::from("/out").join("actual (2).zip");
         let summary = JobSummary {
             succeeded: vec![(id, written_to.clone())],
+            skipped: Vec::new(),
             cancelled: Vec::new(),
             failed: Vec::new(),
         };
@@ -393,6 +431,52 @@ mod tests {
 
         assert_eq!(dto.results[0].output_path, written_to.to_string_lossy());
         assert_eq!(dto.results[0].output_name, "actual (2).zip");
+    }
+
+    #[test]
+    fn job_summary_dto_maps_existing_kept_skip_to_the_existing_path() {
+        let job = three_item_zip_job();
+        let id = job.tasks()[0].id();
+        let meta = zip_meta(&job);
+        let existing = PathBuf::from("/out").join("actual.zip");
+        let summary = JobSummary {
+            succeeded: Vec::new(),
+            skipped: vec![(id, SkipReason::ExistingKept(existing.clone()))],
+            cancelled: Vec::new(),
+            failed: Vec::new(),
+        };
+
+        let dto = job_summary_dto(summary, &meta[..1]);
+
+        assert_eq!(dto.skipped, vec![id.get()]);
+        assert_eq!(dto.results[0].status, TaskStatusDto::Skipped);
+        assert_eq!(
+            dto.results[0].reason,
+            Some("Destination already exists".to_string())
+        );
+        assert_eq!(dto.results[0].output_path, existing.to_string_lossy());
+    }
+
+    #[test]
+    fn job_summary_dto_maps_not_applicable_skip_to_an_empty_path() {
+        let job = three_item_zip_job();
+        let id = job.tasks()[0].id();
+        let meta = zip_meta(&job);
+        let summary = JobSummary {
+            succeeded: Vec::new(),
+            skipped: vec![(id, SkipReason::NotApplicable)],
+            cancelled: Vec::new(),
+            failed: Vec::new(),
+        };
+
+        let dto = job_summary_dto(summary, &meta[..1]);
+
+        assert_eq!(dto.results[0].status, TaskStatusDto::Skipped);
+        assert_eq!(
+            dto.results[0].reason,
+            Some("Not an archive — nothing to extract".to_string())
+        );
+        assert!(dto.results[0].output_path.is_empty());
     }
 
     #[test]
@@ -407,6 +491,7 @@ mod tests {
         }];
         let summary = JobSummary {
             succeeded: Vec::new(),
+            skipped: Vec::new(),
             cancelled: Vec::new(),
             failed: vec![(id, "boom".to_string())],
         };
@@ -427,6 +512,7 @@ mod tests {
                 succeeded(ids[0], "out_1.zip"),
                 succeeded(ids[2], "out_3.zip"),
             ],
+            skipped: Vec::new(),
             cancelled: Vec::new(),
             failed: vec![(ids[1], "kaput".to_string())],
         };
@@ -469,6 +555,7 @@ mod tests {
 
         let summary = JobSummary {
             succeeded: vec![succeeded(ids[0], "photos")],
+            skipped: Vec::new(),
             cancelled: Vec::new(),
             failed: Vec::new(),
         };
@@ -495,6 +582,7 @@ mod tests {
         let meta = zip_meta(&job);
         let summary = JobSummary {
             succeeded: vec![succeeded(ids[0], "out_1.zip")],
+            skipped: Vec::new(),
             cancelled: vec![ids[2]],
             failed: vec![(ids[1], "boom".to_string())],
         };

@@ -534,7 +534,13 @@ describe("RunControls – reset action moved out", () => {
       },
       running: false,
       error: null,
-      summary: { succeeded: [1], cancelled: [], failed: [], results: [] },
+      summary: {
+        succeeded: [1],
+        skipped: [],
+        cancelled: [],
+        failed: [],
+        results: [],
+      },
     });
     render(<RunControls />);
     expect(
