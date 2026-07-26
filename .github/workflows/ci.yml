@@ -1,9 +1,22 @@
 name: CI
 
+# Skipped for changes that no job in this workflow verifies: every gate here is scoped to
+# `src` (package.json), the Rust workspace, or the pinned toolchain. `site/**` is built and
+# checked by deploy-pages.yml instead, and `knip.json` already excludes it from the root knip
+# run. GitHub only skips when EVERY changed file matches, so a PR touching both `docs/` and
+# `src/` still runs the full workflow.
 on:
   push:
     branches: [main]
+    paths-ignore: &ci-irrelevant-paths
+      - "docs/**"
+      - "site/**"
+      - "**/*.md"
+      - "LICENSE"
+      - ".claude/**"
+      - ".superpowers/**"
   pull_request:
+    paths-ignore: *ci-irrelevant-paths
 
 # CI-only debuginfo trimming. `line-tables-only` keeps file:line in panic and test-failure
 # backtraces (all CI needs) and drops variable/type DWARF, which nothing in CI reads. This cuts
