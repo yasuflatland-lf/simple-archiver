@@ -31,11 +31,11 @@ jobs:
             args: ''
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # On workflow_dispatch, build the requested tag; on tag push, the ref is the tag.
           ref: ${{ github.event.inputs.tag || github.ref }}
-      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
       # The universal-apple-darwin build links both arch slices, so both targets are needed.
       - name: Add macOS universal Rust targets
         if: runner.os == 'macOS'
@@ -67,7 +67,7 @@ jobs:
           echo "All macOS signing secrets are present."
       - name: Build bundles
         id: tauri
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         with:
           # No tagName/releaseId: build only and expose artifactPaths; do not create or edit a release.
           args: ${{ matrix.args }}
