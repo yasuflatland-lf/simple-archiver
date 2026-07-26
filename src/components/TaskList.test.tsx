@@ -27,6 +27,7 @@ function makeItems(n: number) {
   return Array.from({ length: n }, (_, i) => ({
     path: `/home/user/archive${i + 1}.rar`,
     kind: "rar" as const,
+    outputStem: `archive${i + 1}`,
   }));
 }
 
@@ -39,9 +40,17 @@ describe("TaskList rendering", () => {
     useJobStore.setState({
       draft: {
         items: [
-          { path: "/home/user/folder1", kind: "folder" },
-          { path: "C:\\Users\\docs\\archive.rar", kind: "rar" },
-          { path: "/tmp/photos", kind: "folder" },
+          {
+            path: "/home/user/folder1",
+            kind: "folder",
+            outputStem: "folder1",
+          },
+          {
+            path: "C:\\Users\\docs\\archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+          { path: "/tmp/photos", kind: "folder", outputStem: "photos" },
         ],
         namingTemplate: null,
         startNumber: 1,
@@ -115,7 +124,7 @@ describe("TaskList rendering", () => {
   it("renders empty string for missing preview names", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/tmp/test.rar", kind: "rar" }],
+        items: [{ path: "/tmp/test.rar", kind: "rar", outputStem: "test" }],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -454,7 +463,7 @@ describe("TaskList progress", () => {
   it("shows a per-row bar and ETA while running", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/tmp/a.rar", kind: "rar" }],
+        items: [{ path: "/tmp/a.rar", kind: "rar", outputStem: "a" }],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -480,7 +489,7 @@ describe("TaskList progress", () => {
   it("shows the summary status after the job finishes", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/tmp/a.rar", kind: "rar" }],
+        items: [{ path: "/tmp/a.rar", kind: "rar", outputStem: "a" }],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -532,7 +541,7 @@ describe("TaskList progress", () => {
   it("shows a human-readable byte caption under the per-row bar", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/tmp/a.rar", kind: "rar" }],
+        items: [{ path: "/tmp/a.rar", kind: "rar", outputStem: "a" }],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,

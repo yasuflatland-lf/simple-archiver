@@ -13,8 +13,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
-// Minimal DraftItemDto stub — only `path` and `kind` are required by the type.
-const ITEM = { path: "/a.rar", kind: "rar" as const };
+// Minimal DraftItemDto stub.
+const ITEM = { path: "/a.rar", kind: "rar" as const, outputStem: "a" };
 
 beforeEach(() => {
   resetJobStore();

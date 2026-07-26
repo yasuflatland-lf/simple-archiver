@@ -22,8 +22,8 @@ beforeEach(() => {
   resetJobStore();
 });
 
-// Minimal DraftItemDto stub – only `path` and `kind` are required by the type.
-const ITEM = { path: "/a.rar", kind: "rar" as const };
+// Minimal DraftItemDto stub.
+const ITEM = { path: "/a.rar", kind: "rar" as const, outputStem: "a" };
 
 // The reason node is referenced by the Run button via aria-describedby.
 function runReasonText(run: HTMLElement): string | null {
@@ -116,11 +116,32 @@ describe("RunControls – Run disabled reasons (accessible)", () => {
     expect(run.getAttribute("title")).toMatch(/choose an output directory/i);
   });
 
-  it("is not aria-disabled and has no reason when ready", () => {
+  it("marks Run aria-disabled with the template reason in Zip mode", () => {
     useJobStore.setState({
       draft: {
         items: [ITEM],
         namingTemplate: null,
+        startNumber: 1,
+        outputDir: "/out",
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      running: false,
+      error: null,
+      summary: null,
+    });
+    render(<RunControls />);
+    const run = screen.getByRole("button", { name: /run/i });
+    expect(run.getAttribute("aria-disabled")).toBe("true");
+    expect(runReasonText(run)).toMatch(/set a naming template/i);
+    expect(run.getAttribute("title")).toMatch(/set a naming template/i);
+  });
+
+  it("is not aria-disabled and has no reason when ready", () => {
+    useJobStore.setState({
+      draft: {
+        items: [ITEM],
+        namingTemplate: "photo_{n}",
         startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
@@ -166,7 +187,7 @@ describe("RunControls – Run action guard", () => {
     useJobStore.setState({
       draft: {
         items: [ITEM],
-        namingTemplate: null,
+        namingTemplate: "photo_{n}",
         startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
@@ -317,7 +338,7 @@ describe("RunControls – ReadinessChip", () => {
     useJobStore.setState({
       draft: {
         items: [ITEM],
-        namingTemplate: null,
+        namingTemplate: "photo_{n}",
         startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",
@@ -458,7 +479,7 @@ describe("RunControls – overwrite confirmation", () => {
     useJobStore.setState({
       draft: {
         items: [ITEM],
-        namingTemplate: null,
+        namingTemplate: "photo_{n}",
         startNumber: 1,
         outputDir: "/out",
         outputMode: "zip",

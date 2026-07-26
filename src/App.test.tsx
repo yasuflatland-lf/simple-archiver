@@ -218,7 +218,7 @@ describe("App", () => {
     // Set up a runnable draft in the store.
     useJobStore.setState({
       draft: {
-        items: [{ path: "/a.rar", kind: "rar" }],
+        items: [{ path: "/a.rar", kind: "rar", outputStem: "a" }],
         namingTemplate: "photo_{n:03}",
         startNumber: 1,
         outputDir: "/out",
