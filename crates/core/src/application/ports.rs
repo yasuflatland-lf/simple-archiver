@@ -1,16 +1,67 @@
 //! Output ports for the application layer.
 //!
-//! Defines the `Archiver`, `Extractor`, `Placer`, and `Clock` ports used by the execution engine.
-//! `Archiver::compress` takes a `CompressContext` for per-task byte-progress
-//! reporting; `Clock` lets the engine run against a controllable time source
-//! in tests. `ArchiveError::Cancelled` is returned when the caller cancels
-//! via the `CancellationToken` carried by `CompressContext`.
+//! Defines the `OutputStrategy`, `Archiver`, `Extractor`, `Placer`, and `Clock`
+//! ports used by the execution engine. `Archiver::compress` takes a
+//! `CompressContext` for per-task byte-progress reporting; `Clock` lets the
+//! engine run against a controllable time source in tests.
+//! `ArchiveError::Cancelled` is returned when the caller cancels via the
+//! `CancellationToken` carried by `CompressContext`.
 
 use crate::application::compress_context::CompressContext;
 use crate::application::extract_context::ExtractContext;
 use crate::domain::conflict_policy::ConflictPolicy;
 use std::future::Future;
 use std::path::{Path, PathBuf};
+
+/// Produces one task's output from a prepared source directory.
+///
+/// The mirror image of the `Extractor` port: `Extractor` absorbs the variation
+/// in INPUT container formats, `OutputStrategy` absorbs the variation in what a
+/// run PRODUCES (a re-zipped archive, an extracted folder, and whatever comes
+/// next). The engine drives implementations across `tokio::spawn`, so the trait
+/// is `Send + Sync` and the future is `Send`, matching `Archiver`/`Extractor`.
+pub trait OutputStrategy: Send + Sync {
+    /// Produce the output for one task.
+    ///
+    /// `desired` is `None` when this task's `OutputName` yields no destination
+    /// (a folder source in Folder mode), in which case the implementation
+    /// returns `Produced::Nothing`.
+    fn produce(
+        &self,
+        prepared: &Path,
+        desired: Option<&Path>,
+        policy: ConflictPolicy,
+        ctx: &CompressContext,
+    ) -> impl Future<Output = Result<Produced, ProduceError>> + Send;
+}
+
+/// What producing a task's output actually did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Produced {
+    /// Output was written at this path.
+    At(PathBuf),
+    /// The destination already existed and was kept (ConflictPolicy::Skip).
+    KeptExisting(PathBuf),
+    /// There was nothing to produce.
+    Nothing,
+}
+
+/// Error returned by an [`OutputStrategy`].
+///
+/// This preserves the stable error surface of the lower-level [`Archiver`] and
+/// [`Placer`] ports while letting the engine handle every output mode uniformly.
+#[derive(Debug, thiserror::Error)]
+pub enum ProduceError {
+    /// Filesystem I/O failed while preparing the output.
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    /// The archiving backend reported a failure.
+    #[error("archive backend error: {0}")]
+    Backend(String),
+    /// The output operation was cancelled by the caller.
+    #[error("cancelled")]
+    Cancelled,
+}
 
 /// What a write attempt produced.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -168,6 +219,7 @@ pub trait Placer: Send + Sync {
 mod tests {
     use super::ArchiveError;
     use super::ExtractError;
+    use super::{OutputStrategy, ProduceError, Produced};
 
     #[test]
     fn cancelled_displays_as_cancelled_and_has_no_source() {
@@ -197,6 +249,25 @@ mod tests {
         let _ = assert_placer::<Noop>;
     }
 
+    #[test]
+    fn output_strategy_is_usable_via_generic_bound() {
+        fn assert_strategy<S: OutputStrategy>() {}
+
+        let _ = assert_strategy::<NoopStrategy>;
+    }
+
+    #[test]
+    fn produce_error_display_strings_are_stable() {
+        let io = ProduceError::Io(std::io::Error::other("boom"));
+        assert_eq!(io.to_string(), "I/O error: boom");
+
+        let backend = ProduceError::Backend("bad header".to_string());
+        assert_eq!(backend.to_string(), "archive backend error: bad header");
+
+        let cancelled = ProduceError::Cancelled;
+        assert_eq!(cancelled.to_string(), "cancelled");
+    }
+
     struct Noop;
     impl super::Placer for Noop {
         async fn place(
@@ -206,6 +277,21 @@ mod tests {
             _policy: crate::domain::conflict_policy::ConflictPolicy,
         ) -> Result<super::Written, super::PlaceError> {
             Ok(super::Written::At(desired_dest.to_path_buf()))
+        }
+    }
+
+    struct NoopStrategy;
+    impl OutputStrategy for NoopStrategy {
+        async fn produce(
+            &self,
+            _prepared: &std::path::Path,
+            desired: Option<&std::path::Path>,
+            _policy: crate::domain::conflict_policy::ConflictPolicy,
+            _ctx: &crate::application::compress_context::CompressContext,
+        ) -> Result<Produced, ProduceError> {
+            Ok(desired
+                .map(|path| Produced::At(path.to_path_buf()))
+                .unwrap_or(Produced::Nothing))
         }
     }
 }

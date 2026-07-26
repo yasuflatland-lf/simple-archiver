@@ -8,9 +8,8 @@ use simple_archiver_core::domain::naming_rule::NamingRule;
 use simple_archiver_core::domain::output_directory::OutputDirectory;
 use simple_archiver_core::domain::source_item::SourceItem;
 use simple_archiver_core::infrastructure::archive_extractor::ArchiveExtractor;
-use simple_archiver_core::infrastructure::fs_placer::FsPlacer;
 use simple_archiver_core::infrastructure::system_clock::SystemClock;
-use simple_archiver_core::infrastructure::zip_archiver::ZipArchiver;
+use simple_archiver_core::infrastructure::zip_output::ZipOutput;
 use std::io::Write as _;
 use std::sync::Arc;
 
@@ -46,9 +45,8 @@ async fn zip_is_extracted_and_recompressed_to_zip() {
     .unwrap();
 
     let engine = RunArchiveJob::with_default_parallelism(
-        Arc::new(ZipArchiver::new()),
+        Arc::new(ZipOutput::new()),
         Arc::new(ArchiveExtractor::new()),
-        Arc::new(FsPlacer::new()),
     );
     let summary = engine.execute(job, &SystemClock::new(), &NullSink).await;
 
