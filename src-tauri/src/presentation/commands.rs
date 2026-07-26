@@ -49,6 +49,20 @@ fn classify_path(path: &Path) -> Result<SourceItem, String> {
     SourceItem::classify(path.to_path_buf(), path.is_dir()).map_err(|e| e.to_string())
 }
 
+/// Reject a draft mutation while a job is running.
+///
+/// The draft is the plan for the NEXT job; the running job already owns an
+/// immutable copy. Editing it mid-run desynchronises the frontend's positional
+/// row->task mapping, so the invariant is enforced here rather than relying on
+/// every caller (and every UI control) to remember.
+fn reject_if_running(state: &AppState) -> Result<(), String> {
+    let run = state.run.lock().map_err(|e| e.to_string())?;
+    if run.is_running() {
+        return Err("a job is running".to_string());
+    }
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Draft commands
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +73,7 @@ fn classify_path(path: &Path) -> Result<SourceItem, String> {
 /// invalid drop never mutates the draft.
 #[tauri::command]
 pub fn add_items(state: State<'_, AppState>, paths: Vec<String>) -> Result<DraftSnapshot, String> {
+    reject_if_running(&state)?;
     let items = paths
         .iter()
         .map(|p| classify_path(Path::new(p)))
@@ -75,6 +90,7 @@ pub fn reorder(
     from: usize,
     to: usize,
 ) -> Result<DraftSnapshot, String> {
+    reject_if_running(&state)?;
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.reorder(from, to)?;
     Ok(draft.snapshot())
@@ -83,6 +99,7 @@ pub fn reorder(
 /// Remove the draft item at `index`, returning the new snapshot.
 #[tauri::command]
 pub fn remove_item(state: State<'_, AppState>, index: usize) -> Result<DraftSnapshot, String> {
+    reject_if_running(&state)?;
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.remove_item(index)?;
     Ok(draft.snapshot())
@@ -94,6 +111,7 @@ pub fn set_naming_rule(
     state: State<'_, AppState>,
     template: String,
 ) -> Result<DraftSnapshot, String> {
+    reject_if_running(&state)?;
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.set_template(template)?;
     Ok(draft.snapshot())
@@ -105,6 +123,7 @@ pub fn set_naming_rule(
 /// ignores it.
 #[tauri::command]
 pub fn set_start_number(state: State<'_, AppState>, start: u32) -> Result<DraftSnapshot, String> {
+    reject_if_running(&state)?;
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.set_start_number(start);
     Ok(draft.snapshot())
@@ -116,6 +135,7 @@ pub fn set_start_number(state: State<'_, AppState>, start: u32) -> Result<DraftS
 /// settings survive a queue reset.
 #[tauri::command]
 pub fn clear_items(state: State<'_, AppState>) -> Result<DraftSnapshot, String> {
+    reject_if_running(&state)?;
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.clear_items();
     Ok(draft.snapshot())
@@ -127,6 +147,7 @@ pub fn set_output_mode(
     state: State<'_, AppState>,
     mode: OutputMode,
 ) -> Result<DraftSnapshot, String> {
+    reject_if_running(&state)?;
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.set_output_mode(output_mode_to_domain(mode));
     Ok(draft.snapshot())
@@ -138,6 +159,7 @@ pub fn set_conflict_policy(
     state: State<'_, AppState>,
     policy: ConflictPolicy,
 ) -> Result<DraftSnapshot, String> {
+    reject_if_running(&state)?;
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.set_conflict_policy(conflict_policy_to_domain(policy));
     Ok(draft.snapshot())
@@ -146,6 +168,7 @@ pub fn set_conflict_policy(
 /// Set the draft's output directory, returning the new snapshot.
 #[tauri::command]
 pub fn set_output_dir(state: State<'_, AppState>, dir: String) -> Result<DraftSnapshot, String> {
+    reject_if_running(&state)?;
     let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
     draft.set_out_dir(PathBuf::from(dir));
     Ok(draft.snapshot())
@@ -295,6 +318,43 @@ pub fn cancel_job(state: State<'_, AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::presentation::state::JobDraft;
+
+    /// Mirror a draft command's testable flow without constructing Tauri
+    /// `State`: run the shared guard, then mutate only when it permits the edit.
+    fn guarded_draft_mutation(
+        state: &AppState,
+        mutation: impl FnOnce(&mut JobDraft) -> Result<(), String>,
+    ) -> Result<(), String> {
+        reject_if_running(state)?;
+        let mut draft = state.draft.lock().map_err(|e| e.to_string())?;
+        mutation(&mut draft)
+    }
+
+    /// Assert one named command path is rejected with the IPC-contract message
+    /// and cannot change the backend draft while the run slot is occupied.
+    fn assert_running_mutation_rejected(
+        state: &AppState,
+        command: &str,
+        before: &DraftSnapshot,
+        mutation: impl FnOnce(&mut JobDraft) -> Result<(), String>,
+    ) {
+        let result = guarded_draft_mutation(state, mutation);
+        assert_eq!(
+            result,
+            Err("a job is running".to_string()),
+            "{command} must reject while a job runs"
+        );
+        let after = state
+            .draft
+            .lock()
+            .expect("draft lock should remain available")
+            .snapshot();
+        assert_eq!(
+            &after, before,
+            "{command} must leave the draft unchanged after rejection"
+        );
+    }
 
     #[test]
     fn preview_resolves_explicit_padded_placeholder() {
@@ -488,6 +548,87 @@ mod tests {
             .try_start(CancellationToken::new())
             .expect_err("a second claim must be rejected while a job runs");
         assert_eq!(err, "a job is already running");
+    }
+
+    /// The draft-mutation guard permits edits while idle and rejects them with
+    /// the exact IPC-contract message while the run slot is claimed.
+    #[test]
+    fn draft_mutation_running_guard_pins_contract_message() {
+        let state = AppState::default();
+        reject_if_running(&state).expect("an idle draft should remain editable");
+
+        state
+            .run
+            .lock()
+            .expect("run lock should be available")
+            .try_start(CancellationToken::new())
+            .expect("claiming an idle slot should succeed");
+
+        let err =
+            reject_if_running(&state).expect_err("a draft edit must be rejected while a job runs");
+        assert_eq!(err, "a job is running");
+    }
+
+    /// All nine draft-mutating command paths are read-only while a run owns the
+    /// slot, so each rejected attempt preserves the complete draft snapshot.
+    #[test]
+    fn all_draft_mutating_commands_reject_while_running_without_changes() {
+        let state = AppState::default();
+        {
+            let mut draft = state.draft.lock().expect("draft lock should be available");
+            draft.add_items(vec![
+                SourceItem::RarFile(PathBuf::from("/a.rar")),
+                SourceItem::Folder(PathBuf::from("/photos")),
+            ]);
+            draft
+                .set_template("item_{n}".to_string())
+                .expect("template should be valid");
+            draft.set_start_number(3);
+            draft.set_out_dir(PathBuf::from("/out"));
+        }
+        let before = state
+            .draft
+            .lock()
+            .expect("draft lock should be available")
+            .snapshot();
+        state
+            .run
+            .lock()
+            .expect("run lock should be available")
+            .try_start(CancellationToken::new())
+            .expect("claiming an idle slot should succeed");
+
+        assert_running_mutation_rejected(&state, "add_items", &before, |draft| {
+            draft.add_items(vec![SourceItem::ZipFile(PathBuf::from("/late.zip"))]);
+            Ok(())
+        });
+        assert_running_mutation_rejected(&state, "reorder", &before, |draft| draft.reorder(0, 1));
+        assert_running_mutation_rejected(&state, "remove_item", &before, |draft| {
+            draft.remove_item(0)
+        });
+        assert_running_mutation_rejected(&state, "set_naming_rule", &before, |draft| {
+            draft.set_template("changed_{n}".to_string())
+        });
+        assert_running_mutation_rejected(&state, "set_start_number", &before, |draft| {
+            draft.set_start_number(10);
+            Ok(())
+        });
+        assert_running_mutation_rejected(&state, "clear_items", &before, |draft| {
+            draft.clear_items();
+            Ok(())
+        });
+        assert_running_mutation_rejected(&state, "set_output_dir", &before, |draft| {
+            draft.set_out_dir(PathBuf::from("/changed"));
+            Ok(())
+        });
+        assert_running_mutation_rejected(&state, "set_output_mode", &before, |draft| {
+            draft.set_output_mode(output_mode_to_domain(OutputMode::Folder));
+            Ok(())
+        });
+        assert_running_mutation_rejected(&state, "set_conflict_policy", &before, |draft| {
+            draft.set_conflict_policy(conflict_policy_to_domain(ConflictPolicy::Overwrite));
+            Ok(())
+        });
     }
 
     // ── set_output_mode command ───────────────────────────────────────────────

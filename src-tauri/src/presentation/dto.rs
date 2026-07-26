@@ -177,6 +177,10 @@ pub struct DraftItemDto {
     pub path: String,
     /// Whether the item is a folder, a rar, or a zip.
     pub kind: SourceKind,
+    /// The base name this item's output is derived from, as computed by the
+    /// domain (`SourceItem::output_stem`). Shipped from Rust so the frontend
+    /// never re-derives it.
+    pub output_stem: String,
 }
 
 /// The kind of a draft source item.
@@ -443,10 +447,12 @@ mod tests {
                 DraftItemDto {
                     path: "/a/folder".to_string(),
                     kind: SourceKind::Folder,
+                    output_stem: "folder".to_string(),
                 },
                 DraftItemDto {
                     path: "/a/file.rar".to_string(),
                     kind: SourceKind::Rar,
+                    output_stem: "file".to_string(),
                 },
             ],
             naming_template: Some("f{n}".to_string()),
@@ -458,6 +464,7 @@ mod tests {
         let v = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(v["items"][0]["path"], json!("/a/folder"));
         assert_eq!(v["items"][0]["kind"], json!("folder"));
+        assert_eq!(v["items"][0]["outputStem"], json!("folder"));
         assert_eq!(v["items"][1]["kind"], json!("rar"));
         assert_eq!(v["namingTemplate"], json!("f{n}"));
         assert_eq!(v["startNumber"], json!(1));
