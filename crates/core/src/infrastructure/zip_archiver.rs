@@ -33,7 +33,7 @@ impl Archiver for ZipArchiver {
         dest_zip: &Path,
         policy: ConflictPolicy,
         ctx: &CompressContext,
-    ) -> Result<(), ArchiveError> {
+    ) -> Result<PathBuf, ArchiveError> {
         // Collect the file list from the walk BEFORE creating the output file.
         // If `dest_zip` lives inside `src_dir`, this guarantees it cannot appear
         // in the walk at all, so it is never archived into itself — regardless
@@ -58,8 +58,8 @@ impl Archiver for ZipArchiver {
         // `AutoRename` has chosen a free `name (n).zip`. Resolved after the cancel
         // checkpoint so a cancelled `Overwrite` never deletes the existing file.
         let (dest, file) = match resolve_destination(dest_zip, policy).await? {
-            Some(claimed) => claimed,
-            None => return Ok(()),
+            Resolution::Write(path, file) => (path, file),
+            Resolution::SkipExisting(path) => return Ok(path),
         };
 
         let mut writer = ZipFileWriter::with_tokio(file);
@@ -128,7 +128,7 @@ impl Archiver for ZipArchiver {
             remove_partial_output(&dest).await;
             return Err(e);
         }
-        Ok(())
+        Ok(dest)
     }
 }
 
@@ -186,30 +186,24 @@ async fn remove_partial_output(dest_zip: &Path) {
 ///
 /// - [`ConflictPolicy::AutoRename`]: never clobber — return the first free
 ///   `name (2).zip`, `name (3).zip`, … (or `dest_zip` itself if free).
-/// - [`ConflictPolicy::Skip`]: return `None` (a successful no-op) when `dest_zip`
-///   already exists, leaving it untouched; otherwise write at `dest_zip`.
+/// - [`ConflictPolicy::Skip`]: return the existing path when `dest_zip` already
+///   exists, leaving it untouched; otherwise write at `dest_zip`.
 /// - [`ConflictPolicy::Overwrite`]: remove an existing `dest_zip`, then write at
 ///   the same path. A missing file is not an error.
 ///
-/// Mirrors `FsPlacer`'s collision handling for Folder mode. Returns the claimed
-/// path with the file handle that claimed it, or `None` to skip writing entirely.
+/// Mirrors `FsPlacer`'s collision handling for Folder mode.
 async fn resolve_destination(
     dest_zip: &Path,
     policy: ConflictPolicy,
-) -> Result<Option<(PathBuf, tokio::fs::File)>, ArchiveError> {
-    let resolution = resolve_path(
+) -> Result<Resolution<tokio::fs::File>, ArchiveError> {
+    Ok(resolve_path(
         dest_zip,
         policy,
         |n| renamed_zip_candidate(dest_zip, n),
         claim_zip_file,
         tokio::fs::remove_file,
     )
-    .await?;
-
-    match resolution {
-        Resolution::Write(path, file) => Ok(Some((path, file))),
-        Resolution::SkipExisting(_) => Ok(None),
-    }
+    .await?)
 }
 
 /// Atomically claim a zip path by opening a brand-new file. Only an existing
@@ -394,7 +388,7 @@ mod tests {
         let dest = out.path().join("o.zip");
         std::fs::write(&dest, b"pre-existing").unwrap();
 
-        ZipArchiver::new()
+        let written_to = ZipArchiver::new()
             .compress(
                 src.path(),
                 &dest,
@@ -404,6 +398,7 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(written_to, out.path().join("o (2).zip"));
         assert_eq!(
             std::fs::read(&dest).unwrap(),
             b"pre-existing",
@@ -447,7 +442,7 @@ mod tests {
         let dest = out.path().join("o.zip");
         std::fs::write(&dest, b"pre-existing").unwrap();
 
-        ZipArchiver::new()
+        let written_to = ZipArchiver::new()
             .compress(
                 src.path(),
                 &dest,
@@ -457,6 +452,7 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(written_to, dest);
         assert_eq!(std::fs::read(&dest).unwrap(), b"pre-existing");
         assert!(!out.path().join("o (2).zip").exists());
     }
@@ -471,7 +467,7 @@ mod tests {
         let dest = out.path().join("o.zip");
         std::fs::write(&dest, b"pre-existing").unwrap();
 
-        ZipArchiver::new()
+        let written_to = ZipArchiver::new()
             .compress(
                 src.path(),
                 &dest,
@@ -481,6 +477,7 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(written_to, dest);
         assert_eq!(zip_entry_names(&dest), vec!["a.txt".to_string()]);
         assert!(!out.path().join("o (2).zip").exists());
     }

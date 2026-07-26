@@ -1,6 +1,7 @@
 //! The single-writer aggregator: owns job status + the progress projection.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::application::progress::{JobProgress, TaskProgressEntry};
@@ -23,8 +24,8 @@ pub(crate) enum WorkerMsg {
 /// The outcome of a finished job.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobSummary {
-    /// Tasks that completed successfully, in job order.
-    pub succeeded: Vec<TaskId>,
+    /// Tasks that completed, each with the path it actually wrote, in job order.
+    pub succeeded: Vec<(TaskId, PathBuf)>,
     /// Tasks that were cancelled, in job order.
     pub cancelled: Vec<TaskId>,
     /// Tasks that failed, paired with their reason, in job order.
@@ -96,7 +97,7 @@ impl Aggregator {
         let mut failed = Vec::new();
         for outcome in self.job.outcomes() {
             match outcome {
-                TaskOutcome::Succeeded(id) => succeeded.push(id),
+                TaskOutcome::Succeeded { id, written_to } => succeeded.push((id, written_to)),
                 TaskOutcome::Cancelled(id) => cancelled.push(id),
                 TaskOutcome::Failed { id, reason } => failed.push((id, reason)),
             }
@@ -133,6 +134,10 @@ mod tests {
 
     fn ids(j: &ArchiveJob) -> Vec<TaskId> {
         j.tasks().iter().map(|t| t.id()).collect()
+    }
+
+    fn written_to(name: &str) -> PathBuf {
+        PathBuf::from("/out").join(name)
     }
 
     #[test]
@@ -183,7 +188,9 @@ mod tests {
         .unwrap();
         agg.apply(WorkerMsg::Status {
             task: id[0],
-            event: TaskEvent::Complete,
+            event: TaskEvent::Complete {
+                written_to: written_to("f1.zip"),
+            },
         })
         .unwrap();
         agg.apply(WorkerMsg::Status {
@@ -200,11 +207,16 @@ mod tests {
         .unwrap();
         agg.apply(WorkerMsg::Status {
             task: id[2],
-            event: TaskEvent::Complete,
+            event: TaskEvent::Complete {
+                written_to: written_to("f3.zip"),
+            },
         })
         .unwrap();
         let s = agg.into_summary();
-        assert_eq!(s.succeeded, vec![id[0], id[2]]);
+        assert_eq!(
+            s.succeeded,
+            vec![(id[0], written_to("f1.zip")), (id[2], written_to("f3.zip"))]
+        );
         assert_eq!(s.failed, vec![(id[1], "boom".to_string())]);
     }
 
@@ -230,12 +242,14 @@ mod tests {
         .unwrap();
         agg.apply(WorkerMsg::Status {
             task: id[1],
-            event: TaskEvent::Complete,
+            event: TaskEvent::Complete {
+                written_to: written_to("f2.zip"),
+            },
         })
         .unwrap();
 
         let s = agg.into_summary();
-        assert_eq!(s.succeeded, vec![id[1]]);
+        assert_eq!(s.succeeded, vec![(id[1], written_to("f2.zip"))]);
         assert_eq!(s.cancelled, vec![id[0]]);
         assert!(s.failed.is_empty());
     }
@@ -267,7 +281,9 @@ mod tests {
         .unwrap();
         agg.apply(WorkerMsg::Status {
             task: id[0],
-            event: TaskEvent::Complete,
+            event: TaskEvent::Complete {
+                written_to: written_to("f1.zip"),
+            },
         })
         .unwrap();
         agg.apply(WorkerMsg::Status {
@@ -276,7 +292,7 @@ mod tests {
         })
         .unwrap();
         let s = agg.into_summary();
-        assert_eq!(s.succeeded, vec![id[0]]);
+        assert_eq!(s.succeeded, vec![(id[0], written_to("f1.zip"))]);
         assert_eq!(
             s.failed.len(),
             1,

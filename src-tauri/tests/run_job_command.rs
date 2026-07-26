@@ -112,6 +112,25 @@ async fn run_job_inner_happy_path_archives_every_item() {
     );
 }
 
+#[tokio::test]
+async fn run_job_inner_reports_the_auto_renamed_output_path() {
+    let src = source_folder_with_file(b"alpha");
+    let out_dir = tempfile::tempdir().expect("create out tempdir");
+    let planned = out_dir.path().join("out_1.zip");
+    fs::write(&planned, b"pre-existing").expect("occupy planned destination");
+    let job = build_single_folder_job(src.path(), out_dir.path());
+
+    let summary = run_job_inner(&RecordingEmitter::default(), job, CancellationToken::new()).await;
+
+    let written_to = out_dir.path().join("out_1 (2).zip");
+    assert!(written_to.is_file(), "the auto-renamed zip should exist");
+    assert_eq!(summary.results[0].output_path, written_to.to_string_lossy());
+    assert_eq!(
+        summary.results[0].output_name,
+        written_to.file_name().unwrap().to_string_lossy()
+    );
+}
+
 /// Path to the committed real RAR5 fixture in the core crate's test tree.
 fn rar_fixture() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/core/tests/fixtures/sample.rar")

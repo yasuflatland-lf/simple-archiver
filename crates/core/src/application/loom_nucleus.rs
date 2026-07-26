@@ -49,7 +49,9 @@ pub(crate) fn model_terminal_messages_are_not_lost() {
             success_tx
                 .send(WorkerMsg::Status {
                     task: success_task,
-                    event: TaskEvent::Complete,
+                    event: TaskEvent::Complete {
+                        written_to: PathBuf::from("/out/f1"),
+                    },
                 })
                 .expect("aggregator receiver should be alive");
         });
@@ -111,7 +113,7 @@ pub(crate) fn model_terminal_messages_are_not_lost() {
         failed.join().expect("failure worker should not panic");
 
         let summary = aggregator.into_summary();
-        assert_eq!(summary.succeeded, vec![ids[0]]);
+        assert_eq!(summary.succeeded, vec![(ids[0], PathBuf::from("/out/f1"))]);
         assert_eq!(summary.cancelled, vec![ids[1]]);
         assert_eq!(summary.failed, vec![(ids[2], "boom".to_string())]);
     });

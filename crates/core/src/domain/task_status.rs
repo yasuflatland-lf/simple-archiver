@@ -1,5 +1,7 @@
 //! The event-driven status state machine for a single archive task.
 
+use std::path::PathBuf;
+
 /// Represents the current lifecycle state of a single archive task.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TaskStatus {
@@ -9,8 +11,8 @@ pub enum TaskStatus {
     Extracting,
     /// Extracted contents (or the folder directly) are being compressed.
     Compressing,
-    /// Task finished successfully.
-    Completed,
+    /// Task finished successfully, having written `written_to`.
+    Completed { written_to: PathBuf },
     /// Task failed with the given reason.
     Failed { reason: String },
     /// Task was cancelled before completion.
@@ -24,8 +26,8 @@ pub enum TaskEvent {
     StartExtracting,
     /// Begin compression (may come directly from Pending for the folder fast-path).
     StartCompressing,
-    /// The compression step finished successfully.
-    Complete,
+    /// The write finished; carries the path that was actually written.
+    Complete { written_to: PathBuf },
     /// An error occurred; carries a human-readable description.
     Fail { reason: String },
     /// The user (or the system) cancelled the task.
@@ -54,7 +56,9 @@ impl TaskStatus {
             // Folder fast-path: a folder needs no extraction.
             (TaskStatus::Pending, TaskEvent::StartCompressing) => Ok(TaskStatus::Compressing),
             (TaskStatus::Extracting, TaskEvent::StartCompressing) => Ok(TaskStatus::Compressing),
-            (TaskStatus::Compressing, TaskEvent::Complete) => Ok(TaskStatus::Completed),
+            (TaskStatus::Compressing, TaskEvent::Complete { written_to }) => {
+                Ok(TaskStatus::Completed { written_to })
+            }
 
             // ── Fail from any non-terminal state ──────────────────────────
             (
@@ -83,6 +87,22 @@ mod tests {
     use super::*;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    fn written_to() -> PathBuf {
+        PathBuf::from("/out/f1")
+    }
+
+    fn complete() -> TaskEvent {
+        TaskEvent::Complete {
+            written_to: written_to(),
+        }
+    }
+
+    fn completed() -> TaskStatus {
+        TaskStatus::Completed {
+            written_to: written_to(),
+        }
+    }
 
     /// Assert that `state.apply(event)` succeeds and equals `expected`.
     fn assert_transition(state: TaskStatus, event: TaskEvent, expected: TaskStatus) {
@@ -141,11 +161,7 @@ mod tests {
 
     #[test]
     fn compressing_complete_goes_to_completed() {
-        assert_transition(
-            TaskStatus::Compressing,
-            TaskEvent::Complete,
-            TaskStatus::Completed,
-        );
+        assert_transition(TaskStatus::Compressing, complete(), completed());
     }
 
     // ── Fail transitions (reason is carried through) ──────────────────────────
@@ -230,7 +246,7 @@ mod tests {
 
     #[test]
     fn pending_complete_is_illegal() {
-        assert_illegal(TaskStatus::Pending, TaskEvent::Complete);
+        assert_illegal(TaskStatus::Pending, complete());
     }
 
     #[test]
@@ -240,7 +256,7 @@ mod tests {
 
     #[test]
     fn extracting_complete_is_illegal() {
-        assert_illegal(TaskStatus::Extracting, TaskEvent::Complete);
+        assert_illegal(TaskStatus::Extracting, complete());
     }
 
     #[test]
@@ -259,7 +275,7 @@ mod tests {
         vec![
             TaskEvent::StartExtracting,
             TaskEvent::StartCompressing,
-            TaskEvent::Complete,
+            complete(),
             TaskEvent::Fail {
                 reason: "irrelevant".to_string(),
             },
@@ -270,7 +286,7 @@ mod tests {
     #[test]
     fn completed_rejects_all_events() {
         for event in all_events() {
-            assert_illegal(TaskStatus::Completed, event);
+            assert_illegal(completed(), event);
         }
     }
 
@@ -299,7 +315,7 @@ mod tests {
     fn illegal_transition_display_contains_from_and_event() {
         let err = IllegalTransition {
             from: TaskStatus::Pending,
-            event: TaskEvent::Complete,
+            event: complete(),
         };
         let msg = err.to_string();
         assert!(

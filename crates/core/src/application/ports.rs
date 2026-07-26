@@ -45,15 +45,19 @@ pub trait Archiver: Send + Sync {
     ///   `name (3).zip`, … (the ` (n)` is inserted before the extension), leaving
     ///   the existing file untouched.
     /// - [`ConflictPolicy::Skip`]: leave the existing file untouched and write
-    ///   nothing — reported as a successful no-op (`Ok(())`).
+    ///   nothing.
     /// - [`ConflictPolicy::Overwrite`]: remove the existing file, then write.
+    ///
+    /// Returns the path actually written, which differs from `dest_zip` when
+    /// [`ConflictPolicy::AutoRename`] resolved a collision. Under
+    /// [`ConflictPolicy::Skip`], returns the existing destination path.
     fn compress(
         &self,
         src_dir: &Path,
         dest_zip: &Path,
         policy: ConflictPolicy,
         ctx: &CompressContext,
-    ) -> impl Future<Output = Result<(), ArchiveError>> + Send;
+    ) -> impl Future<Output = Result<PathBuf, ArchiveError>> + Send;
 }
 
 /// A source of monotonic time, behind a port so the application can be tested
