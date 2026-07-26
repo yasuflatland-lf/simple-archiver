@@ -592,7 +592,7 @@ mod tests {
         draft.set_start_number(0);
 
         let job = draft.build().expect("draft should plan OK with start 0");
-        assert_eq!(job.tasks()[0].output_name().as_str(), "00.zip");
+        assert_eq!(job.tasks()[0].output_name().as_str(), Some("00.zip"));
     }
 
     // ── set_out_dir / snapshot.output_dir ────────────────────────────────────

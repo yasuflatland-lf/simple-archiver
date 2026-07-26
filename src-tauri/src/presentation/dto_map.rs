@@ -284,14 +284,18 @@ mod tests {
     /// formula.
     fn zip_meta(job: &ArchiveJob) -> Vec<TaskPathMeta> {
         let out_dir = job.output_directory().path();
-        let mode = job.output_mode();
         job.tasks()
             .iter()
             .map(|t| TaskPathMeta {
                 id: t.id(),
-                output_name: t.output_name().as_str().to_string(),
+                output_name: t
+                    .output_name()
+                    .as_str()
+                    .expect("a Zip task always has an output name")
+                    .to_string(),
                 output_path: t
-                    .output_destination(out_dir, mode)
+                    .output_destination(out_dir)
+                    .expect("a Zip task always has a destination")
                     .to_string_lossy()
                     .into_owned(),
             })
@@ -376,7 +380,6 @@ mod tests {
 
         // Build meta the same way the command does for Folder mode.
         let out_dir = job.output_directory().path();
-        let mode = job.output_mode();
         let meta: Vec<TaskPathMeta> = job
             .tasks()
             .iter()
@@ -384,7 +387,8 @@ mod tests {
                 id: t.id(),
                 output_name: t.source().output_stem(),
                 output_path: t
-                    .output_destination(out_dir, mode)
+                    .output_destination(out_dir)
+                    .expect("an archive source in Folder mode has a destination")
                     .to_string_lossy()
                     .into_owned(),
             })

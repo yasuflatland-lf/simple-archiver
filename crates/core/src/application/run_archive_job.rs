@@ -40,10 +40,13 @@ impl TaskProgressReport for ChannelReporter {
 }
 
 /// One unit of work, extracted before the job moves into the aggregator.
+///
+/// `dest` is `None` when the task produces no output at all (a Folder-mode
+/// folder source): there is nothing to compress and nothing to place.
 struct WorkItem {
     task: TaskId,
     source: SourceItem,
-    dest: PathBuf,
+    dest: Option<PathBuf>,
     mode: OutputMode,
     policy: ConflictPolicy,
 }
@@ -117,7 +120,7 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
                 task: t.id(),
                 source: t.source().clone(),
                 // Single source of truth for the destination formula (domain).
-                dest: t.output_destination(&out_dir, mode),
+                dest: t.output_destination(&out_dir),
                 mode,
                 policy,
             })
@@ -344,26 +347,30 @@ async fn run_one_inner<A: Archiver, E: Extractor, P: Placer>(
         task: item.task,
         event: TaskEvent::StartCompressing,
     });
-    let event = match item.mode {
-        OutputMode::Zip => {
+    let event = match (item.mode, &item.dest) {
+        (OutputMode::Zip, Some(dest)) => {
             let reporter = Arc::new(ChannelReporter { tx: tx.clone() });
             let ctx = CompressContext::new(item.task, reporter, cancellation_token);
             map_archive_result(
                 archiver
-                    .compress(prepared.dir(), &item.dest, item.policy, &ctx)
+                    .compress(prepared.dir(), dest, item.policy, &ctx)
                     .await,
             )
         }
-        OutputMode::Folder => {
-            // A folder source has no archive to extract in Folder mode, so there
-            // is nothing to place: terminate as a skip (Complete with no
-            // placement) instead of copying the source folder (spec §11 default).
-            if matches!(item.source, SourceItem::Folder(_)) {
-                TaskEvent::Complete
-            } else {
-                map_place_result(placer.place(prepared.dir(), &item.dest, item.policy).await)
-            }
+        // Unreachable in practice: a Zip-mode job is planned with
+        // `OutputName::Zip`, which always yields a destination. Reported as a
+        // task failure rather than `unwrap()`ed so a future planning bug surfaces
+        // as one failed task instead of a panicking worker.
+        (OutputMode::Zip, None) => TaskEvent::Fail {
+            reason: "no output destination for a zip task".to_string(),
+        },
+        (OutputMode::Folder, Some(dest)) => {
+            map_place_result(placer.place(prepared.dir(), dest, item.policy).await)
         }
+        // No destination means the task produces nothing (a folder source has no
+        // archive to extract in Folder mode): terminate as a skip (Complete with
+        // no placement) instead of copying the source folder (spec §11 default).
+        (OutputMode::Folder, None) => TaskEvent::Complete,
     };
     let _ = tx.send(WorkerMsg::Status {
         task: item.task,
