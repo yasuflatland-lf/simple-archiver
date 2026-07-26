@@ -128,9 +128,8 @@ impl<A: Archiver + 'static, E: Extractor + 'static, P: Placer + 'static> RunArch
 
         // Drive the aggregation loop, then join workers (compress outcomes are
         // already captured as terminal events). A panicked worker yields a join
-        // error here; we ignore it because the task is still tallied as `failed`
-        // via `into_summary`'s state reconciliation (it never reached a terminal
-        // status), so no behavior change is needed.
+        // error here; we ignore it because its `TerminalGuard` has already reported
+        // the panic as that task's terminal `Fail`, so there is nothing to recover.
         let summary = drive_aggregation(job, clock, sink, rx).await;
         for handle in handles {
             let _ = handle.await;
@@ -255,9 +254,77 @@ async fn drive_aggregation<C: Clock, S: ProgressSink>(
     aggregator.into_summary()
 }
 
+/// Guarantees a worker always reports a terminal event, even when it dies.
+///
+/// [`run_one_inner`] sends exactly one terminal event on every path it returns
+/// from, so the guard is disarmed the moment that body returns. A guard that drops
+/// while still armed means the worker never got there — a panic inside a backend
+/// library, or the future being dropped — and it emits `Fail` so the task carries a
+/// cause instead of being reconciled into the opaque "did not reach a terminal
+/// state", which names the symptom rather than the bug.
+struct TerminalGuard {
+    task: TaskId,
+    tx: mpsc::UnboundedSender<WorkerMsg>,
+    armed: bool,
+}
+
+impl TerminalGuard {
+    fn new(task: TaskId, tx: mpsc::UnboundedSender<WorkerMsg>) -> Self {
+        Self {
+            task,
+            tx,
+            armed: true,
+        }
+    }
+
+    /// Stand down: the body reported its own terminal event.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // `panicking()` holds only while this thread unwinds, which separates a
+        // worker that panicked from one whose future was dropped before finishing.
+        let reason = if std::thread::panicking() {
+            "worker panicked before reporting a result"
+        } else {
+            "worker stopped before reporting a result"
+        };
+        let _ = self.tx.send(WorkerMsg::Status {
+            task: self.task,
+            event: TaskEvent::Fail {
+                reason: reason.to_string(),
+            },
+        });
+    }
+}
+
+/// Execute a single work item under a [`TerminalGuard`], so a panicking backend
+/// still yields a terminal event for the task.
+async fn run_one<A: Archiver, E: Extractor, P: Placer>(
+    archiver: &A,
+    registry: &FormatRegistry<E>,
+    placer: &P,
+    item: WorkItem,
+    tx: mpsc::UnboundedSender<WorkerMsg>,
+    cancellation_token: CancellationToken,
+) {
+    let mut guard = TerminalGuard::new(item.task, tx.clone());
+    run_one_inner(archiver, registry, placer, item, tx, cancellation_token).await;
+    guard.disarm();
+}
+
 /// Execute a single work item: checkpoint → extract → write → emit terminal.
 /// The "write" phase is compression (Zip) or placement (Folder).
-async fn run_one<A: Archiver, E: Extractor, P: Placer>(
+///
+/// Every path that returns from here has sent exactly one terminal event, which is
+/// what lets [`run_one`] disarm its guard on return.
+async fn run_one_inner<A: Archiver, E: Extractor, P: Placer>(
     archiver: &A,
     registry: &FormatRegistry<E>,
     placer: &P,
@@ -519,6 +586,20 @@ mod tests {
         }
     }
 
+    /// An extractor that panics instead of returning, standing in for a bug in a
+    /// backend library (the real one: `async_zip` panicking on an overflow check
+    /// while rejecting a malformed header).
+    struct PanickingExtractor;
+    impl Extractor for PanickingExtractor {
+        async fn extract(
+            &self,
+            _src: &Path,
+            _ctx: &ExtractContext,
+        ) -> Result<Box<dyn ExtractedTree>, ExtractError> {
+            panic!("backend exploded");
+        }
+    }
+
     /// A fake placer: records each dest it is asked to place and always succeeds
     /// (returns the desired path). The engine test only checks that place was
     /// called with the right destination paths; it does not create on-disk state.
@@ -640,6 +721,40 @@ mod tests {
         assert!(
             seen.iter().all(|p| *p == ConflictPolicy::Overwrite),
             "every compress call must receive the job's policy, got {seen:?}"
+        );
+    }
+
+    /// A panicking worker used to emit no terminal event at all, leaving the task
+    /// stuck mid-flight; `into_summary` then reconciled it into the opaque "task did
+    /// not reach a terminal state (status: Extracting)". That message names the
+    /// symptom, not the cause, so the worker must report the panic itself.
+    #[tokio::test]
+    async fn a_panicking_worker_reports_its_task_as_failed_by_panic() {
+        let job = ArchiveJob::plan(
+            vec![SourceItem::RarFile(PathBuf::from("a.rar"))],
+            NamingRule::parse("f{n}").unwrap(),
+            OutputDirectory::new(PathBuf::from("/out")),
+        )
+        .unwrap();
+        let ids: Vec<TaskId> = job.tasks().iter().map(|t| t.id()).collect();
+        let engine = RunArchiveJob::new(
+            Arc::new(FakeArchiver::new()),
+            Arc::new(PanickingExtractor),
+            Arc::new(FakePlacer::new()),
+            nz(2),
+        );
+        let sink = RecordingSink::default();
+        let clock = FixedClock(Instant::now());
+
+        let summary = engine.execute(job, &clock, &sink).await;
+
+        assert!(summary.succeeded.is_empty() && summary.cancelled.is_empty());
+        assert_eq!(summary.failed.len(), 1, "the panicked task is tallied once");
+        let (id, reason) = &summary.failed[0];
+        assert_eq!(*id, ids[0]);
+        assert!(
+            reason.contains("panicked"),
+            "the failure must name the panic, got {reason:?}"
         );
     }
 
