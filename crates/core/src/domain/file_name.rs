@@ -114,6 +114,24 @@ impl OutputName {
         }
     }
 
+    /// The key two outputs are compared by when deciding whether they would
+    /// land on the same filesystem entry.
+    ///
+    /// Folds the two ways a filesystem collapses distinct strings onto one file:
+    /// Unicode normalisation (APFS/HFS+ treat NFC and NFD as the same name) and
+    /// case (Windows and default-configured macOS are case-insensitive). NFC is
+    /// chosen over NFD only because it is the shorter, more common form; the
+    /// direction does not matter as long as it is applied to both sides.
+    ///
+    /// This is deliberately applied on every platform, matching how `FileStem`
+    /// already enforces Windows naming rules everywhere: the safest common
+    /// denominator, so a batch that plans on one OS plans on all of them.
+    pub fn fold_key(&self) -> Option<String> {
+        use unicode_normalization::UnicodeNormalization as _;
+        self.as_str()
+            .map(|s| s.nfc().collect::<String>().to_lowercase())
+    }
+
     /// Whether this task produces an output that can collide with another.
     ///
     /// The job-level uniqueness guard consults this so an item that writes
@@ -199,5 +217,31 @@ mod tests {
         assert!(zip.produces_output());
         assert!(folder.produces_output());
         assert!(!OutputName::None.produces_output());
+    }
+
+    #[test]
+    fn fold_key_maps_nfc_and_nfd_spellings_to_the_same_key() {
+        let nfc = OutputName::Folder(
+            FileStem::new("\u{30AC}\u{30A4}\u{30C9}").expect("NFC spelling is a valid stem"),
+        );
+        let nfd = OutputName::Folder(
+            FileStem::new("\u{30AB}\u{3099}\u{30A4}\u{30C8}\u{3099}")
+                .expect("NFD spelling is a valid stem"),
+        );
+
+        assert_eq!(nfc.fold_key(), nfd.fold_key());
+    }
+
+    #[test]
+    fn fold_key_maps_non_ascii_case_variants_to_the_same_key() {
+        let uppercase = OutputName::Folder(FileStem::new("\u{00C9}tude").expect("name is valid"));
+        let lowercase = OutputName::Folder(FileStem::new("\u{00E9}tude").expect("name is valid"));
+
+        assert_eq!(uppercase.fold_key(), lowercase.fold_key());
+    }
+
+    #[test]
+    fn fold_key_of_none_is_none() {
+        assert_eq!(OutputName::None.fold_key(), None);
     }
 }

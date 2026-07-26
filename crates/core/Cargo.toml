@@ -13,6 +13,7 @@ walkdir = "2"
 thiserror = "2"
 tempfile = "3"
 unrar = "0.5"
+unicode-normalization = "0.1"
 loom = { version = "0.7", optional = true }
 logos = "0.16"
 lalrpop-util = "0.23"
