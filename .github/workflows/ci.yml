@@ -5,6 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+# CI-only debuginfo trimming. `line-tables-only` keeps file:line in panic and test-failure
+# backtraces (all CI needs) and drops variable/type DWARF, which nothing in CI reads. This cuts
+# codegen + link time on the `app` jobs and shrinks `target/debug`, which in turn shrinks the
+# Swatinem/rust-cache entries — the repo is currently 12.49 GB against GitHub's 10 GB cache
+# limit, so entries are being evicted and every eviction costs a full cold rebuild.
+# Set as workflow env rather than `[profile.dev]` in Cargo.toml so local development keeps
+# full debug info for step-debugging.
+env:
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+
 jobs:
   core:
     name: core (rust, pure)
@@ -144,19 +155,24 @@ jobs:
       # Belt and suspenders: mise.toml requests clippy components, but
       # ensure they exist on the active toolchain even if a cached install lacks them.
       - run: rustup component add clippy
-      # Core tests on Windows only: the `core` job already covers them on Linux,
-      # and macOS shares Linux's `/` path separator, so a macOS rerun adds nothing.
-      # Windows is kept because it is the sole job that catches `\` vs `/` regressions.
-      - if: matrix.os == 'windows-latest'
-        run: cargo nextest run -p simple-archiver-core --profile ci
       # PR6: the presentation crate's tests (Tauri command surface, progress
       # event sink, run_job integration) only build on runners with the Tauri
       # toolchain, which the app job has. Run them here so they are covered in CI.
       - if: matrix.os == 'macos-latest'
         run: cargo clippy -p simple-archiver --all-targets -- -D warnings
-      - run: cargo nextest run -p simple-archiver --profile ci
+      # Windows additionally runs the core suite: the `core` job already covers it on Linux, and
+      # macOS shares Linux's `/` path separator, so Windows is the sole job that catches `\` vs
+      # `/` regressions. Both crates go through ONE nextest invocation so cargo resolves the
+      # workspace and walks the fingerprint tree once instead of twice — on the Windows runner
+      # that scan is the bulk of the second invocation's non-compile time.
+      - if: matrix.os == 'windows-latest'
+        run: cargo nextest run -p simple-archiver-core -p simple-archiver --profile ci
+      - if: matrix.os == 'macos-latest'
+        run: cargo nextest run -p simple-archiver --profile ci
+      # node_modules is installed for `pnpm tauri build` below (beforeBuildCommand: pnpm build),
+      # not for tests: the vitest suite is jsdom-only with no OS-dependent behaviour, so it runs
+      # once in the `frontend` job rather than a third time here on each OS.
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
       # Smoke-build the app in the dev profile (--debug): this reuses the already
       # compiled `target/debug` dependency tree from the nextest steps above, so
       # the full dependency tree is no longer recompiled a second time under the
