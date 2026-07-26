@@ -116,13 +116,19 @@ impl Extractor for ZipExtractor {
 /// `chardetng` and decode it with `encoding_rs`. Best-effort and never fails: a
 /// mis-detected name still yields a usable string (possibly with U+FFFD) instead
 /// of aborting the whole extraction.
+///
+/// Both detection knobs are `Allow`, matching what chardetng did before it made
+/// them explicit: these are archive entry names, not web content, so neither the
+/// "don't let pages depend on unlabeled UTF-8" nor the "ISO-2022-JP can smuggle
+/// script" browser concern applies here — denying either would only turn legacy
+/// Japanese names into garbage.
 fn resolve_entry_name(utf8: Option<&str>, raw: &[u8]) -> String {
     if let Some(s) = utf8 {
         return s.to_owned();
     }
-    let mut detector = chardetng::EncodingDetector::new();
+    let mut detector = chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Allow);
     detector.feed(raw, true);
-    let encoding = detector.guess(None, true);
+    let encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
     encoding.decode(raw).0.into_owned()
 }
 
@@ -175,6 +181,18 @@ mod tests {
         let (sjis, _, had_errors) = SHIFT_JIS.encode(expected);
         assert!(!had_errors, "fixture must encode cleanly to Shift_JIS");
         assert_eq!(resolve_entry_name(None, &sjis), expected);
+    }
+
+    #[test]
+    fn resolve_entry_name_decodes_iso_2022_jp_when_not_utf8() {
+        // ISO-2022-JP must stay an allowed guess result: the browser-oriented
+        // reason to deny it (script-running pages) does not apply to zip entry
+        // names, and denying it would decode the escape sequences as garbage.
+        use encoding_rs::ISO_2022_JP;
+        let expected = "青の祓魔師 第08巻/第01話.txt";
+        let (encoded, _, had_errors) = ISO_2022_JP.encode(expected);
+        assert!(!had_errors, "fixture must encode cleanly to ISO-2022-JP");
+        assert_eq!(resolve_entry_name(None, &encoded), expected);
     }
 
     #[test]
