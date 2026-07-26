@@ -7,9 +7,10 @@ node = "24.18.0"
 pnpm = "11.16.0"
 "cargo:cargo-nextest" = "0.9.137"
 "cargo:cargo-llvm-cov" = "0.8.7"
-# The dependency-hygiene tools (cargo-modules, cargo-machete) live in mise.ci-hygiene.toml: both
-# compile from source and are only used by the `hygiene` CI job (MISE_ENV=ci-hygiene), so keeping
-# them out of this shared config avoids that compile in the core / frontend / app jobs.
+# cargo-machete lives in mise.ci-hygiene.toml because only the `hygiene` CI job uses it
+# (MISE_ENV=ci-hygiene). cargo-modules is not managed by mise: the job installs it with
+# `cargo install` and caches it keyed on its own version because it publishes no prebuilt binary,
+# while mise-action's cache key hashes every mise*.toml.
 
 [settings]
 # Prefer binary fetch via cargo-binstall when available (faster installs)
