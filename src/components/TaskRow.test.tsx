@@ -22,7 +22,13 @@ describe("TaskRow", () => {
   it("renders the sequence number, basename, kind, and preview name", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        items: [
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -41,7 +47,13 @@ describe("TaskRow", () => {
   it("renders the kind badge with text 'zip' for a zip item", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.zip", kind: "zip" as const }],
+        items: [
+          {
+            path: "/home/user/archive.zip",
+            kind: "zip" as const,
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -62,7 +74,7 @@ describe("TaskRow", () => {
   it("shows a live progress bar while running", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/a.rar", kind: "rar" }],
+        items: [{ path: "/a.rar", kind: "rar", outputStem: "a" }],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -85,7 +97,13 @@ describe("TaskRow", () => {
   it("renders a delete button labelled with the row's basename and the Trash2 icon", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        items: [
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -110,8 +128,12 @@ describe("TaskRow", () => {
     useJobStore.setState({
       draft: {
         items: [
-          { path: "/a.rar", kind: "rar" },
-          { path: "/home/user/archive.rar", kind: "rar" },
+          { path: "/a.rar", kind: "rar", outputStem: "a" },
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
         ],
         namingTemplate: null,
         startNumber: 1,
@@ -137,7 +159,13 @@ describe("TaskRow", () => {
     const selectItem = vi.fn();
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        items: [
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -158,7 +186,13 @@ describe("TaskRow", () => {
     const selectItem = vi.fn();
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        items: [
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -183,7 +217,13 @@ describe("TaskRow", () => {
     const removeItem = vi.fn().mockResolvedValue(undefined);
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        items: [
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -209,7 +249,13 @@ describe("TaskRow", () => {
     const selectItem = vi.fn();
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        items: [
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -236,7 +282,13 @@ describe("TaskRow", () => {
   it("marks the row aria-selected when its index is in the selection", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        items: [
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -254,7 +306,13 @@ describe("TaskRow", () => {
   it("is not aria-selected when its index is not in the selection", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        items: [
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
@@ -272,7 +330,13 @@ describe("TaskRow", () => {
   it("disables the delete button while a job is running", () => {
     useJobStore.setState({
       draft: {
-        items: [{ path: "/home/user/archive.rar", kind: "rar" }],
+        items: [
+          {
+            path: "/home/user/archive.rar",
+            kind: "rar",
+            outputStem: "archive",
+          },
+        ],
         namingTemplate: null,
         startNumber: 1,
         outputDir: null,
