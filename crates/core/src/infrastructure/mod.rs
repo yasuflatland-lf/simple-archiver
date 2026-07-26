@@ -10,6 +10,8 @@
 #[cfg(not(loom))]
 pub mod archive_extractor;
 #[cfg(not(loom))]
+pub mod folder_output;
+#[cfg(not(loom))]
 pub mod fs_placer;
 #[cfg(not(loom))]
 mod path_utils;
@@ -22,5 +24,7 @@ pub mod unrar_extractor;
 pub mod zip_archiver;
 #[cfg(not(loom))]
 pub mod zip_extractor;
+#[cfg(not(loom))]
+pub mod zip_output;
 #[cfg(not(loom))]
 mod zip_repair;
