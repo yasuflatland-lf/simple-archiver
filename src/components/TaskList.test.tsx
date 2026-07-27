@@ -1449,3 +1449,238 @@ describe("TaskList reorder feedback", () => {
     expect(animate).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Focused-row visibility
+// ---------------------------------------------------------------------------
+
+describe("TaskList focused row visibility", () => {
+  // jsdom keeps `scrollTop` pinned at 0 on real elements (no layout box), so the
+  // scroller is faked as a plain object with a writable scrollTop, matching
+  // edge-autoscroll.test.ts.
+  function fakeScroller(top: number, bottom: number): HTMLElement {
+    return {
+      scrollTop: 0,
+      getBoundingClientRect: () =>
+        ({
+          top,
+          bottom,
+          height: bottom - top,
+          left: 0,
+          right: 0,
+          width: 0,
+          x: 0,
+          y: top,
+          toJSON() {},
+        }) as DOMRect,
+    } as unknown as HTMLElement;
+  }
+
+  // Prescribe a uniform row grid on the rendered rows. React reuses these <tr>
+  // nodes across a reorder (index keys, unchanged count), so the stubs survive.
+  function stubRowGrid(rowHeight: number): void {
+    document
+      .querySelectorAll<HTMLElement>("tr[data-row-index]")
+      .forEach((tr) => {
+        const top = Number(tr.dataset.rowIndex) * rowHeight;
+        tr.getBoundingClientRect = () =>
+          ({
+            top,
+            bottom: top + rowHeight,
+            height: rowHeight,
+            left: 0,
+            right: 0,
+            width: 0,
+            x: 0,
+            y: top,
+            toJSON() {},
+          }) as DOMRect;
+      });
+  }
+
+  it("scrolls the work area when a row moves below the fold", async () => {
+    // A store `reorder` that commits a genuinely new draft: animateMove compares
+    // draft references to decide whether the move landed.
+    const reorder = vi
+      .fn()
+      .mockImplementation(async (from: number, to: number) => {
+        const next = [...useJobStore.getState().draft.items];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        useJobStore.setState((s) => ({ draft: { ...s.draft, items: next } }));
+      });
+    useJobStore.setState({
+      draft: {
+        items: makeItems(10),
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: [],
+      reorder,
+    });
+
+    const scroller = fakeScroller(0, 300);
+    const user = userEvent.setup();
+    render(<TaskList scrollContainerRef={{ current: scroller }} />);
+    // Rows sit on a 40px grid, so row 8 (320..360) is past the 300px fold.
+    stubRowGrid(40);
+
+    const downButtons = screen.getAllByRole("button", { name: /move down/i });
+    await user.click(downButtons[7]);
+
+    await waitFor(() => {
+      expect(scroller.scrollTop).toBeGreaterThan(0);
+    });
+  });
+
+  // Seed a 10-row queue plus whatever store overrides the test needs.
+  function seedRows(extra: Record<string, unknown> = {}) {
+    useJobStore.setState({
+      draft: {
+        items: makeItems(10),
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: [],
+      ...extra,
+    });
+  }
+
+  // The item rows (the first <tr> is the header).
+  function itemRows() {
+    return screen.getAllByRole("row").slice(1) as HTMLTableRowElement[];
+  }
+
+  it("scrolls the work area when the selection alone moves off screen", () => {
+    seedRows();
+
+    const scroller = fakeScroller(0, 300);
+    render(<TaskList scrollContainerRef={{ current: scroller }} />);
+    // Rows sit on a 40px grid, so row 8 (320..360) is past the 300px fold.
+    stubRowGrid(40);
+
+    act(() => {
+      // A PURE selection change: the queue contents are untouched, so no
+      // reorder path is involved and this watcher owns the scroll.
+      useJobStore.setState({ selectedIndices: [8], selectionAnchor: 8 });
+    });
+
+    expect(scroller.scrollTop).toBeGreaterThan(0);
+  });
+
+  it("does not scroll the work area when a single row is dropped by drag", async () => {
+    // Mimic the real store's reorder: a fresh draft, and the selection dropped
+    // by the structural edit (draftEdit).
+    const reorder = vi
+      .fn()
+      .mockImplementation(async (from: number, to: number) => {
+        const next = [...useJobStore.getState().draft.items];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        useJobStore.setState((s) => ({
+          draft: { ...s.draft, items: next },
+          selectedIndices: [],
+          selectionAnchor: null,
+        }));
+      });
+    seedRows({ reorder });
+
+    const scroller = fakeScroller(0, 300);
+    render(<TaskList scrollContainerRef={{ current: scroller }} />);
+    stubRowGrid(40);
+
+    const rows = itemRows();
+    // Drag row 0 down onto the bottom half of row 9 (360..400) — deep inside the
+    // bottom edge zone, i.e. the normal end of any long downward drag.
+    fireEvent.pointerDown(screen.getByTestId("reorder-handle-0"));
+    fireEvent.pointerMove(rows[9], { clientY: 396 });
+    // Baseline taken after the last move so any edge auto-scroll already applied
+    // is excluded; only the drop's own effect is under test.
+    const beforeDrop = scroller.scrollTop;
+    await act(async () => {
+      fireEvent.pointerUp(rows[9], { clientY: 396 });
+    });
+
+    expect(reorder).toHaveBeenCalledWith(0, 9);
+    // Drag landing is out of scope: releasing must not yank the list out from
+    // under the pointer.
+    expect(scroller.scrollTop).toBe(beforeDrop);
+  });
+
+  it("does not scroll the work area when a selected block is dropped by drag", async () => {
+    // Mimic applyMovePlan: a fresh draft committed together with the block's new
+    // positions re-applied as the selection.
+    const moveSelectedTo = vi.fn().mockImplementation(async () => {
+      useJobStore.setState((s) => ({
+        draft: { ...s.draft, items: [...s.draft.items] },
+        selectedIndices: [8, 9],
+        selectionAnchor: 8,
+      }));
+    });
+    seedRows({
+      moveSelectedTo,
+      selectedIndices: [0, 1],
+      selectionAnchor: 0,
+    });
+
+    const scroller = fakeScroller(0, 300);
+    render(<TaskList scrollContainerRef={{ current: scroller }} />);
+    stubRowGrid(40);
+
+    const rows = itemRows();
+    fireEvent.pointerDown(screen.getByTestId("reorder-handle-0"));
+    fireEvent.pointerMove(rows[9], { clientY: 396 });
+    const beforeDrop = scroller.scrollTop;
+    await act(async () => {
+      fireEvent.pointerUp(rows[9], { clientY: 396 });
+    });
+
+    expect(moveSelectedTo).toHaveBeenCalledWith(10);
+    // The commit rewrites selectedIndices, but the selection watcher must not
+    // treat that as a plain selection change and chase the block's trailing row.
+    expect(scroller.scrollTop).toBe(beforeDrop);
+  });
+
+  it("leaves the scroller alone when the landing row is already visible", async () => {
+    const reorder = vi
+      .fn()
+      .mockImplementation(async (from: number, to: number) => {
+        const next = [...useJobStore.getState().draft.items];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        useJobStore.setState((s) => ({ draft: { ...s.draft, items: next } }));
+      });
+    useJobStore.setState({
+      draft: {
+        items: makeItems(10),
+        namingTemplate: null,
+        startNumber: 1,
+        outputDir: null,
+        outputMode: "zip",
+        conflictPolicy: "autoRename",
+      },
+      previewNames: [],
+      reorder,
+    });
+
+    const scroller = fakeScroller(0, 300);
+    const user = userEvent.setup();
+    render(<TaskList scrollContainerRef={{ current: scroller }} />);
+    stubRowGrid(40);
+
+    // Row 0 moves to row 1 (40..80), well inside the visible 0..300 band.
+    const downButtons = screen.getAllByRole("button", { name: /move down/i });
+    await user.click(downButtons[0]);
+
+    await waitFor(() => {
+      expect(reorder).toHaveBeenCalled();
+    });
+    expect(scroller.scrollTop).toBe(0);
+  });
+});

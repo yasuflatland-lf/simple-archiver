@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { computeFlipDeltas, reorderPermutation } from "@/components/flip";
+import type { ScrollRowIntoView } from "@/hooks/useScrollRowIntoView";
 import { basename } from "@/lib/path";
 import { planRelocateSelection, planShiftSelection } from "@/lib/queue-move";
 import { useJobStore } from "@/store/jobStore";
@@ -23,7 +24,21 @@ const SLIDE_MS = 200;
  * settle keyframe so the fade completes before the flag clears. */
 const HIGHLIGHT_CLEAR_MS = 800;
 
-type AnimatedReorder = (from: number, to: number) => Promise<void>;
+/** Per-call tweaks for a single-row animated reorder. */
+interface ReorderOptions {
+  /**
+   * Bring the landing row into view once the move has rendered. Defaults to
+   * true, which is what the keyboard and the move buttons want; the drag path
+   * opts out because drag landing is deliberately out of scope.
+   */
+  showLandingRow?: boolean;
+}
+
+type AnimatedReorder = (
+  from: number,
+  to: number,
+  options?: ReorderOptions,
+) => Promise<void>;
 /** Shift the whole selection one slot up/down (keyboard / move buttons). */
 type AnimatedMoveSelected = (direction: "up" | "down") => Promise<void>;
 /** Relocate the whole selection to a drop gap (drag). */
@@ -84,6 +99,7 @@ interface PendingFlip {
  */
 export function useReorderAnimation(
   containerRef: RefObject<HTMLElement | null>,
+  scrollRowIntoView?: ScrollRowIntoView,
 ): {
   animatedReorder: AnimatedReorder;
   animatedMoveSelected: AnimatedMoveSelected;
@@ -97,6 +113,11 @@ export function useReorderAnimation(
   // Pre-commit measurement + the move, stashed by animatedReorder and consumed
   // by the layout effect after the re-render.
   const pendingRef = useRef<PendingFlip | null>(null);
+  // Which row to bring into view once the move has rendered. Captured BEFORE the
+  // store mutation for the same reason as the FLIP capture above: the commit can
+  // resolve and flush React's effects before the awaiting code resumes, so a
+  // stash written afterwards would arrive too late to be consumed.
+  const pendingFocusRef = useRef<number | null>(null);
   // WAAP animations we started, tracked so a rapid second move can cancel them
   // (settling rows to their final layout) before measuring again.
   const activeRef = useRef<Set<Animation>>(new Set());
@@ -127,13 +148,24 @@ export function useReorderAnimation(
   }, []);
 
   // Play the captured FLIP: measure the settled tops, invert each row by its
-  // delta, then animate the transform back to zero so it glides into place.
+  // delta, then animate the transform back to zero so it glides into place. The
+  // pending focus row is scrolled into view from this same effect, wedged
+  // between the measurement and the slides — see the comment below for why the
+  // two cannot be separate effects.
   useLayoutEffect(() => {
     const pending = pendingRef.current;
     pendingRef.current = null;
-    if (!pending) return;
+    const focus = pendingFocusRef.current;
+    pendingFocusRef.current = null;
     const container = containerRef.current;
     if (!container) return;
+    if (!pending) {
+      // Reduced motion: no slide was captured, so no row carries a transform and
+      // every rect already reads a true layout position. The row still has to
+      // end up on screen.
+      if (focus !== null) scrollRowIntoView?.(focus);
+      return;
+    }
     const afterTops: number[] = [];
     const elByIndex: HTMLElement[] = [];
     container
@@ -148,6 +180,19 @@ export function useReorderAnimation(
       pending.beforeTops,
       afterTops,
     );
+    // Scroll here — after the "after" measurement, before the first slide
+    // starts. `el.animate()` leaves the animation play-pending with hold time 0,
+    // so its first keyframe is composed into style at the next style flush, and
+    // a `getBoundingClientRect()` forces exactly that flush. A scroll measured
+    // once the slides are running would therefore read each row's PRE-move
+    // position and land one FLIP delta short.
+    //
+    // Scrolling here cannot corrupt the slide: `deltas` were computed from the
+    // pre-scroll before/after tops, and a transform is a relative displacement,
+    // so both endpoints shift by the same scroll amount and the row still glides
+    // to the right place. It all happens inside one layout-effect flush, so
+    // nothing paints in between.
+    if (focus !== null) scrollRowIntoView?.(focus);
     deltas.forEach((dy, newIndex) => {
       const el = elByIndex[newIndex];
       if (!dy || !el || typeof el.animate !== "function") return;
@@ -160,7 +205,7 @@ export function useReorderAnimation(
         .then(() => activeRef.current.delete(anim))
         .catch(() => activeRef.current.delete(anim));
     });
-  }, [items, containerRef]);
+  }, [items, containerRef, scrollRowIntoView]);
 
   useEffect(
     () => () => {
@@ -178,6 +223,8 @@ export function useReorderAnimation(
       perm: number[],
       apply: () => Promise<void>,
       describe: () => { justMoved: number | null; message: string },
+      /** Row to bring into view once rendered; `null` leaves the scroller alone. */
+      focusIndex: number | null,
     ): Promise<void> => {
       // An identity permutation means nothing moves (a clamped / in-place drop).
       if (perm.every((oldIndex, newIndex) => oldIndex === newIndex)) return;
@@ -187,11 +234,15 @@ export function useReorderAnimation(
         settleActive();
         pendingRef.current = { beforeTops: measureTops(), perm };
       }
+      // Stashed even under reduced motion, where there is no FLIP capture: the
+      // row still has to end up on screen.
+      pendingFocusRef.current = focusIndex;
       const before = useJobStore.getState().draft;
       await apply();
       if (useJobStore.getState().draft === before) {
         // Failed/no-op move: drop the capture, leave no feedback.
         pendingRef.current = null;
+        pendingFocusRef.current = null;
         return;
       }
       const info = describe();
@@ -213,7 +264,7 @@ export function useReorderAnimation(
   );
 
   const animatedReorder = useCallback<AnimatedReorder>(
-    (from, to) => {
+    (from, to, options) => {
       if (from === to) return Promise.resolve();
       const { draft } = useJobStore.getState();
       const name = basename(draft.items[from]?.path ?? "");
@@ -225,6 +276,9 @@ export function useReorderAnimation(
           justMoved: to,
           message: `Moved ${name} to position ${to + 1}`,
         }),
+        // The row landed at `to`; that is what the user is following — unless
+        // the caller opted out (the drag path).
+        options?.showLandingRow === false ? null : to,
       );
     },
     [animateMove],
@@ -238,10 +292,19 @@ export function useReorderAnimation(
         selectedIndices,
         direction,
       );
+      // Follow the edge of the block in the direction of travel: the bottom row
+      // going down, the top row going up.
+      const focusIndex =
+        plan.selected.length === 0
+          ? null
+          : direction === "down"
+            ? plan.selected[plan.selected.length - 1]
+            : plan.selected[0];
       return animateMove(
         plan.order,
         () => useJobStore.getState().moveSelected(direction),
         () => groupedAnnounce(plan.selected.length),
+        focusIndex,
       );
     },
     [animateMove],
@@ -259,6 +322,9 @@ export function useReorderAnimation(
         plan.order,
         () => useJobStore.getState().moveSelectedTo(gap),
         () => groupedAnnounce(plan.selected.length),
+        // Drag drops land under the pointer, which the edge auto-scroll has
+        // already kept on screen; scrolling again would fight the user.
+        null,
       );
     },
     [animateMove],

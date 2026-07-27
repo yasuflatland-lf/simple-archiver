@@ -199,7 +199,11 @@ export function ReorderDndProvider({
         // shifts every gap after it left by one — a gap past `from` maps to
         // `gap - 1`.
         const to = gap <= from ? gap : gap - 1;
-        if (to !== from) void animatedReorder(from, to);
+        // No landing scroll, matching the grouped drag above: the drop lands
+        // under the pointer, which the edge auto-scroll has already kept on
+        // screen, so scrolling on release would yank the list out from under it.
+        if (to !== from)
+          void animatedReorder(from, to, { showLandingRow: false });
       }
     }
     reset();
