@@ -19,6 +19,8 @@ import { TaskRow } from "@/components/TaskRow";
 import { useColumnResize } from "@/hooks/useColumnResize";
 import { useQueueReorderKeys } from "@/hooks/useQueueReorderKeys";
 import { useQueueSelectionKeys } from "@/hooks/useQueueSelectionKeys";
+import { useScrollRowIntoView } from "@/hooks/useScrollRowIntoView";
+import { useSelectedRowVisibility } from "@/hooks/useSelectedRowVisibility";
 import { cn } from "@/lib/utils";
 import { useJobStore } from "@/store/jobStore";
 
@@ -58,13 +60,27 @@ export function TaskList({
   // Queue-scoped keyboard shortcuts (select all / delete / clear). Stable across
   // renders, so it is safe to call before the early return below.
   const onSelectionKeys = useQueueSelectionKeys();
+  // Scrolls a given row into view. Declared before the two hooks below so both
+  // can take it, and stable for stable refs so neither effect re-fires.
+  const scrollRowIntoView = useScrollRowIntoView({
+    tableRef,
+    scrollContainerRef,
+  });
   const {
     animatedReorder,
     animatedMoveSelected,
     animatedMoveSelectedTo,
     justMovedIndex,
     liveMessage,
-  } = useReorderAnimation(tableRef);
+  } = useReorderAnimation(tableRef, scrollRowIntoView);
+  // Kept after useReorderAnimation, which React runs first because it runs
+  // layout effects in declaration order. The two no longer compete: this hook
+  // ignores every change that also swapped draft.items, which is exactly what a
+  // move does, so a move's landing scroll is the only one that happens. The
+  // order stays as the defensive arrangement — should both ever fire for one
+  // render, the move's landing row (measured against the settled layout) is the
+  // one that should win, and minimum-distance scrolling makes the loser a no-op.
+  useSelectedRowVisibility(scrollRowIntoView);
   // Arrow keys move the selected row(s): a single selection routes through the
   // single animated reorder, a multi-row selection through the grouped shift, so
   // the slide/settle/announce match drag and the buttons either way.
