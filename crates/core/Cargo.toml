@@ -20,7 +20,7 @@ lalrpop-util = "0.23"
 
 [dev-dependencies]
 mockall = "=0.15.0"
-tokio = { version = "=1.53.0", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "time"] }
 zip = "=8.6.0"
 
 [build-dependencies]
