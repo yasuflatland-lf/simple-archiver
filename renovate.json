@@ -5,7 +5,7 @@
   "schedule": ["before 9am on monday"],
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
-  "prConcurrentLimit": 10,
+  "prConcurrentLimit": 15,
   "labels": ["dependencies"],
   "customManagers": [
     {
@@ -45,6 +45,39 @@
       "addLabels": ["tooling"]
     },
     {
+      "description": "Automerge lane: low-risk update types get their OWN branch per manager. Renovate only automerges a branch when every update in it is automergeable, so the group key must carry the automerge decision — otherwise a single minor update blocks the whole group.",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "groupName": "frontend (npm) auto",
+      "automerge": true
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchFileNames": ["site/**"],
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "groupName": "site (npm) auto",
+      "automerge": true
+    },
+    {
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "groupName": "backend (cargo) auto",
+      "automerge": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch", "pin", "digest", "pinDigest"],
+      "groupName": "github-actions auto",
+      "automerge": true
+    },
+    {
+      "matchManagers": ["mise"],
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "groupName": "mise auto",
+      "automerge": true
+    },
+    {
+      "description": "Fixed libraries stay last so that automerge:false overrides the automerge lanes above.",
       "matchPackageNames": [
         "tauri",
         "tauri-build",
@@ -69,22 +102,12 @@
       "groupName": "fixed-libs major (review required)",
       "addLabels": ["review-required"],
       "automerge": false
-    },
-    {
-      "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["digest", "pin", "pinDigest"],
-      "automerge": true
-    },
-    {
-      "matchManagers": ["npm"],
-      "matchDepTypes": ["devDependencies"],
-      "matchUpdateTypes": ["patch"],
-      "automerge": true
     }
   ],
   "lockFileMaintenance": {
     "enabled": true,
     "automerge": true,
-    "schedule": ["before 9am on monday"]
+    "schedule": ["before 9am on monday"],
+    "minimumReleaseAge": null
   }
 }
