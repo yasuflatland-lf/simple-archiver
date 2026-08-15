@@ -107,6 +107,7 @@
   "lockFileMaintenance": {
     "enabled": true,
     "automerge": true,
-    "schedule": ["before 9am on monday"]
+    "schedule": ["before 9am on monday"],
+    "minimumReleaseAge": null
   }
 }
