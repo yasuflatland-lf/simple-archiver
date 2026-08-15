@@ -101,9 +101,13 @@ This project is designed around TDD. **Write tests before implementation.**
 | `loom` | ubuntu | loom-clippy + loom-nextest for `simple-archiver-core` (concurrency model verification) |
 | `hygiene` | ubuntu | cargo-machete (unused deps) + cargo-modules orphan check on the core crate |
 | `frontend` | ubuntu | `pnpm fmt:check`, `pnpm lint:ci`, `pnpm knip`, `pnpm run test:coverage`, Codecov upload (`frontend` flag), `pnpm build` |
+| `site` | ubuntu | `pnpm fmt:check`, `pnpm lint:ci`, `pnpm knip`, `pnpm test`, `pnpm build` for the independent `site/` pnpm project; no Codecov upload |
 | `app` | macos + windows (matrix) | Windows: one nextest invocation for `simple-archiver-core` + `simple-archiver`; macOS: clippy + nextest for `simple-archiver` only; `pnpm install --frozen-lockfile`, then `pnpm tauri build --no-bundle --debug`, whose `beforeBuildCommand: pnpm build` builds the frontend; Vitest runs once in the `frontend` job (jsdom-only, with no OS-dependent behaviour) |
+| `ci-ok` | ubuntu | Aggregates the results of every job above. The single required status check; fails unless every dependency reported `success` |
 
 The presentation-crate clippy + nextest steps in the `app` job were added in PR6; the Tauri toolchain (gtk/webkit headers on Linux) is unavailable on ubuntu, so those steps run only on the mac/windows runners.
+
+The `main` ruleset (`required_status_checks`) demands exactly one context: `ci-ok`. When you add a job, add it to `ci-ok`'s `needs` — the ruleset itself never needs editing. Codecov statuses stay informational and are never made required.
 
 ## Release (binaries)
 
@@ -119,6 +123,16 @@ and `frontend` (auth via the `CODECOV_TOKEN` repository secret). The
 mac/windows `app` job runs tests but does not upload coverage. The repository must be
 activated on codecov.io for reports to appear. Coverage config lives in
 `codecov.yml`; local lcov artifacts (`lcov.info`, `coverage/`) are git-ignored.
+
+## Dependency updates (Renovate)
+
+Dependency updates are driven by Renovate (the hosted Mend app). The configuration lives in `renovate.json`, which is the source of truth for everything below — read it before assuming any of this is still current.
+
+- **Never merge `main` into a Renovate branch by hand.** Renovate treats any branch whose last commit author is not itself as "edited" and stops every automated action on it — rebase and automerge included. Use the rebase checkbox at the top of the PR body instead. PR #266 sat stalled for three weeks this way (its tip commit is a hand-made `Merge branch 'main' into renovate/lock-file-maintenance-site-(npm)`) and ended up an empty PR with zero changed files.
+- **Automerge is opt-in per rule, not per lane.** Renovate merges a PR on its own only where a matching rule sets `"automerge": true`. That is three cases today: `github-actions` `digest` / `pin` / `pinDigest` updates, npm `devDependencies` `patch` updates, and `lockFileMaintenance` (the weekly lock-file refresh, which lands on `renovate/lock-file-maintenance-*` branches and is easy to overlook because it belongs to no group). Everything else is merged by hand, and the `fixed-libs major (review required)` rules (`tauri*`, `async_zip`, `unrar`, `mockall`, `loom`, `bitflags`) pin `"automerge": false` so they can never drift into the automatic path. Grep `renovate.json` for `automerge` rather than guessing from a branch or group name.
+- **A pending `renovate/stability-days` is the `minimumReleaseAge` timer, not a stuck PR.** `minimumReleaseAge` is `7 days` and `internalChecksFilter` is `strict`, so Renovate deliberately withholds an update until the release is a week old, and it will not automerge while that check is pending. Wait it out instead of merging by hand.
+- **`ci-ok` is the single status check branch protection is *meant* to require** (see CI jobs above). That is the intended configuration, not the live one: switching it on is a manual GitHub operation that has not been performed yet, so at the time of writing the `main` ruleset is `"enforcement": "disabled"` with no `required_status_checks` rule and `main` carries no branch protection — no check is actually required. Confirm the live state before relying on it: `gh api repos/yasuflatland-lf/simple-archiver/rulesets` and `gh api repos/yasuflatland-lf/simple-archiver/branches/main/protection` (a `404 Branch not protected` means nothing is enforced). Codecov statuses stay informational either way.
+- **To confirm Renovate is really automerging**, run `gh pr list --state merged --limit 50 --json number,title,mergedBy --jq '.[] | select(.mergedBy.login == "app/renovate") | "\(.number) \(.title)"'`. The `app/` prefix is load-bearing: `gh` renders bot actors as `app/renovate`, so the obvious predicate `.mergedBy.login == "renovate"` returns zero rows even when automerge is working perfectly. Zero rows from the corrected predicate means Renovate has not merged anything itself.
 
 ## Commit / PR rules
 
