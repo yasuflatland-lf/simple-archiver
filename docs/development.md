@@ -103,8 +103,11 @@ This project is designed around TDD. **Write tests before implementation.**
 | `frontend` | ubuntu | `pnpm fmt:check`, `pnpm lint:ci`, `pnpm knip`, `pnpm run test:coverage`, Codecov upload (`frontend` flag), `pnpm build` |
 | `site` | ubuntu | `pnpm fmt:check`, `pnpm lint:ci`, `pnpm knip`, `pnpm test`, `pnpm build` for the independent `site/` pnpm project; no Codecov upload |
 | `app` | macos + windows (matrix) | Windows: one nextest invocation for `simple-archiver-core` + `simple-archiver`; macOS: clippy + nextest for `simple-archiver` only; `pnpm install --frozen-lockfile`, then `pnpm tauri build --no-bundle --debug`, whose `beforeBuildCommand: pnpm build` builds the frontend; Vitest runs once in the `frontend` job (jsdom-only, with no OS-dependent behaviour) |
+| `ci-ok` | ubuntu | Aggregates the results of every job above. The single required status check; fails unless every dependency reported `success` |
 
 The presentation-crate clippy + nextest steps in the `app` job were added in PR6; the Tauri toolchain (gtk/webkit headers on Linux) is unavailable on ubuntu, so those steps run only on the mac/windows runners.
+
+The `main` ruleset (`required_status_checks`) demands exactly one context: `ci-ok`. When you add a job, add it to `ci-ok`'s `needs` — the ruleset itself never needs editing. Codecov statuses stay informational and are never made required.
 
 ## Release (binaries)
 
