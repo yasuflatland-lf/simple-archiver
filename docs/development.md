@@ -101,6 +101,7 @@ This project is designed around TDD. **Write tests before implementation.**
 | `loom` | ubuntu | loom-clippy + loom-nextest for `simple-archiver-core` (concurrency model verification) |
 | `hygiene` | ubuntu | cargo-machete (unused deps) + cargo-modules orphan check on the core crate |
 | `frontend` | ubuntu | `pnpm fmt:check`, `pnpm lint:ci`, `pnpm knip`, `pnpm run test:coverage`, Codecov upload (`frontend` flag), `pnpm build` |
+| `site` | ubuntu | `pnpm fmt:check`, `pnpm lint:ci`, `pnpm knip`, `pnpm test`, `pnpm build` for the independent `site/` pnpm project; no Codecov upload |
 | `app` | macos + windows (matrix) | Windows: one nextest invocation for `simple-archiver-core` + `simple-archiver`; macOS: clippy + nextest for `simple-archiver` only; `pnpm install --frozen-lockfile`, then `pnpm tauri build --no-bundle --debug`, whose `beforeBuildCommand: pnpm build` builds the frontend; Vitest runs once in the `frontend` job (jsdom-only, with no OS-dependent behaviour) |
 
 The presentation-crate clippy + nextest steps in the `app` job were added in PR6; the Tauri toolchain (gtk/webkit headers on Linux) is unavailable on ubuntu, so those steps run only on the mac/windows runners.

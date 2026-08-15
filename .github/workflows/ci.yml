@@ -1,9 +1,11 @@
 name: CI
 
 # Skipped only for changes that no job in this workflow verifies:
-# - `site/**` is already ignored by `knip.json` and is built and checked by deploy-pages.yml.
 # - `**/*.md` is safe because no CI gate reads or analyzes Markdown.
 # - `LICENSE` is safe because no CI gate reads it.
+# `site/**` was ignored here until the `site` job below existed: the comment claimed
+# deploy-pages.yml checked it, but that workflow only runs on `push: main`, so a site-only pull
+# request produced ZERO check runs and reached `main` unverified (PR #271: 2 files, 0 check-runs).
 # `pnpm knip` is the one repo-wide gate. Therefore `docs/**`, `.claude/**`, and
 # `.superpowers/**` are deliberately not ignored even though they contain no CI-relevant code
 # today: knip would gate a `.ts` or `.js` file added there. GitHub only skips when EVERY changed
@@ -12,7 +14,6 @@ on:
   push:
     branches: [main]
     paths-ignore: &ci-irrelevant-paths
-      - "site/**"
       - "**/*.md"
       - "LICENSE"
   pull_request:
@@ -158,6 +159,29 @@ jobs:
           files: coverage/lcov.info
           flags: frontend
           fail_ci_if_error: false
+      - run: pnpm build
+
+  site:
+    name: site (oxlint + oxfmt + vitest + build + knip)
+    runs-on: ubuntu-latest
+    # site/ is an independent pnpm project: its own pnpm-lock.yaml, pnpm-workspace.yaml,
+    # .oxlintrc.json, .oxfmtrc.json and knip.json. The root knip.json ignores `site/**`, so the
+    # `frontend` job above never sees these files.
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Pure JavaScript; without install_args mise installs the Rust toolchain for nothing
+      # (same reasoning as the `frontend` job).
+      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          install_args: node pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm fmt:check
+      - run: pnpm lint:ci
+      - run: pnpm knip
+      - run: pnpm test
       - run: pnpm build
 
   app:
