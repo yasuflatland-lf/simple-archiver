@@ -3,8 +3,8 @@
 # Without explicit components, rustup uses the minimal profile and `cargo fmt`/`clippy` are absent.
 # llvm-tools-preview is required by cargo-llvm-cov for source-based coverage.
 rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools-preview" }
-node = "24.18.0"
-pnpm = "11.17.0"
+node = "24.19.0"
+pnpm = "11.21.0"
 # `cargo.binstall = true` below is a no-op unless cargo-binstall is on PATH: mise's cargo backend
 # probes for the binary and silently falls back to a from-source `cargo install` when it is absent.
 # Declaring it here makes mise install it first (from a prebuilt aqua release, ~2 s) and then use it
