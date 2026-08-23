@@ -44,7 +44,7 @@ jobs:
       # `install_args` restricts `mise install` to exactly the tools named, and mise does NOT pull in a
       # declared-but-unnamed tool as a dependency: with cargo-binstall omitted the cargo backend finds no
       # binstall on PATH and silently falls back to `cargo install <tool> --locked`, a from-source build.
-      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
         with:
           install_args: rust cargo-binstall cargo:cargo-llvm-cov cargo:cargo-nextest
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # No coverage is collected here, so cargo-llvm-cov is not installed.
-      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
         with:
           # cargo-binstall must be named or the `cargo:` tools below fall back to a source build.
           install_args: rust cargo-binstall cargo:cargo-nextest
@@ -99,7 +99,7 @@ jobs:
       CARGO_MODULES_VERSION: "0.26.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
         with:
           # `rust` is required because cargo-machete is a cargo subcommand invoked as `cargo machete`.
           # cargo-binstall must be named or the `cargo:` tools below fall back to a source build.
@@ -133,7 +133,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # This job is pure JavaScript; without install_args it installs the Rust toolchain and
       # builds cargo-nextest + cargo-llvm-cov from source (4m21s on a cold cache) for nothing.
-      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
         with:
           install_args: node pnpm
       - run: pnpm install --frozen-lockfile
@@ -165,7 +165,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # Pure JavaScript; without install_args mise installs the Rust toolchain for nothing
       # (same reasoning as the `frontend` job).
-      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
         with:
           install_args: node pnpm
       - run: pnpm install --frozen-lockfile
@@ -185,7 +185,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # Runs nextest and the pnpm/tauri build; coverage is collected by the `core` job only.
-      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
         with:
           # cargo-binstall must be named or the `cargo:` tools below fall back to a source build.
           install_args: rust node pnpm cargo-binstall cargo:cargo-nextest
