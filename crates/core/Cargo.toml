@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 
 [dependencies]
-async_zip = { version = "0.0.18", features = ["tokio", "deflate"] }
+async_zip = { version = "0.0.19", features = ["tokio", "deflate"] }
 chardetng = "1.0"
 encoding_rs = "0.8"
 tokio = { version = "1", features = ["fs", "io-util", "rt", "sync"] }
