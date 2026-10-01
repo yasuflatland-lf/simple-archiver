@@ -57,7 +57,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy -p simple-archiver-core --all-targets -- -D warnings
       - run: cargo llvm-cov nextest -p simple-archiver-core --profile ci --lcov --output-path lcov.info --ignore-filename-regex 'build\.rs'
-      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
@@ -144,7 +144,7 @@ jobs:
       # Frontend dependency hygiene: unused files / deps / exports (config in knip.json).
       - run: pnpm knip
       - run: pnpm run test:coverage
-      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/lcov.info
