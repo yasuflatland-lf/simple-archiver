@@ -45,18 +45,19 @@ export function StartNumberForm({
   }, [startText]);
 
   // Sync the field when the store start changes from OUTSIDE this form (e.g.
-  // session restore). Depend only on `storedStart` so this reacts to external
-  // store changes, not to local keystrokes (which already drive the debounce
-  // push above). The functional updater compares the field's sanitized value to
-  // the stored one, so when our own debounce pushes the value back this is a
-  // no-op and starts no update cycle.
-  useEffect(() => {
-    setStartText((current) =>
-      sanitizeStartNumber(current) === storedStart
-        ? current
-        : String(storedStart),
-    );
-  }, [storedStart]);
+  // session restore). This adjusts state during render rather than in an effect:
+  // `syncedStart` remembers the store value the field last reconciled with, so
+  // the sync runs only when the store value itself changes, never on local
+  // keystrokes (which already drive the debounce push above). Comparing the
+  // field's sanitized value to the stored one makes our own debounce push-back
+  // a no-op: the field keeps its raw text and starts no update cycle.
+  const [syncedStart, setSyncedStart] = useState(storedStart);
+  if (storedStart !== syncedStart) {
+    setSyncedStart(storedStart);
+    if (sanitizeStartNumber(startText) !== storedStart) {
+      setStartText(String(storedStart));
+    }
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
