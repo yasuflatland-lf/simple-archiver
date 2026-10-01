@@ -50,6 +50,46 @@ describe("StartNumberForm", () => {
     expect(input.value).toBe("9");
   });
 
+  it("keeps the typed text when its own debounce push echoes back through the store", async () => {
+    vi.useFakeTimers();
+    try {
+      // Mimic the real action: the pushed start lands in the store draft, so the
+      // form observes its own value coming back as a store change.
+      const setStartNumber = vi.fn(async (start: number) => {
+        useJobStore.setState((s) => ({
+          draft: { ...s.draft, startNumber: start },
+        }));
+      });
+      useJobStore.setState({ setStartNumber });
+      render(<StartNumberForm />);
+      const input = screen.getByLabelText(/start/i) as HTMLInputElement;
+
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+      setStartNumber.mockClear();
+
+      act(() => {
+        fireEvent.change(input, { target: { value: "05" } });
+      });
+      // Advance inside act so the re-render triggered by the echo is flushed.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
+      });
+      expect(useJobStore.getState().draft.startNumber).toBe(5);
+      // The echo matches the field's sanitized value, so the raw text survives.
+      expect(input.value).toBe("05");
+
+      // No push-back loop: the echo must not rewrite the field (to "5") and
+      // re-arm the debounce, so nothing more is pushed.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+      });
+      expect(setStartNumber).toHaveBeenCalledTimes(1);
+      expect(setStartNumber).toHaveBeenCalledWith(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("calls setStartNumber with the parsed integer after the debounce delay", async () => {
     vi.useFakeTimers();
     try {
