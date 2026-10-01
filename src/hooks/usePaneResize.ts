@@ -1,5 +1,11 @@
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   clampRailWidth,
@@ -63,9 +69,14 @@ export function usePaneResize(): PaneResize {
   // Drag origin captured at pointerdown; null when no drag is in progress.
   const dragOrigin = useRef<{ pointerX: number; width: number } | null>(null);
   // Mirror the latest width so the end-of-gesture teardown can persist it
-  // without re-subscribing the pointer handlers on every drag frame.
+  // without re-subscribing the pointer handlers on every drag frame. The mirror
+  // is written in a layout effect (refs must not be touched during render),
+  // which runs in the same commit as the new width, before any pointer handler
+  // can fire.
   const railWidthRef = useRef(railWidth);
-  railWidthRef.current = railWidth;
+  useLayoutEffect(() => {
+    railWidthRef.current = railWidth;
+  }, [railWidth]);
   // The two-pane body; its width (minus the separator and the canvas minimum)
   // is the live ceiling the rail can grow to.
   const containerRef = useRef<HTMLDivElement>(null);

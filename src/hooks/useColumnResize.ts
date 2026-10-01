@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import type { ColumnContentMeasurer } from "@/components/column-measure";
 import { domColumnMeasurer } from "@/components/column-measure";
@@ -105,9 +105,13 @@ export function useColumnResize(
     width: number;
   } | null>(null);
   // Mirror the latest widths so a pointerdown can read the starting width
-  // without re-creating the handlers on every drag frame.
+  // without re-creating the handlers on every drag frame. The mirror is written
+  // in a layout effect (refs must not be touched during render), which runs in
+  // the same commit as the new widths, before any pointer handler can fire.
   const widthsRef = useRef(widths);
-  widthsRef.current = widths;
+  useLayoutEffect(() => {
+    widthsRef.current = widths;
+  }, [widths]);
 
   // Columns the user has manually resized. Auto-fit leaves these alone until a
   // double-click re-fits and un-pins them. A ref (not state) because it only

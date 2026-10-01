@@ -1455,12 +1455,16 @@ describe("TaskList reorder feedback", () => {
 // ---------------------------------------------------------------------------
 
 describe("TaskList focused row visibility", () => {
-  // jsdom keeps `scrollTop` pinned at 0 on real elements (no layout box), so the
-  // scroller is faked as a plain object with a writable scrollTop, matching
-  // edge-autoscroll.test.ts.
+  // jsdom keeps `scrollTop` pinned at 0 on real elements (no layout box) and has
+  // no `scrollBy`, so the scroller is faked as a plain object with a writable
+  // scrollTop, matching edge-autoscroll.test.ts. `scrollBy` applies its relative
+  // offset to `scrollTop`, as the DOM does.
   function fakeScroller(top: number, bottom: number): HTMLElement {
-    return {
+    const scroller = {
       scrollTop: 0,
+      scrollBy: ({ top: dy = 0 }: ScrollToOptions) => {
+        scroller.scrollTop += dy;
+      },
       getBoundingClientRect: () =>
         ({
           top,
@@ -1473,7 +1477,8 @@ describe("TaskList focused row visibility", () => {
           y: top,
           toJSON() {},
         }) as DOMRect,
-    } as unknown as HTMLElement;
+    };
+    return scroller as unknown as HTMLElement;
   }
 
   // Prescribe a uniform row grid on the rendered rows. React reuses these <tr>

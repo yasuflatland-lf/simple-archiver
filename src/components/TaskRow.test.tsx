@@ -118,9 +118,11 @@ describe("TaskRow", () => {
       name: "Remove archive.rar from queue",
     });
     expect(remove).toBeTruthy();
-    // lucide-react renders an inline <svg> with a class derived from the icon
-    // name; assert the Trash2 glyph specifically (not the reorder ▲▼ glyphs).
-    expect(remove.querySelector("svg.lucide-trash2")).toBeTruthy();
+    // lucide-react renders an inline <svg> with classes derived from the icon
+    // name and its aliases (Trash2 is an alias of `trash` since lucide-react
+    // 1.48, and keeps the kebab-case `lucide-trash-2` class); assert the Trash2
+    // glyph specifically (not the reorder ▲▼ glyphs).
+    expect(remove.querySelector("svg.lucide-trash-2")).toBeTruthy();
   });
 
   it("calls removeItem with the row index when the delete button is clicked", async () => {
