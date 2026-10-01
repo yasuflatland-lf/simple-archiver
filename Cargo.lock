@@ -3947,7 +3947,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "simple-archiver"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bitflags 2.13.2",
  "serde",
@@ -3967,7 +3967,7 @@ dependencies = [
 
 [[package]]
 name = "simple-archiver-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "async_zip",
  "chardetng",
