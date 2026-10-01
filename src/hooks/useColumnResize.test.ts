@@ -342,6 +342,29 @@ describe("useColumnResize", () => {
     expect(result.current.widths.output).toBe(140);
   });
 
+  it("starts a drag from the column's current fitted width, not its default", () => {
+    const measurer = fakeMeasurer({ source: 200 });
+    const { result } = renderHook(() =>
+      useColumnResize({ tableRef: refToTable(), measurer }),
+    );
+    act(() => {
+      result.current.fitAll();
+    });
+    expect(result.current.widths.source).toBe(200);
+    // The drag origin is the width on screen at pointerdown (the fitted 200).
+    act(() => {
+      result.current
+        .getSeparatorProps("source")
+        .onPointerDown(pointerEvent(100));
+    });
+    act(() => {
+      result.current
+        .getSeparatorProps("source")
+        .onPointerMove(pointerEvent(130));
+    });
+    expect(result.current.widths.source).toBe(230);
+  });
+
   it("fits a column to its measured content width on double-click", () => {
     const measurer = fakeMeasurer({ source: 200 });
     const { result } = renderHook(() =>

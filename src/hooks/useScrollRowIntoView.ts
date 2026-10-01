@@ -49,7 +49,10 @@ export function useScrollRowIntoView({
         // when row heights differ.
         rowBounds.height,
       );
-      if (delta !== 0) scroller.scrollTop += delta;
+      // A relative scroll through the element's own API rather than a write to
+      // `scrollTop` on an element this hook does not own; with no `behavior`
+      // given it follows the same (instant) path as the property write.
+      if (delta !== 0) scroller.scrollBy({ top: delta });
     },
     [tableRef, scrollContainerRef],
   );
