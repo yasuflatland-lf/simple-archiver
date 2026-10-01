@@ -455,8 +455,7 @@ mod tests {
             4,
             "only the two size fields (2 bytes each) may change, got {differing:?}"
         );
-        for pair in differing.chunks_exact(2) {
-            let (at, next) = (pair[0], pair[1]);
+        for &[at, next] in differing.as_chunks::<2>().0 {
             assert_eq!(next, at + 1, "a size field occupies two adjacent bytes");
             assert_eq!(
                 u16::from_le_bytes([original[at], original[at + 1]]),

@@ -56,6 +56,81 @@ describe("NamingRuleForm", () => {
     expect(input.value).toBe("external_{n}");
   });
 
+  it("leaves the field alone when the store template is cleared to null", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<NamingRuleForm />);
+      const input = screen.getByLabelText(/name/i) as HTMLInputElement;
+      const setNamingRule = vi.mocked(
+        useJobStore.getState().setNamingRule as ReturnType<typeof vi.fn>,
+      );
+
+      act(() => {
+        useJobStore.setState((s) => ({
+          draft: { ...s.draft, namingTemplate: "external_{n}" },
+        }));
+      });
+      expect(input.value).toBe("external_{n}");
+      // Let the synced value's own debounce push settle before the null case.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
+      });
+      setNamingRule.mockClear();
+
+      // A null store template carries no value to show, so the field keeps the
+      // last one: the template state is untouched, so nothing is re-pushed.
+      act(() => {
+        useJobStore.setState((s) => ({
+          draft: { ...s.draft, namingTemplate: null },
+        }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
+      });
+      expect(input.value).toBe("external_{n}");
+      expect(setNamingRule).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pushes once and keeps the field when its own debounce push echoes back", async () => {
+    vi.useFakeTimers();
+    try {
+      // Mimic the real action: the pushed template lands in the store draft, so
+      // the form observes its own value coming back as a store change.
+      const setNamingRule = vi.fn(async (template: string) => {
+        useJobStore.setState((s) => ({
+          draft: { ...s.draft, namingTemplate: template },
+        }));
+      });
+      useJobStore.setState({ setNamingRule });
+      render(<NamingRuleForm />);
+      const input = screen.getByLabelText(/name/i) as HTMLInputElement;
+
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+      setNamingRule.mockClear();
+
+      act(() => {
+        fireEvent.change(input, { target: { value: "typed_{n}" } });
+      });
+      // Advance inside act so the re-render triggered by the echo is flushed.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10);
+      });
+      expect(useJobStore.getState().draft.namingTemplate).toBe("typed_{n}");
+      expect(input.value).toBe("typed_{n}");
+
+      // No push-back loop: the echo must not re-arm the debounce.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+      });
+      expect(setNamingRule).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not render an inline preview line (preview moved to OutputSettings)", () => {
     render(<NamingRuleForm />);
 

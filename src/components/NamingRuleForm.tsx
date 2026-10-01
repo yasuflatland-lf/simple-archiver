@@ -47,22 +47,22 @@ export function NamingRuleForm({
   }, [template]);
 
   // Sync the field when the store template changes from OUTSIDE this form
-  // (e.g. session restore). Depend only on `storedTemplate` so this reacts to
-  // external store changes, not to local keystrokes (which already drive the
-  // debounce push above). The functional updater reads the current field value
-  // without closing over `template`, so the dep array stays exhaustive AND the
-  // equality guard breaks the debounce push-back loop: when our own debounce
-  // pushes `template` into the store, the resolved value equals `current`, so
-  // this is a no-op and starts no update cycle. A null/default store value is
-  // skipped, leaving the initial state untouched, so behavior is unchanged when
-  // nothing is stored.
-  useEffect(() => {
-    if (storedTemplate !== null) {
-      setTemplate((current) =>
-        storedTemplate === current ? current : storedTemplate,
-      );
+  // (e.g. session restore). This adjusts state during render rather than in an
+  // effect: `syncedTemplate` remembers the store value the field last reconciled
+  // with, so the sync runs only when the store value itself changes, never on
+  // local keystrokes (which already drive the debounce push above). The equality
+  // guard breaks the debounce push-back loop: when our own debounce pushes
+  // `template` into the store, the stored value equals the field, so this is a
+  // no-op and starts no update cycle. A null/default store value is skipped,
+  // leaving the field untouched, so behavior is unchanged when nothing is
+  // stored.
+  const [syncedTemplate, setSyncedTemplate] = useState(storedTemplate);
+  if (storedTemplate !== syncedTemplate) {
+    setSyncedTemplate(storedTemplate);
+    if (storedTemplate !== null && storedTemplate !== template) {
+      setTemplate(storedTemplate);
     }
-  }, [storedTemplate]);
+  }
 
   return (
     <div className="flex flex-col gap-1.5">

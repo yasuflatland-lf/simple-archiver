@@ -122,6 +122,27 @@ describe("usePaneResize", () => {
     );
   });
 
+  it("starts a second drag from the width the first drag left", () => {
+    const { result } = renderHook(() => usePaneResize());
+    act(() => {
+      result.current.separatorProps.onPointerDown(pointerEvent(100));
+    });
+    act(() => {
+      result.current.separatorProps.onPointerMove(pointerEvent(160));
+    });
+    act(() => {
+      result.current.separatorProps.onPointerUp(pointerEvent(160));
+    });
+    // The next gesture's origin is the settled width, not the initial one.
+    act(() => {
+      result.current.separatorProps.onPointerDown(pointerEvent(0));
+    });
+    act(() => {
+      result.current.separatorProps.onPointerMove(pointerEvent(20));
+    });
+    expect(result.current.railWidth).toBe(DEFAULT_RAIL_WIDTH + 80);
+  });
+
   it("does not persist the width mid-drag, only once it settles", () => {
     const { result } = renderHook(() => usePaneResize());
     // Nothing is written on mount — the default is never pinned.

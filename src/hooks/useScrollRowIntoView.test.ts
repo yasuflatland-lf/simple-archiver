@@ -19,13 +19,19 @@ function rect(top: number, height: number): DOMRect {
 }
 
 // A stand-in scroller: a plain object with a real, writable `scrollTop`. jsdom
-// treats `scrollTop` on a real element as permanently 0 (no layout box), so the
-// codebase fakes scrollers this way — see edge-autoscroll.test.ts.
+// treats `scrollTop` on a real element as permanently 0 (no layout box) and has
+// no `scrollBy`, so the codebase fakes scrollers this way — see
+// edge-autoscroll.test.ts. `scrollBy` applies its relative offset to
+// `scrollTop`, as the DOM does.
 function fakeScroller(top: number, bottom: number): HTMLElement {
-  return {
+  const scroller = {
     scrollTop: 0,
+    scrollBy: ({ top: dy = 0 }: ScrollToOptions) => {
+      scroller.scrollTop += dy;
+    },
     getBoundingClientRect: () => rect(top, bottom - top),
-  } as unknown as HTMLElement;
+  };
+  return scroller as unknown as HTMLElement;
 }
 
 // A real <table> so the hook's `tr[data-row-index]` lookup is genuinely
