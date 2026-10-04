@@ -10,7 +10,7 @@ pnpm = "12.7.0"
 # Declaring it here makes mise install it first (from a prebuilt aqua release, ~2 s) and then use it
 # to fetch the `cargo:` tools below as prebuilt binaries instead of compiling them.
 cargo-binstall = "1.23.0"
-"cargo:cargo-nextest" = "0.9.145"
+"cargo:cargo-nextest" = "0.9.146"
 "cargo:cargo-llvm-cov" = "0.9.1"
 # cargo-machete lives in mise.ci-hygiene.toml because only the `hygiene` CI job uses it
 # (MISE_ENV=ci-hygiene). cargo-modules is not managed by mise: the job installs it with
