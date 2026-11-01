@@ -47,7 +47,7 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           install_args: rust cargo-binstall cargo:cargo-llvm-cov cargo:cargo-nextest
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Belt and suspenders: mise.toml requests rustfmt/clippy/llvm-tools-preview
@@ -74,7 +74,7 @@ jobs:
         with:
           # cargo-binstall must be named or the `cargo:` tools below fall back to a source build.
           install_args: rust cargo-binstall cargo:cargo-nextest
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Belt and suspenders: ensure clippy is available even if a cached install lacks it.
@@ -189,7 +189,7 @@ jobs:
         with:
           # cargo-binstall must be named or the `cargo:` tools below fall back to a source build.
           install_args: rust node pnpm cargo-binstall cargo:cargo-nextest
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Belt and suspenders: mise.toml requests clippy components, but
